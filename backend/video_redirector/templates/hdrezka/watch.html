@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Watch Movie</title>
+    <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
+    <style>
+        body { background: #111; color: #fff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
+        .player-wrapper { max-width: 960px; margin: 20px auto; }
+        video { width: 100%; height: 600px; border: none; }
+        .dub-buttons { margin-top: 20px; }
+        .dub-buttons button {
+            background: #333;
+            color: white;
+            border: 1px solid #666;
+            padding: 8px 16px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 6px;
+        }
+        .dub-buttons button.active {
+            background-color: #007bff;
+            border-color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎬 Loading your movie...</h1>
+    <div class="dub-buttons" id="dub-selector"></div>
+    <div class="player-wrapper">
+        <video id="player" playsinline controls crossorigin="anonymous"></video>
+    </div>
+    <p><small>Note: Short ad plays first, then your movie starts automatically.</small></p>
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const taskId = window.location.pathname.split("/").pop();
+        const lang = urlParams.get("lang") || "ua";
+        const defaultDub = urlParams.get("dub") || null;
+
+        const playerElement = document.getElementById('player');
+        const dubSelector = document.getElementById('dub-selector');
+        const adSource = "/static/ad_dummy.mp4";
+        let adPlaying = true;
+        let lastTime = 0;
+        const player = new Plyr('#player');
+
+        function loadDub(dubName, config) {
+            const masterUrl = config.master_m3u8;
+            const subtitles = config.subtitles;
+
+            // Reset player
+            if (Hls.isSupported()) {
+                const hls = new Hls();
+                hls.loadSource(masterUrl);
+                hls.attachMedia(playerElement);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => playerElement.play());
+            } else if (playerElement.canPlayType('application/vnd.apple.mpegurl')) {
+                playerElement.src = masterUrl;
+                playerElement.addEventListener('loadedmetadata', () => playerElement.play());
+            } else {
+                alert('Your browser does not support HLS playback.');
+            }
+
+            // Subtitles
+            playerElement.innerHTML = ''; // Clear old tracks
+            subtitles.forEach(sub => {
+                const track = document.createElement('track');
+                track.kind = 'subtitles';
+                track.label = sub.lang;
+                track.srclang = sub.lang;
+                track.src = sub.url;
+                track.default = false;
+                playerElement.appendChild(track);
+            });
+
+            document.querySelectorAll(".dub-buttons button").forEach(btn => btn.classList.remove("active"));
+            const activeBtn = Array.from(document.querySelectorAll(".dub-buttons button")).find(btn => btn.textContent === dubName);
+            if (activeBtn) activeBtn.classList.add("active");
+        }
+
+        async function initPlayer() {
+            try {
+                const res = await fetch(`/hd/watch-config/${taskId}`);
+                const config = await res.json();
+                const langData = config[lang];
+
+                if (!langData) throw new Error("No dubs found for lang: " + lang);
+
+                for (const dubName in langData) {
+                    const btn = document.createElement("button");
+                    btn.textContent = dubName;
+                    btn.onclick = () => loadDub(dubName, langData[dubName]);
+                    dubSelector.appendChild(btn);
+                }
+
+                const initialDub = defaultDub && langData[defaultDub] ? defaultDub : Object.keys(langData)[0];
+                loadDub(initialDub, langData[initialDub]);
+                document.querySelector("h1").textContent = `🎬 Now Watching: ${initialDub}`;
+            } catch (e) {
+                document.querySelector("h1").textContent = `❌ Failed to load movie.`;
+                console.error(e);
+            }
+        }
+
+        playerElement.src = adSource;
+        playerElement.play();
+        playerElement.addEventListener('seeking', () => {
+            if (adPlaying && playerElement.currentTime > lastTime + 0.5) {
+                playerElement.currentTime = lastTime;
+            }
+        });
+        playerElement.addEventListener('timeupdate', () => {
+            if (adPlaying) lastTime = playerElement.currentTime;
+        });
+        playerElement.addEventListener('ended', () => {
+            if (adPlaying) {
+                adPlaying = false;
+                initPlayer();
+            }
+        });
+    </script>
+</body>
+</html>

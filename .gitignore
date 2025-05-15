@@ -1,0 +1,58 @@
+.plan_watch_download
+
+# ✅ Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+*.log
+bot.log
+
+# ✅ Virtual environments
+venv/
+.venv/
+
+# ✅ PyCharm
+.idea/
+
+# ✅ Environment variables / secrets
+*.env
+.env
+
+# ✅ Docker
+*.pid
+docker-compose.override.yml
+Dockerfile.*
+
+# ✅ Bytecode files
+*.pyc
+
+# ✅ OS-specific files
+.DS_Store
+Thumbs.db
+
+# ✅ Pipreqs cache
+pipreqs.log
+
+# ✅ Build / distribution
+build/
+dist/
+*.egg-info/
+
+# ✅ Test output / coverage
+htmlcov/
+.coverage
+coverage.xml
+.pytest_cache/
+.tox/
+.nox/
+.cache/
+
+# ✅ Temporary files
+*.bak
+*.swp
+*.tmp
+
+# ✅ VSCode (if you use it in future)
+.vscode/
