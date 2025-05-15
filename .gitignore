@@ -56,3 +56,5 @@ coverage.xml
 
 # ✅ VSCode (if you use it in future)
 .vscode/
+
+pgadmin_config_local.py
