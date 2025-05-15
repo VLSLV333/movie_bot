@@ -1,0 +1,115 @@
+[
+    {
+        "name": "HDRezka",
+        "domains": [
+            "hdrezka.ag",
+            "rezka.ag"
+        ],
+        "geo_priority": "EU",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "Himovies",
+        "domains": [
+            "himovies.sx"
+        ],
+        "geo_priority": "EU",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "MotPhim",
+        "domains": [
+            "motphim.ec"
+        ],
+        "geo_priority": "VN",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "PlutoTV",
+        "domains": [
+            "pluto.tv"
+        ],
+        "geo_priority": "US",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "Tubi",
+        "domains": [
+            "tubitv.com"
+        ],
+        "geo_priority": "US",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "Joyn",
+        "domains": [
+            "joyn.de"
+        ],
+        "geo_priority": "DE",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "Joyn",
+        "domains": [
+            "joyn.at"
+        ],
+        "geo_priority": "AT",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "Joyn",
+        "domains": [
+            "joyn.ch"
+        ],
+        "geo_priority": "CH",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "France.tv",
+        "domains": [
+            "france.tv"
+        ],
+        "geo_priority": "FR",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "RaiPlay",
+        "domains": [
+            "raiplay.it"
+        ],
+        "geo_priority": "IT",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "PuhuTV",
+        "domains": [
+            "puhutv.com"
+        ],
+        "geo_priority": "TR",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "RUTube",
+        "domains": [
+            "rutube.ru"
+        ],
+        "geo_priority": "RU",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "VK Video",
+        "domains": [
+            "vk.com"
+        ],
+        "geo_priority": "RU",
+        "type": "yt-dlp"
+    },
+    {
+        "name": "VTV Go",
+        "domains": [
+            "vtvgo.vn"
+        ],
+        "geo_priority": "VN",
+        "type": "yt-dlp"
+    }
+]

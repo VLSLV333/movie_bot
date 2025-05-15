@@ -1,0 +1,87 @@
+services:
+  # Redis
+  redis:
+    image: redis:alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL
+  db:
+    image: postgres:15
+    container_name: movie_mirrors_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: movie_mirrors_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # pgAdmin (optional)
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+  # Telegram bot
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: movie_bot
+    working_dir: /app/bot
+    command: ["python", "main.py"]
+    volumes:
+      - .:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TMDB_API_KEY=${TMDB_API_KEY}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - BOT_TOKEN=${BOT_TOKEN}
+      - PYTHONPATH=/app
+    restart: unless-stopped
+
+  # FastAPI backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: backend
+    working_dir: /app/backend
+    command: uvicorn backend.video_redirector.main:app --host 0.0.0.0 --port 8018 --reload
+    volumes:
+      - .:/app
+    ports:
+      - "8018:8018"
+    depends_on:
+      - db
+      - redis
+    environment:
+      - MOVIE_MIRRORS_DB_URL=${MOVIE_MIRRORS_DB_URL}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - PYTHONPATH=/app
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

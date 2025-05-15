@@ -1,0 +1,47 @@
+# ✅ Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ✅ Local environments
+.env
+.env.*
+venv/
+.venv/
+.env.local
+
+# ✅ IDE settings
+.idea/
+.vscode/
+
+# ✅ Logs
+*.log
+bot.log
+
+# ✅ OS-specific files
+.DS_Store
+Thumbs.db
+
+# ✅ Git
+.git
+.gitignore
+
+# ✅ Build output
+build/
+dist/
+*.egg-info/
+
+# ✅ Test output
+.pytest_cache/
+.tox/
+.coverage
+htmlcov/
+.cache/
+
+# ✅ Dockerfiles (optional if you have Docker multi-stage)
+Dockerfile.*
+docker-compose.override.yml
+
+node_modules/
+tests/

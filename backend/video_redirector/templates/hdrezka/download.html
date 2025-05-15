@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Download Movie {{ movie_id }}</title>
+</head>
+<body>
+    <h1>🎬 Ready to Download!</h1>
+    <p>Click the button below to start your download:</p>
+
+    <a href="{{ download_url }}" download>
+        <button style="padding: 10px 20px; font-size: 16px;">⬇️ Download Movie</button>
+    </a>
+
+    <p>💡 If it doesn’t start, <a href="{{ download_url }}">click here</a>.</p>
+    <p><small>You can add ads, countdown timers, or quality options here.</small></p>
+</body>
+</html>
