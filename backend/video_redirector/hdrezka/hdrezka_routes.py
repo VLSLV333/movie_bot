@@ -89,7 +89,7 @@ async def get_watch_config(task_id: str):
         if not raw_data:
             raise HTTPException(status_code=404, detail="Config missing despite status=done")
         try:
-            return json.loads(raw_data)
+            return JSONResponse(content=json.loads(raw_data))
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Corrupted config: {e}")
 
@@ -145,7 +145,7 @@ async def get_watch_config(task_id: str):
                     "subtitles": subtitles
                 }
 
-        return watch_config
+        return JSONResponse(content=watch_config)
 
 # --- New proxy-video route for main .m3u8 playlist ---
 @router.get("/proxy-video/{movie_id}")
