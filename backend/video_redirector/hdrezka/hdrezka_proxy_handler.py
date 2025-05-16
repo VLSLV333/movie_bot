@@ -81,8 +81,12 @@ async def fetch_and_rewrite_m3u8(url: str, movie_id: str) -> Response:
                         full_url = stripped
 
                     encoded = quote(full_url, safe='')
-                    proxy_type = "proxy-video" if is_master else "proxy-segment"
-                    proxy_url = f"/hd/{proxy_type}/{movie_id}/{encoded}"
+
+                    if is_master:
+                        proxy_url = f"/hd/proxy-video/{movie_id}/{encoded}"
+                    else:
+                        proxy_url = f"/hd/proxy-video/{movie_id}/{encoded}" if ".m3u8" in stripped else f"/hd/proxy-segment/{movie_id}/{encoded}"
+
                     rewritten_lines.append(proxy_url)
 
                 rewritten_m3u8 = "\n".join(rewritten_lines)
