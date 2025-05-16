@@ -33,14 +33,19 @@ async def extract_and_generate_master_m3u8(task_id: str, url: str, lang: str):
     try:
         config_response = await get_watch_config(task_id)
 
+        if not config_response:
+            raise Exception("❌ watch_config was empty or None")
+
         if isinstance(config_response, JSONResponse):
             config = config_response.body.decode()
         else:
             config = json.dumps(config_response)
 
+        print(f"[{task_id}] get_watch_config returned:", config_response)
         await redis.set(f"extract:{task_id}:watch_config", config, ex=3600)
         await redis.set(f"extract:{task_id}:status", "done", ex=3600)
     except Exception as e:
+        print(f"[extract:{task_id}] Error building watch_config: {e}")
         await redis.set(f"extract:{task_id}:status", "error", ex=3600)
         await redis.set(f"extract:{task_id}:error", f"watch_config error: {str(e)}", ex=3600)
 
@@ -83,7 +88,10 @@ async def get_watch_config(task_id: str):
         raw_data = await redis.get(f"extract:{task_id}:watch_config")
         if not raw_data:
             raise HTTPException(status_code=404, detail="Config missing despite status=done")
-        return json.loads(raw_data)
+        try:
+            return json.loads(raw_data)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Corrupted config: {e}")
 
     if status == "pending":
         raise HTTPException(status_code=400, detail="Extraction not completed yet")
