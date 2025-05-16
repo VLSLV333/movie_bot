@@ -69,8 +69,8 @@
             subtitles.forEach(sub => {
                 const track = document.createElement('track');
                 track.kind = 'subtitles';
-                track.label = sub.lang;
-                track.srclang = sub.lang;
+                track.label = sub.lang || 'Unknown';
+                track.srclang = sub.lang || 'xx';
                 track.src = sub.url;
                 track.default = false;
                 playerElement.appendChild(track);
@@ -121,6 +121,14 @@
                 initPlayer();
             }
         });
+    </script>
+    <script>
+        setTimeout(() => {
+            if (adPlaying) {
+                adPlaying = false;
+                initPlayer();
+            }
+        }, 10000); // max ad duration fallback
     </script>
 </body>
 </html>
