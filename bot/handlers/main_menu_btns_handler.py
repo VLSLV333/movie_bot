@@ -61,7 +61,7 @@ async def search_movie_handler(query: types.CallbackQuery):
     await query.answer()
 
 #TODO:ADD THIS TEMPORARY FOR TESTING BOT BTN FOR MOVIE EXTRACTION
-EXTRACT_API_URL = "http://redirector:8018/hd/extract"
+EXTRACT_API_URL = "https://moviebot.click/hd/extract"
 MOVIE_URL = "https://hdrezka.ag/films/fiction/58225-bednye-neschastnye-2023.html"
 USER_LANG = "ua"
 import asyncio
@@ -90,12 +90,15 @@ async def suggest_movie_handler(query: types.CallbackQuery):
     config = await poll_task_until_ready(
     user_id=query.from_user.id,
     task_id=task_id,
-    status_url="http://redirector:8018/hd/status",
+    status_url="https://moviebot.click/hd/status",
     loading_gif_msg=loading_gif_msg,
     query=query
     )
     if not config:
 #TODO: USER MUST NOT STUCK IN THIS SITUATION! SHOULD WE REPRAPER MOVIE? OR GO TO MAIN MENU OR TELL USER WE ARE NOT AVAILABLE NOW?
+        await query.message.edit_text(
+            "😕 Sorry, we couldn't extract the movie right now.\nTry again pls.",
+            reply_markup=get_main_menu_keyboard())
         return
 
     # 3. Pick first dub that is not "одноголосый"
@@ -108,7 +111,7 @@ async def suggest_movie_handler(query: types.CallbackQuery):
     if not selected_dub:
         selected_dub = list(config[lang].keys())[0]
 
-    watch_url = f"https://redirector:8018/hd/watch/{task_id}?lang={lang}&dub={quote(selected_dub)}"
+    watch_url = f"https://moviebot.click/hd/watch/{task_id}?lang={lang}&dub={quote(selected_dub)}"
     kb = [[types.InlineKeyboardButton(text="▶️ Watch", url=watch_url)]]
     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
 
