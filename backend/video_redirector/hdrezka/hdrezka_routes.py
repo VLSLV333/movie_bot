@@ -1,6 +1,6 @@
 import json
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
-from fastapi.responses import HTMLResponse,JSONResponse
+from fastapi.responses import HTMLResponse,JSONResponse,PlainTextResponse
 from pydantic import BaseModel
 from uuid import uuid4
 from urllib.parse import quote
@@ -155,6 +155,8 @@ async def proxy_video_route(movie_id: str, request: Request):
 # --- New proxy-video route for individual segments ---
 @router.get("/proxy-video/{movie_id}/{segment_path:path}")
 async def proxy_segment_route(movie_id: str, segment_path: str, request: Request):
+    if f"/proxy-video/{movie_id}/" not in request.url.path:
+        return PlainTextResponse("Missing encoded M3U8 path", status_code=400)
     return await proxy_segment(movie_id, segment_path, request)
 
 
