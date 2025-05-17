@@ -162,17 +162,13 @@ async def serve_master_m3u8(task_id: str):
 
     return PlainTextResponse("No master M3U8 found", status_code=500)
 
-# --- New proxy-video route for main .m3u8 playlist ---
-@router.get("/proxy-video/{movie_id}")
-async def proxy_video_route(movie_id: str, request: Request):
-    return await proxy_video(movie_id, request)
-
 # --- New proxy-video route for individual segments ---
-@router.get("/proxy-video/{movie_id}/{segment_path:path}")
-async def proxy_segment_route(movie_id: str, segment_path: str, request: Request):
-    if f"/proxy-video/{movie_id}/" not in request.url.path:
-        return PlainTextResponse("Missing encoded M3U8 path", status_code=400)
-    return await proxy_segment(movie_id, segment_path, request)
+@router.get("/proxy-video/{movie_id}/{encoded_path:path}")
+async def proxy_video_router(movie_id: str, encoded_path: str, request: Request):
+    if encoded_path.endswith(".ts"):
+        return await proxy_segment(movie_id, encoded_path, request)
+    else:
+        return await proxy_video(movie_id, request)
 
 
 #TODO: DO we really need movie_id? We probably should change it to smth else

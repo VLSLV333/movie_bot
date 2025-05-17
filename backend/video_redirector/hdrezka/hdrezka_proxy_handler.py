@@ -41,7 +41,7 @@ async def proxy_segment(movie_id: str, segment_encoded: str, request: Request) -
     real_url = urljoin(base_url, unquote(segment_encoded))
     session_timeout = aiohttp.ClientTimeout(total=15)
 
-    print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!        [Proxy Segment] Reconstructed: {real_url}")
+    print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!        [Proxy Segment] Using base_url={base_url}")
 
     try:
         async with aiohttp.ClientSession(timeout=session_timeout) as session:
@@ -112,6 +112,12 @@ async def fetch_and_rewrite_m3u8(url: str, movie_id: str) -> Response:
                 rewritten_m3u8 = "\n".join(rewritten_lines)
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!        Rewritten M3U8 content:")
                 print(rewritten_m3u8)
+
+                if ".hls:" in url:
+                    base_url = url.rsplit('/', 1)[0] + '/'
+                    await redis.set(f"extract:{movie_id}:segment_base", base_url, ex=3600)
+                    print(f"[proxy_video] Saved segment_base for {movie_id}: {base_url}")
+
                 return PlainTextResponse(content=rewritten_m3u8, media_type="application/vnd.apple.mpegurl")
 
     except Exception as e:
