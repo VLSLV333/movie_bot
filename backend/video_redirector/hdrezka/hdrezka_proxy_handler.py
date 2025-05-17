@@ -3,9 +3,6 @@ from fastapi import Request, Response
 from starlette.responses import StreamingResponse, PlainTextResponse
 from urllib.parse import unquote, quote, urljoin
 
-# Placeholder default (will be replaced by actual incoming request URLs)
-REAL_M3U8_URL = "https://example.com/fallback/manifest.m3u8"
-
 FORWARD_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:135.0) Gecko/20100101 Firefox/135.0",
     "Accept": "*/*",
@@ -18,7 +15,6 @@ FORWARD_HEADERS = {
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Site": "cross-site"
 }
-
 
 async def proxy_video(movie_id: str, request: Request) -> Response:
     """
@@ -63,26 +59,34 @@ async def fetch_and_rewrite_m3u8(url: str, movie_id: str) -> Response:
                     return PlainTextResponse(f"Error fetching m3u8: {remote_response.status}", status_code=remote_response.status)
 
                 m3u8_text = await remote_response.text()
+                print(f'm3u8_text:{m3u8_text}')
                 lines = m3u8_text.splitlines()
                 rewritten_lines = []
 
-                is_master = any("#EXT-X-STREAM-INF" in line for line in lines)
-                print(f"🎬 Serving {'master' if is_master else 'variant'} playlist for: {url}")
+                # is_master = any("#EXT-X-STREAM-INF" in line for line in lines)
+                # print(f"🎬 Serving {'master' if is_master else 'variant'} playlist for: {url}")
 
                 for line in lines:
+                    print(f'line:{line}')
                     stripped = line.strip()
-                    if not stripped or stripped.startswith("#"):
-                        rewritten_lines.append(line)
+
+                    # Leave comments and tags as-is
+                    if stripped.startswith("#") or not stripped:
+                        rewritten_lines.append(stripped)
                         continue
 
+                    # Build full URL from relative path
                     if not stripped.startswith("http"):
                         full_url = urljoin(base_url, stripped)
                     else:
                         full_url = stripped
 
-                    encoded = quote(full_url, safe='')
+                    # Optionally normalize colons
+                    safe_url = full_url.replace(":", "%3A")
+                    encoded = quote(safe_url, safe='')
 
-                    if stripped.endswith(".m3u8"):
+                    # Route based on type
+                    if ".m3u8" in stripped:
                         proxy_url = f"/hd/proxy-video/{movie_id}/{encoded}"
                     else:
                         proxy_url = f"/hd/proxy-segment/{movie_id}/{encoded}"
@@ -90,6 +94,7 @@ async def fetch_and_rewrite_m3u8(url: str, movie_id: str) -> Response:
                     rewritten_lines.append(proxy_url)
 
                 rewritten_m3u8 = "\n".join(rewritten_lines)
+                print(f'rewritten_m3u8: {rewritten_m3u8}')
                 return PlainTextResponse(content=rewritten_m3u8, media_type="application/vnd.apple.mpegurl")
 
     except Exception as e:
