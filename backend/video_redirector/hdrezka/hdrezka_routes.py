@@ -147,6 +147,21 @@ async def get_watch_config(task_id: str):
 
         return JSONResponse(content=watch_config)
 
+@router.get("/proxy-master/{task_id}")
+async def serve_master_m3u8(task_id: str):
+    redis = RedisClient.get_client()
+    raw_data = await redis.get(f"extract:{task_id}:watch_config")
+    if not raw_data:
+        return PlainTextResponse("Master M3U8 not found", status_code=404)
+    config = json.loads(raw_data)
+
+    # pick the default lang & dub
+    for lang in config.values():
+        for dub in lang.values():
+            return PlainTextResponse(content=dub["master_m3u8"], media_type="application/vnd.apple.mpegurl")
+
+    return PlainTextResponse("No master M3U8 found", status_code=500)
+
 # --- New proxy-video route for main .m3u8 playlist ---
 @router.get("/proxy-video/{movie_id}")
 async def proxy_video_route(movie_id: str, request: Request):
