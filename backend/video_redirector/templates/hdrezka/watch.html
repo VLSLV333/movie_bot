@@ -48,12 +48,15 @@
         const player = new Plyr('#player');
 
         function loadDub(dubName, config) {
-            const masterUrl = config.master_m3u8;
+            // const masterUrl = config.master_m3u8;
             const subtitles = config.subtitles;
 
             // Reset player
             if (Hls.isSupported()) {
                 const hls = new Hls();
+
+                const masterUrl = `/hd/proxy-master/${taskId}`;
+
                 hls.loadSource(masterUrl);
                 hls.attachMedia(playerElement);
                 hls.on(Hls.Events.MANIFEST_PARSED, () => playerElement.play());
@@ -99,8 +102,8 @@
                 }
 
                 const initialDub = defaultDub && langData[defaultDub] ? defaultDub : Object.keys(langData)[0];
+                console.log("master.m3u8 for first dub:", langData[initialDub].master_m3u8);
                 loadDub(initialDub, langData[initialDub]);
-                console.log(`initialDub: ${initialDub}` )
                 document.querySelector("h1").textContent = `🎬 Now Watching: ${initialDub}`;
             } catch (e) {
                 document.querySelector("h1").textContent = `❌ Failed to load movie.`;

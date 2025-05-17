@@ -32,6 +32,8 @@ async def proxy_segment(movie_id: str, segment_encoded: str, request: Request) -
     real_url = unquote(segment_encoded)
     session_timeout = aiohttp.ClientTimeout(total=15)
 
+    print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!        Serving segment: {real_url}")
+
     try:
         async with aiohttp.ClientSession(timeout=session_timeout) as session:
             async with session.get(real_url, headers=FORWARD_HEADERS) as resp:
@@ -59,7 +61,9 @@ async def fetch_and_rewrite_m3u8(url: str, movie_id: str) -> Response:
                     return PlainTextResponse(f"Error fetching m3u8: {remote_response.status}", status_code=remote_response.status)
 
                 m3u8_text = await remote_response.text()
-                print(f'm3u8_text:{m3u8_text}')
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!         Original M3U8 content:")
+                print(m3u8_text)
+
                 lines = m3u8_text.splitlines()
                 rewritten_lines = []
 
@@ -94,7 +98,8 @@ async def fetch_and_rewrite_m3u8(url: str, movie_id: str) -> Response:
                     rewritten_lines.append(proxy_url)
 
                 rewritten_m3u8 = "\n".join(rewritten_lines)
-                print(f'rewritten_m3u8: {rewritten_m3u8}')
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!        Rewritten M3U8 content:")
+                print(rewritten_m3u8)
                 return PlainTextResponse(content=rewritten_m3u8, media_type="application/vnd.apple.mpegurl")
 
     except Exception as e:
