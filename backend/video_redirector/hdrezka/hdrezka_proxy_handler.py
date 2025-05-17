@@ -2,6 +2,7 @@ import aiohttp
 from fastapi import Request, Response
 from starlette.responses import StreamingResponse, PlainTextResponse
 from urllib.parse import unquote, quote, urljoin
+from backend.video_redirector.utils.redis_client import RedisClient
 
 FORWARD_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:135.0) Gecko/20100101 Firefox/135.0",
@@ -29,10 +30,18 @@ async def proxy_segment(movie_id: str, segment_encoded: str, request: Request) -
     """
     Handles .ts segment requests by downloading and forwarding the content.
     """
-    real_url = unquote(segment_encoded)
+
+    redis = RedisClient.get_client()
+    base_url = await redis.get(f"extract:{movie_id}:segment_base")
+    if not base_url:
+        print(f"[Segment Error] Base URL not found for movie_id={movie_id}")
+        return PlainTextResponse("Base URL missing", status_code=500)
+
+
+    real_url = urljoin(base_url, unquote(segment_encoded))
     session_timeout = aiohttp.ClientTimeout(total=15)
 
-    print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!        Serving segment: {real_url}")
+    print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!        [Proxy Segment] Reconstructed: {real_url}")
 
     try:
         async with aiohttp.ClientSession(timeout=session_timeout) as session:
@@ -53,6 +62,9 @@ async def proxy_segment(movie_id: str, segment_encoded: str, request: Request) -
 async def fetch_and_rewrite_m3u8(url: str, movie_id: str) -> Response:
     session_timeout = aiohttp.ClientTimeout(total=30)
     base_url = url.rsplit('/', 1)[0] + '/'
+
+    redis = RedisClient.get_client()
+    await redis.set(f"extract:{movie_id}:segment_base", base_url, ex=3600)
 
     try:
         async with aiohttp.ClientSession(timeout=session_timeout) as session:
