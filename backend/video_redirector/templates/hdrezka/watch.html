@@ -85,7 +85,9 @@
             try {
                 const res = await fetch(`/hd/watch-config/${taskId}`);
                 const config = await res.json();
+                console.log(`config: ${config}` )
                 const langData = config[lang];
+                console.log(`langData: ${langData}` )
 
                 if (!langData) throw new Error("No dubs found for lang: " + lang);
 
@@ -98,6 +100,7 @@
 
                 const initialDub = defaultDub && langData[defaultDub] ? defaultDub : Object.keys(langData)[0];
                 loadDub(initialDub, langData[initialDub]);
+                console.log(`initialDub: ${initialDub}` )
                 document.querySelector("h1").textContent = `🎬 Now Watching: ${initialDub}`;
             } catch (e) {
                 document.querySelector("h1").textContent = `❌ Failed to load movie.`;
