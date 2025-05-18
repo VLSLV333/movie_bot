@@ -106,9 +106,7 @@ async def fetch_and_rewrite_m3u8(url: str, movie_id: str) -> Response:
                     else:
                         full_url = stripped
 
-                    # Optionally normalize colons
-                    safe_url = full_url.replace(":", "%3A")
-                    encoded = quote(safe_url, safe='')
+                    encoded = quote(full_url, safe='')
 
                     # Route based on type
                     if ".m3u8" in stripped:
