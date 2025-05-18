@@ -21,8 +21,11 @@ async def proxy_video(movie_id: str, request: Request) -> Response:
     """
     Handles /hd/proxy-video/{movie_id}/{encoded_real_m3u8_url}
     """
-    encoded_url = request.url.path.rsplit("/", 1)[-1]
+    full_path = request.url.path
+    encoded_url = full_path.split(f"/hd/proxy-video/{movie_id}/", 1)[-1]
     real_url = unquote(encoded_url)
+
+    print(f"[proxy_video] Decoded URL: {real_url}")
     return await fetch_and_rewrite_m3u8(real_url, movie_id)
 
 
@@ -73,14 +76,20 @@ async def fetch_and_rewrite_m3u8(url: str, movie_id: str) -> Response:
                     return PlainTextResponse(f"Error fetching m3u8: {remote_response.status}", status_code=remote_response.status)
 
                 m3u8_text = await remote_response.text()
+
+                if not "#EXTM3U" in m3u8_text:
+                    print(f"[proxy_video] Not a valid .m3u8 playlist: {url}")
+                    return PlainTextResponse("Not a valid .m3u8 playlist", status_code=500)
+
+                if not url.endswith(".m3u8"):
+                    print("[proxy_video] URL doesn't end with .m3u8 — skipping rewrite.")
+                    return PlainTextResponse("Not a playlist URL", status_code=400)
+
                 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!         Original M3U8 content:")
                 print(m3u8_text)
 
                 lines = m3u8_text.splitlines()
                 rewritten_lines = []
-
-                # is_master = any("#EXT-X-STREAM-INF" in line for line in lines)
-                # print(f"🎬 Serving {'master' if is_master else 'variant'} playlist for: {url}")
 
                 for line in lines:
                     print(f'line:{line}')
