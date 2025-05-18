@@ -45,6 +45,7 @@ async def proxy_segment(movie_id: str, segment_encoded: str, request: Request) -
     session_timeout = aiohttp.ClientTimeout(total=15)
 
     print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!        [Proxy Segment] Using base_url={base_url}")
+    print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!        [proxy_segment] Final real URL: {real_url}")
 
     try:
         async with aiohttp.ClientSession(timeout=session_timeout) as session:
