@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Request, BackgroundTasks, HTTPException, Response
 from fastapi.responses import HTMLResponse,JSONResponse,PlainTextResponse
 from pydantic import BaseModel
 from uuid import uuid4
@@ -169,6 +169,10 @@ async def proxy_video_router(movie_id: str, encoded_path: str, request: Request)
         return await proxy_segment(movie_id, encoded_path, request)
     else:
         return await proxy_video(movie_id, request)
+
+@router.get("/proxy-segment/{movie_id}/{encoded_path:path}")
+async def proxy_segment_router(movie_id: str, encoded_path: str, request: Request) -> Response :
+    return await proxy_segment(movie_id, encoded_path, request)
 
 
 #TODO: DO we really need movie_id? We probably should change it to smth else
