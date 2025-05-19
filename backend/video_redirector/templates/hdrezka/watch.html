@@ -64,23 +64,30 @@
             console.log("HLS Levels:", hls.levels);
             console.log("Available Qualities:", availableQualities.map(q => q.label));
 
-            const qualityOptions = availableQualities.map(q => q.label);
+            const qualityLabels = availableQualities.map(q => q.label);
 
-            player.settings = ['quality'];
-            player.config.quality = {
-                default: 'Auto',
-                options: qualityOptions,
-                forced: true,
-                onChange: (newLabel) => {
-                    const level = newLabel === 'Auto' ? -1 : hlsInstance.levels.findIndex(l => l.height + 'p' === newLabel);
-                    hlsInstance.currentLevel = level;
-                    console.log(`🎚 Switched to quality: ${newLabel} (level ${level})`);
+            // ✅ Update Plyr's settings menu properly
+            player.setConfig({
+                settings: ['quality'],
+                quality: {
+                    default: 'Auto',
+                    options: qualityLabels,
+                    forced: true,
+                    onChange: (newLabel) => {
+                        const level = newLabel === 'Auto' ? -1 : hlsInstance.levels.findIndex(l => l.height + 'p' === newLabel);
+                        hlsInstance.currentLevel = level;
+                        console.log(`🎚 Switched to quality: ${newLabel} (level ${level})`);
+                    }
                 }
-            };
+            });
 
-             // Force menu to update
-            player.elements.settings?.buttons?.quality?.remove?.(); // remove old button if it exists
-            player.setupSettingsMenu(); // force re-render of the settings menu
+            console.log("🛠️ Player config after update:", player.config);
+            console.log("🧪 Available settings buttons:", player.elements.settings?.buttons);
+
+             // ⏳ Wait a bit and show settings again
+            setTimeout(() => {
+                player.toggleControls(true);
+            }, 100);
         }
 
         function loadDub(dubName, config) {
