@@ -139,28 +139,26 @@ async def get_watch_config(task_id: str):
                     lines.append(f"#EXT-X-STREAM-INF:BANDWIDTH={bandwidth},RESOLUTION={resolution}")
                     lines.append(f"/hd/proxy-video/{task_id}/{encoded}")
 
-                m3u8_content = "\n".join(lines)
+                master_m3u8 = "\n".join(lines)
+
+                await redis.set(f"master_m3u8:{task_id}:{lang}:{dub_name}", master_m3u8, ex=28800)
+
                 watch_config[lang][dub_name] = {
-                    "master_m3u8": m3u8_content,
+                    "m3u8": f"/hd/proxy-master/{task_id}?lang={lang}&dub={quote(dub_name)}",
                     "subtitles": subtitles
                 }
 
         return JSONResponse(content=watch_config)
 
 @router.get("/proxy-master/{task_id}")
-async def serve_master_m3u8(task_id: str):
+async def serve_master_m3u8(task_id: str, lang: str, dub: str):
     redis = RedisClient.get_client()
-    raw_data = await redis.get(f"extract:{task_id}:watch_config")
-    if not raw_data:
+    key = f"master_m3u8:{task_id}:{lang}:{dub}"
+    master_m3u8 = await redis.get(key)
+    if not master_m3u8:
         return PlainTextResponse("Master M3U8 not found", status_code=404)
-    config = json.loads(raw_data)
 
-    # pick the default lang & dub
-    for lang in config.values():
-        for dub in lang.values():
-            return PlainTextResponse(content=dub["master_m3u8"], media_type="application/vnd.apple.mpegurl")
-
-    return PlainTextResponse("No master M3U8 found", status_code=500)
+    return PlainTextResponse(content=master_m3u8, media_type="application/vnd.apple.mpegurl")
 
 # --- New proxy-video route for individual segments ---
 @router.get("/proxy-video/{movie_id}/{encoded_path:path}")
