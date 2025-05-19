@@ -45,9 +45,32 @@
         const adSource = "/static/ad_dummy.mp4";
         let adPlaying = true;
         let lastTime = 0;
-        const player = new Plyr('#player');
+
+        const player = new Plyr('#player', {
+            controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
+            settings: ['quality']
+        });
 
         let hls = null;
+
+        function setupQualitySelector(hlsInstance) {
+            const availableQualities = hlsInstance.levels.map((l, i) => ({
+                label: l.height + 'p',
+                value: i
+            })).reverse();
+
+            availableQualities.unshift({ label: 'Auto', value: -1 });
+
+            player.options.quality = {
+                default: 'Auto',
+                options: availableQualities.map(q => q.label),
+                forced: true,
+                onChange: (newLabel) => {
+                    const level = newLabel === 'Auto' ? -1 : hlsInstance.levels.findIndex(l => l.height + 'p' === newLabel);
+                    hlsInstance.currentLevel = level;
+                }
+            };
+        }
 
         function loadDub(dubName, config) {
             const masterUrl = config.m3u8;
@@ -62,13 +85,14 @@
 
             // Reset player
             if (Hls.isSupported()) {
-                // const masterUrl = `/hd/proxy-master/${taskId}`;
-
+                playerElement.innerHTML = '';
                 hls = new Hls();
-
                 hls.loadSource(masterUrl);
                 hls.attachMedia(playerElement);
-                hls.on(Hls.Events.MANIFEST_PARSED, () => playerElement.play());
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    setupQualitySelector(hls);
+                    playerElement.play();
+                });
             } else if (playerElement.canPlayType('application/vnd.apple.mpegurl')) {
                 playerElement.src = masterUrl;
                 playerElement.addEventListener('loadedmetadata', () => playerElement.play());
@@ -76,8 +100,7 @@
                 alert('Your browser does not support HLS playback.');
             }
 
-            // Subtitles
-            playerElement.innerHTML = ''; // Clear old tracks
+            playerElement.innerHTML = ''; // Clear old subtitles
             subtitles.forEach(sub => {
                 const track = document.createElement('track');
                 track.kind = 'subtitles';
@@ -97,9 +120,7 @@
             try {
                 const res = await fetch(`/hd/watch-config/${taskId}`);
                 const config = await res.json();
-                console.log(`config: ${config}` )
                 const langData = config[lang];
-                console.log(`langData: ${langData}` )
 
                 if (!langData) throw new Error("No dubs found for lang: " + lang);
 
@@ -111,7 +132,6 @@
                 }
 
                 const initialDub = defaultDub && langData[defaultDub] ? defaultDub : Object.keys(langData)[0];
-                console.log("master.m3u8 for first dub:", langData[initialDub].master_m3u8);
                 loadDub(initialDub, langData[initialDub]);
                 document.querySelector("h1").textContent = `🎬 Now Watching: ${initialDub}`;
             } catch (e) {
@@ -136,8 +156,7 @@
                 initPlayer();
             }
         });
-    </script>
-    <script>
+
         setTimeout(() => {
             if (adPlaying) {
                 adPlaying = false;
