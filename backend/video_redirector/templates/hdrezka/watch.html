@@ -64,23 +64,23 @@
             console.log("HLS Levels:", hls.levels);
             console.log("Available Qualities:", availableQualities.map(q => q.label));
 
-            const qualityLabels = availableQualities.map(q => q.label);
-            player.destroy(); // Clean up old instance
+            const qualityOptions = availableQualities.map(q => q.label);
 
-            player = new Plyr('#player', {
-                controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
-                settings: ['quality'],
-                quality: {
-                    default: 'Auto',
-                    options: qualityLabels,
-                    forced: true,
-                    onChange: (newLabel) => {
-                        const level = newLabel === 'Auto' ? -1 : hlsInstance.levels.findIndex(l => l.height + 'p' === newLabel);
-                        hlsInstance.currentLevel = level;
-                        console.log(`🎚 Switched to quality: ${newLabel} (level ${level})`);
-                    }
+            player.settings = ['quality'];
+            player.config.quality = {
+                default: 'Auto',
+                options: qualityOptions,
+                forced: true,
+                onChange: (newLabel) => {
+                    const level = newLabel === 'Auto' ? -1 : hlsInstance.levels.findIndex(l => l.height + 'p' === newLabel);
+                    hlsInstance.currentLevel = level;
+                    console.log(`🎚 Switched to quality: ${newLabel} (level ${level})`);
                 }
-            });
+            };
+
+             // Force menu to update
+            player.elements.settings?.buttons?.quality?.remove?.(); // remove old button if it exists
+            player.setupSettingsMenu(); // force re-render of the settings menu
         }
 
         function loadDub(dubName, config) {
@@ -103,6 +103,9 @@
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
                     console.log("⚙️ Calling setupQualitySelector with levels:", hls.levels);
                     console.log("✅ HLS.js attached, attempting quality selector setup...");
+                    if (!hls.levels.length) {
+                        alert("⚠️ No video qualities detected. Stream may fail.");
+                    }
                     setupQualitySelector(hls);
                     playerElement.play();
                 });
