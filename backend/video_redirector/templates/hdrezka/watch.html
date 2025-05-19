@@ -47,15 +47,24 @@
         let lastTime = 0;
         const player = new Plyr('#player');
 
+        let hls = null;
+
         function loadDub(dubName, config) {
-            // const masterUrl = config.master_m3u8;
+            const masterUrl = config.master_m3u8;
             const subtitles = config.subtitles;
+
+            if (hls) {
+                hls.destroy();
+                hls = null;
+            }
+            playerElement.removeAttribute('src');
+            playerElement.load();
 
             // Reset player
             if (Hls.isSupported()) {
-                const hls = new Hls();
+                // const masterUrl = `/hd/proxy-master/${taskId}`;
 
-                const masterUrl = `/hd/proxy-master/${taskId}`;
+                hls = new Hls();
 
                 hls.loadSource(masterUrl);
                 hls.attachMedia(playerElement);
