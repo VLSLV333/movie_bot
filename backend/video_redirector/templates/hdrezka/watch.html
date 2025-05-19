@@ -54,40 +54,41 @@
         let hls = null;
 
         function setupQualitySelector(hlsInstance) {
-            const availableQualities = hlsInstance.levels.map((l, i) => ({
+            const availableQualities = hlsInstance.levels.map((l) => ({
                 label: l.height + 'p',
-                value: i
+                value: l.height
             })).reverse();
 
-            availableQualities.unshift({ label: 'Auto', value: -1 });
+            availableQualities.unshift({ label: 'Auto', value: 'auto' });
 
-            console.log("HLS Levels:", hls.levels);
+            console.log("HLS Levels:", hlsInstance.levels);
             console.log("Available Qualities:", availableQualities.map(q => q.label));
 
             const qualityLabels = availableQualities.map(q => q.label);
 
-            // ✅ Update Plyr's settings menu properly
-            player.setConfig({
+            // Destroy previous Plyr instance and recreate it
+            if (player) {
+                player.destroy();
+            }
+
+            player = new Plyr('#player', {
+                controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
                 settings: ['quality'],
                 quality: {
                     default: 'Auto',
                     options: qualityLabels,
                     forced: true,
                     onChange: (newLabel) => {
-                        const level = newLabel === 'Auto' ? -1 : hlsInstance.levels.findIndex(l => l.height + 'p' === newLabel);
+                        const level = newLabel === 'Auto'
+                            ? -1
+                            : hlsInstance.levels.findIndex(l => l.height + 'p' === newLabel);
                         hlsInstance.currentLevel = level;
                         console.log(`🎚 Switched to quality: ${newLabel} (level ${level})`);
                     }
                 }
             });
 
-            console.log("🛠️ Player config after update:", player.config);
-            console.log("🧪 Available settings buttons:", player.elements.settings?.buttons);
-
-             // ⏳ Wait a bit and show settings again
-            setTimeout(() => {
-                player.toggleControls(true);
-            }, 100);
+            console.log("🛠️ Player recreated with quality options:", qualityLabels);
         }
 
         function loadDub(dubName, config) {
