@@ -59,8 +59,11 @@
         });
 
         function setupQualitySelector(hlsInstance) {
-            const availableQualities = hlsInstance.levels.map((l) => l.height + 'p').reverse();
-            const uniqueQualities = [...new Set(availableQualities)];
+            const uniqueQualities = hlsInstance.levels
+                .map((l) => l.height)
+                .filter((v, i, a) => a.indexOf(v) === i) // deduplicate
+                .sort((a, b) => b - a) // highest to lowest
+                .map(h => h + 'p');
             uniqueQualities.unshift('Auto');
 
             console.log("📺 Available HLS Levels:", hlsInstance.levels);
