@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <title>Watch Movie</title>
-    <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
+    <link href="https://unpkg.com/video.js@7.20.3/dist/video-js.min.css" rel="stylesheet">
     <style>
         body { background: #111; color: #fff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
         .player-wrapper { max-width: 960px; margin: 20px auto; }
-        video { width: 100%; height: 600px; border: none; }
+        .video-js { width: 100%; height: 600px; }
         .dub-buttons { margin-top: 20px; }
         .dub-buttons button {
             background: #333;
@@ -22,164 +22,113 @@
             background-color: #007bff;
             border-color: #007bff;
         }
-        .plyr__menu,
-        .plyr__controls .plyr__menu__container {
-            display: block !important;
-            opacity: 1 !important;
-        }
     </style>
 </head>
 <body>
     <h1>🎬 Loading your movie...</h1>
     <div class="dub-buttons" id="dub-selector"></div>
     <div class="player-wrapper">
-        <video id="player" playsinline controls crossorigin="anonymous"></video>
+        <video id="player" class="video-js vjs-default-skin" controls preload="auto" crossorigin="anonymous"></video>
     </div>
     <p><small>Note: Short ad plays first, then your movie starts automatically.</small></p>
 
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.10"></script>
-    <script src="https://cdn.jsdelivr.net/npm/plyr@3.6.12/dist/plyr.polyfilled.min.js"></script>
+    <script src="https://unpkg.com/video.js@7.20.3/dist/video.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/videojs-contrib-quality-levels@2.1.0/dist/videojs-contrib-quality-levels.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/videojs-hls-quality-selector@1.1.4/dist/videojs-hls-quality-selector.min.js"></script>
+
     <script>
-        const urlParams = new URLSearchParams(window.location.search);
-        const taskId = window.location.pathname.split("/").pop();
-        const lang = urlParams.get("lang") || "ua";
-        const defaultDub = urlParams.get("dub") || null;
+    const urlParams = new URLSearchParams(window.location.search);
+    const taskId = window.location.pathname.split("/").pop();
+    const lang = urlParams.get("lang") || "ua";
+    const defaultDub = urlParams.get("dub") || null;
 
-        const playerElement = document.getElementById('player');
-        const dubSelector = document.getElementById('dub-selector');
-        const adSource = "/static/ad_dummy.mp4";
-        let adPlaying = true;
-        let lastTime = 0;
+    const player = videojs('player');
+    const playerElement = document.getElementById('player');
+    const dubSelector = document.getElementById('dub-selector');
+    const adSource = "/static/ad_dummy.mp4";
+    let adPlaying = true;
 
-        let hls = null;
+    async function loadDub(dubName, config) {
+      const m3u8Url = config.m3u8;
+      const subtitles = config.subtitles || [];
 
-        const player = new Plyr('#player', {
-            controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
-            settings: ['quality']
-        });
+      player.pause();
+      player.reset();
 
-        function setupQualitySelector(hlsInstance) {
-            const uniqueQualities = hlsInstance.levels
-                .map((l) => l.height)
-                .filter((v, i, a) => a.indexOf(v) === i) // deduplicate
-                .sort((a, b) => b - a) // highest to lowest
-                .map(h => h + 'p');
-            uniqueQualities.unshift('Auto');
+      const sources = [{
+        src: m3u8Url,
+        type: 'application/x-mpegURL'
+      }];
 
-            console.log("📺 Available HLS Levels:", hlsInstance.levels);
-            console.log("🎚 Quality Options:", uniqueQualities);
+      player.src(sources);
 
-            player.updateSettings({
-                quality: {
-                    default: 'Auto',
-                    options: uniqueQualities,
-                    forced: true,
-                    onChange: (newLabel) => {
-                        const level = newLabel === 'Auto' ? -1 : hlsInstance.levels.findIndex(l => l.height + 'p' === newLabel);
-                        hlsInstance.currentLevel = level;
-                        console.log(`✅ Quality changed to ${newLabel}, index ${level}`);
-                    }
-                }
-            });
+      subtitles.forEach(sub => {
+        player.addRemoteTextTrack({
+          kind: 'subtitles',
+          label: sub.lang || 'Unknown',
+          src: sub.url,
+          srclang: sub.lang || 'xx'
+        }, false);
+      });
 
-            setTimeout(() => {
-                player.toggleControls(true);
-                player.elements.controls.classList.remove('plyr--hide');
-            }, 200);
+      player.play();
+
+      document.querySelectorAll(".dub-buttons button").forEach(btn => btn.classList.remove("active"));
+      const activeBtn = Array.from(document.querySelectorAll(".dub-buttons button")).find(btn => btn.textContent === dubName);
+      if (activeBtn) activeBtn.classList.add("active");
+
+      document.querySelector("h1").textContent = `🎬 Now Watching: ${dubName}`;
+    }
+
+    async function initPlayer() {
+      try {
+        const res = await fetch(`/hd/watch-config/${taskId}`);
+        const config = await res.json();
+        const langData = config[lang];
+
+        if (!langData) throw new Error("No dubs found for lang: " + lang);
+
+        for (const dubName in langData) {
+          const btn = document.createElement("button");
+          btn.textContent = dubName;
+          btn.onclick = () => loadDub(dubName, langData[dubName]);
+          dubSelector.appendChild(btn);
         }
 
-        function loadDub(dubName, config) {
-            const masterUrl = config.m3u8;
-            const subtitles = config.subtitles;
+        const initialDub = defaultDub && langData[defaultDub] ? defaultDub : Object.keys(langData)[0];
+        loadDub(initialDub, langData[initialDub]);
+      } catch (e) {
+        document.querySelector("h1").textContent = `❌ Failed to load movie.`;
+        console.error(e);
+      }
+    }
 
-            if (hls) {
-                hls.destroy();
-                hls = null;
-            }
+    // Load ad first
+    player.src({ src: adSource, type: 'video/mp4' });
+    player.ready(() => {
+      player.play();
+    });
 
-            playerElement.innerHTML = '';
-            playerElement.load();
+    player.on('ended', () => {
+      if (adPlaying) {
+        adPlaying = false;
+        initPlayer();
+      }
+    });
 
-            if (Hls.isSupported()) {
-                hls = new Hls();
-                hls.loadSource(masterUrl);
-                hls.attachMedia(playerElement);
-                hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    setupQualitySelector(hls);
-                    player.play();
-                });
-            } else if (playerElement.canPlayType('application/vnd.apple.mpegurl')) {
-                playerElement.src = masterUrl;
-                playerElement.addEventListener('loadedmetadata', () => player.play());
-            }
+    setTimeout(() => {
+      if (adPlaying) {
+        adPlaying = false;
+        initPlayer();
+      }
+    }, 10000);
 
-            playerElement.innerHTML = '';
-            subtitles.forEach(sub => {
-                const track = document.createElement('track');
-                track.kind = 'subtitles';
-                track.label = sub.lang || 'Unknown';
-                track.srclang = sub.lang || 'xx';
-                track.src = sub.url;
-                track.default = false;
-                playerElement.appendChild(track);
-            });
-
-            document.querySelectorAll(".dub-buttons button").forEach(btn => btn.classList.remove("active"));
-            const activeBtn = Array.from(document.querySelectorAll(".dub-buttons button")).find(btn => btn.textContent === dubName);
-            if (activeBtn) activeBtn.classList.add("active");
-        }
-
-        async function initPlayer() {
-            try {
-                const res = await fetch(`/hd/watch-config/${taskId}`);
-                const config = await res.json();
-                const langData = config[lang];
-
-                if (!langData) throw new Error("No dubs found for lang: " + lang);
-
-                for (const dubName in langData) {
-                    const btn = document.createElement("button");
-                    btn.textContent = dubName;
-                    btn.onclick = () => loadDub(dubName, langData[dubName]);
-                    dubSelector.appendChild(btn);
-                }
-
-                const initialDub = defaultDub && langData[defaultDub] ? defaultDub : Object.keys(langData)[0];
-                loadDub(initialDub, langData[initialDub]);
-                document.querySelector("h1").textContent = `🎬 Now Watching: ${initialDub}`;
-            } catch (e) {
-                document.querySelector("h1").textContent = `❌ Failed to load movie.`;
-                console.error(e);
-            }
-        }
-
-        // Start ad first, then main movie
-        playerElement.src = adSource;
-        playerElement.play();
-
-        playerElement.addEventListener('seeking', () => {
-            if (adPlaying && playerElement.currentTime > lastTime + 0.5) {
-                playerElement.currentTime = lastTime;
-            }
-        });
-
-        playerElement.addEventListener('timeupdate', () => {
-            if (adPlaying) lastTime = playerElement.currentTime;
-        });
-
-        playerElement.addEventListener('ended', () => {
-            if (adPlaying) {
-                adPlaying = false;
-                initPlayer();
-            }
-        });
-
-        setTimeout(() => {
-            if (adPlaying) {
-                adPlaying = false;
-                initPlayer();
-            }
-        }, 10000);
-    </script>
+    // Quality selector plugin init
+    player.ready(function() {
+      player.hlsQualitySelector({
+        displayCurrentQuality: true
+      });
+    });
+  </script>
 </body>
 </html>
