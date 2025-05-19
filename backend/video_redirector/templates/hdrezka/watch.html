@@ -22,6 +22,11 @@
             background-color: #007bff;
             border-color: #007bff;
         }
+        .plyr__menu,
+        .plyr__controls .plyr__menu__container {
+            display: block !important;
+            opacity: 1 !important;
+        }
     </style>
 </head>
 <body>
@@ -48,7 +53,6 @@
 
         let hls = null;
 
-        // Initialize Plyr once and don't destroy it
         const player = new Plyr('#player', {
             controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
             settings: ['quality']
@@ -62,7 +66,7 @@
             console.log("📺 Available HLS Levels:", hlsInstance.levels);
             console.log("🎚 Quality Options:", uniqueQualities);
 
-            player.setConfig({
+            player.updateSettings({
                 quality: {
                     default: 'Auto',
                     options: uniqueQualities,
@@ -77,7 +81,8 @@
 
             setTimeout(() => {
                 player.toggleControls(true);
-            }, 100);
+                player.elements.controls.classList.remove('plyr--hide');
+            }, 200);
         }
 
         function loadDub(dubName, config) {
