@@ -46,49 +46,38 @@
         let adPlaying = true;
         let lastTime = 0;
 
-        let player = new Plyr('#player', {
+        let hls = null;
+
+        // Initialize Plyr once and don't destroy it
+        const player = new Plyr('#player', {
             controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
             settings: ['quality']
         });
 
-        let hls = null;
-
         function setupQualitySelector(hlsInstance) {
-            const availableQualities = hlsInstance.levels.map((l) => ({
-                label: l.height + 'p',
-                value: l.height
-            })).reverse();
+            const availableQualities = hlsInstance.levels.map((l) => l.height + 'p').reverse();
+            const uniqueQualities = [...new Set(availableQualities)];
+            uniqueQualities.unshift('Auto');
 
-            availableQualities.unshift({ label: 'Auto', value: 'auto' });
+            console.log("📺 Available HLS Levels:", hlsInstance.levels);
+            console.log("🎚 Quality Options:", uniqueQualities);
 
-            console.log("HLS Levels:", hlsInstance.levels);
-            console.log("Available Qualities:", availableQualities.map(q => q.label));
-
-            const qualityLabels = availableQualities.map(q => q.label);
-
-            // Destroy previous Plyr instance and recreate it
-            if (player) {
-                player.destroy();
-            }
-
-            player = new Plyr('#player', {
-                controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
-                settings: ['quality'],
+            player.setConfig({
                 quality: {
                     default: 'Auto',
-                    options: qualityLabels,
+                    options: uniqueQualities,
                     forced: true,
                     onChange: (newLabel) => {
-                        const level = newLabel === 'Auto'
-                            ? -1
-                            : hlsInstance.levels.findIndex(l => l.height + 'p' === newLabel);
+                        const level = newLabel === 'Auto' ? -1 : hlsInstance.levels.findIndex(l => l.height + 'p' === newLabel);
                         hlsInstance.currentLevel = level;
-                        console.log(`🎚 Switched to quality: ${newLabel} (level ${level})`);
+                        console.log(`✅ Quality changed to ${newLabel}, index ${level}`);
                     }
                 }
             });
 
-            console.log("🛠️ Player recreated with quality options:", qualityLabels);
+            setTimeout(() => {
+                player.toggleControls(true);
+            }, 100);
         }
 
         function loadDub(dubName, config) {
@@ -99,32 +88,24 @@
                 hls.destroy();
                 hls = null;
             }
-            playerElement.removeAttribute('src');
+
+            playerElement.innerHTML = '';
             playerElement.load();
 
-            // Reset player
             if (Hls.isSupported()) {
-                playerElement.innerHTML = '';
                 hls = new Hls();
                 hls.loadSource(masterUrl);
                 hls.attachMedia(playerElement);
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    console.log("⚙️ Calling setupQualitySelector with levels:", hls.levels);
-                    console.log("✅ HLS.js attached, attempting quality selector setup...");
-                    if (!hls.levels.length) {
-                        alert("⚠️ No video qualities detected. Stream may fail.");
-                    }
                     setupQualitySelector(hls);
-                    playerElement.play();
+                    player.play();
                 });
             } else if (playerElement.canPlayType('application/vnd.apple.mpegurl')) {
                 playerElement.src = masterUrl;
-                playerElement.addEventListener('loadedmetadata', () => playerElement.play());
-            } else {
-                alert('Your browser does not support HLS playback.');
+                playerElement.addEventListener('loadedmetadata', () => player.play());
             }
 
-            playerElement.innerHTML = ''; // Clear old subtitles
+            playerElement.innerHTML = '';
             subtitles.forEach(sub => {
                 const track = document.createElement('track');
                 track.kind = 'subtitles';
@@ -164,16 +145,20 @@
             }
         }
 
+        // Start ad first, then main movie
         playerElement.src = adSource;
         playerElement.play();
+
         playerElement.addEventListener('seeking', () => {
             if (adPlaying && playerElement.currentTime > lastTime + 0.5) {
                 playerElement.currentTime = lastTime;
             }
         });
+
         playerElement.addEventListener('timeupdate', () => {
             if (adPlaying) lastTime = playerElement.currentTime;
         });
+
         playerElement.addEventListener('ended', () => {
             if (adPlaying) {
                 adPlaying = false;
@@ -186,7 +171,7 @@
                 adPlaying = false;
                 initPlayer();
             }
-        }, 10000); // max ad duration fallback
+        }, 10000);
     </script>
 </body>
 </html>
