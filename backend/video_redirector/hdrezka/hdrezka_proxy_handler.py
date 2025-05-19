@@ -25,7 +25,6 @@ async def proxy_video(movie_id: str, request: Request) -> Response:
     encoded_url = full_path.split(f"/hd/proxy-video/{movie_id}/", 1)[-1]
     real_url = unquote(encoded_url)
 
-    print(f"[proxy_video] Decoded URL: {real_url}")
     return await fetch_and_rewrite_m3u8(real_url, movie_id)
 
 
@@ -43,9 +42,6 @@ async def proxy_segment(movie_id: str, segment_encoded: str, request: Request) -
 
     real_url = urljoin(base_url, unquote(segment_encoded))
     session_timeout = aiohttp.ClientTimeout(total=15)
-
-    print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!        [Proxy Segment] Using base_url={base_url}")
-    print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!        [proxy_segment] Final real URL: {real_url}")
 
     try:
         async with aiohttp.ClientSession(timeout=session_timeout) as session:
@@ -86,14 +82,10 @@ async def fetch_and_rewrite_m3u8(url: str, movie_id: str) -> Response:
                     print("[proxy_video] URL doesn't end with .m3u8 — skipping rewrite.")
                     return PlainTextResponse("Not a playlist URL", status_code=400)
 
-                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!         Original M3U8 content:")
-                print(m3u8_text)
-
                 lines = m3u8_text.splitlines()
                 rewritten_lines = []
 
                 for line in lines:
-                    print(f'line:{line}')
                     stripped = line.strip()
 
                     # Leave comments and tags as-is
@@ -118,13 +110,10 @@ async def fetch_and_rewrite_m3u8(url: str, movie_id: str) -> Response:
                     rewritten_lines.append(proxy_url)
 
                 rewritten_m3u8 = "\n".join(rewritten_lines)
-                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!        Rewritten M3U8 content:")
-                print(rewritten_m3u8)
 
                 if ".hls:" in url:
                     base_url = url.rsplit('/', 1)[0] + '/'
                     await redis.set(f"extract:{movie_id}:segment_base", base_url, ex=3600)
-                    print(f"[proxy_video] Saved segment_base for {movie_id}: {base_url}")
 
                 return PlainTextResponse(content=rewritten_m3u8, media_type="application/vnd.apple.mpegurl")
 

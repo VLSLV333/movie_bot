@@ -46,7 +46,7 @@
         let adPlaying = true;
         let lastTime = 0;
 
-        const player = new Plyr('#player', {
+        let player = new Plyr('#player', {
             controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
             settings: ['quality']
         });
@@ -61,15 +61,26 @@
 
             availableQualities.unshift({ label: 'Auto', value: -1 });
 
-            player.options.quality = {
-                default: 'Auto',
-                options: availableQualities.map(q => q.label),
-                forced: true,
-                onChange: (newLabel) => {
-                    const level = newLabel === 'Auto' ? -1 : hlsInstance.levels.findIndex(l => l.height + 'p' === newLabel);
-                    hlsInstance.currentLevel = level;
+            console.log("HLS Levels:", hls.levels);
+            console.log("Available Qualities:", availableQualities.map(q => q.label));
+
+            const qualityLabels = availableQualities.map(q => q.label);
+            player.destroy(); // Clean up old instance
+
+            player = new Plyr('#player', {
+                controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
+                settings: ['quality'],
+                quality: {
+                    default: 'Auto',
+                    options: qualityLabels,
+                    forced: true,
+                    onChange: (newLabel) => {
+                        const level = newLabel === 'Auto' ? -1 : hlsInstance.levels.findIndex(l => l.height + 'p' === newLabel);
+                        hlsInstance.currentLevel = level;
+                        console.log(`🎚 Switched to quality: ${newLabel} (level ${level})`);
+                    }
                 }
-            };
+            });
         }
 
         function loadDub(dubName, config) {
@@ -90,6 +101,8 @@
                 hls.loadSource(masterUrl);
                 hls.attachMedia(playerElement);
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    console.log("⚙️ Calling setupQualitySelector with levels:", hls.levels);
+                    console.log("✅ HLS.js attached, attempting quality selector setup...");
                     setupQualitySelector(hls);
                     playerElement.play();
                 });
