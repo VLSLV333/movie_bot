@@ -31,3 +31,24 @@ async def proxy_subtitle(task_id: str, dub_name: str, lang: str):
                 return Response(content=content, media_type="text/vtt")
     except Exception as e:
         return Response(content=f"Subtitle proxy error: {e}", status_code=500)
+
+@router.get("/subs/{task_id}.vtt")
+async def fallback_subtitle_proxy(task_id: str):
+    redis = RedisClient.get_client()
+    # Your extractor saves with no dub/lang, just single flat fallback
+    keys = await redis.keys(f"subs:{task_id}:fallback")
+    if not keys:
+        return Response(content="Fallback subtitle not found", status_code=404)
+
+    first_key = keys[0]
+    subtitle_url = await redis.get(first_key)
+    if not subtitle_url:
+        return Response(content="Subtitle URL missing", status_code=404)
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(subtitle_url, headers=FORWARD_HEADERS) as resp:
+                content = await resp.read()
+                return Response(content=content, media_type="text/vtt")
+    except Exception as e:
+        return Response(content=f"Subtitle proxy error: {e}", status_code=500)
