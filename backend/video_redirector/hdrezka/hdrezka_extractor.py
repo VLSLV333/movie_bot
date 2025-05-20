@@ -2,6 +2,7 @@ import asyncio
 from camoufox.async_api import AsyncCamoufox
 from typing import Dict, List
 from backend.video_redirector.utils.redis_client import RedisClient
+from urllib.parse import quote
 
 f2id_to_quality = {
     "1": "360p",
@@ -148,11 +149,11 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
         if response.url.endswith(".vtt") and subtitle_state["current_lang"] and response.status == 200:
             real_url = response.url
             lang_code = subtitle_state["current_lang"]
-            proxy_url = f"/hd/subs/{task_id}/{dub_name}/{lang_code}.vtt"
+            proxy_url = f"/hd/subs/{task_id}/{quote(dub_name)}/{quote(lang_code)}.vtt"
 
             # Save to Redis
             redis = RedisClient.get_client()
-            await redis.set(f"subs:{task_id}:{dub_name}:{lang_code}", real_url, ex=3600)
+            await redis.set(f"subs:{task_id}:{quote(dub_name)}:{quote(lang_code)}", real_url, ex=3600)
 
             extracted["subtitles"].append({
                 "url": proxy_url,
