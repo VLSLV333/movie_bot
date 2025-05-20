@@ -146,6 +146,18 @@
       }
     });
 
+    player.on('changeRes', (e, newRes) => {
+      if (newRes === 'auto') {
+        const items = document.querySelectorAll('.vjs-http-source-selector .vjs-menu-item');
+        items.forEach(item => item.classList.remove('vjs-selected'));
+
+        const autoItem = Array.from(items).find(el =>
+          el.textContent.trim().toLowerCase() === 'auto'
+        );
+        if (autoItem) autoItem.classList.add('vjs-selected');
+      }
+    });
+
     setTimeout(() => {
       if (adPlaying) {
         adPlaying = false;
