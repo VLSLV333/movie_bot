@@ -8,6 +8,11 @@
         body { background: #111; color: #fff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
         .player-wrapper { max-width: 960px; margin: 20px auto; }
         .video-js { width: 100%; height: 600px; }
+        .vjs-big-play-button {
+          top: 50% !important;
+          left: 50% !important;
+          transform: translate(-50%, -50%) !important;
+        }
         .dub-buttons { margin-top: 20px; }
         .dub-buttons button {
             background: #333;
@@ -71,7 +76,9 @@
         }, false);
       });
 
-      player.play();
+      player.ready(() => {
+        player.play();
+      });
 
       document.querySelectorAll(".dub-buttons button").forEach(btn => btn.classList.remove("active"));
       const activeBtn = Array.from(document.querySelectorAll(".dub-buttons button")).find(btn => btn.textContent === dubName);
@@ -123,10 +130,15 @@
       }
     }, 10000);
 
-    // Quality selector plugin init
-    player.ready(function() {
-      player.hlsQualitySelector({
-        displayCurrentQuality: true
+    // Ensure quality selector is applied correctly
+    player.ready(() => {
+      const levels = player.qualityLevels();
+
+      levels.on('addqualitylevel', () => {
+        player.hlsQualitySelector({
+          displayCurrentQuality: true,
+          vjsIconClass: 'vjs-icon-hd' // ensures the settings icon shows up
+        });
       });
     });
   </script>
