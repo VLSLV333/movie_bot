@@ -146,6 +146,22 @@
       }
     });
 
+    player.on('changeRes', (event, newRes) => {
+  if (newRes === 'auto') {
+    // ✅ Remove forced manual override
+    if (player.tech().vhs && player.tech().vhs.selectPlaylist) {
+      delete player.tech().vhs.selectPlaylist;
+    }
+
+    // ✅ Force UI update (remove extra highlights)
+    const menuItems = document.querySelectorAll('.vjs-http-source-selector .vjs-menu-item');
+    menuItems.forEach(el => el.classList.remove('vjs-selected'));
+
+    const autoItem = Array.from(menuItems).find(el => el.textContent.trim().toLowerCase() === 'auto');
+    if (autoItem) autoItem.classList.add('vjs-selected');
+  }
+});
+
     setTimeout(() => {
       if (adPlaying) {
         adPlaying = false;
