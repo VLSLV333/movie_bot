@@ -103,10 +103,14 @@ async def start_listening_for_vtt(page, extracted: Dict,task_id):
         if url.endswith(".vtt"):
             proxy_url = f"/hd/subs/{task_id}.vtt"
             print(f"[🎯] Found subtitle VTT (initial): {url}")
+
+            # ✅ Save to Redis so fallback route can find it
+            redis = RedisClient.get_client()
+            await redis.set(f"subs:{task_id}:fallback", url, ex=3600)
+
             extracted["subtitles"].append({
                 "url": proxy_url,
-                "headers": dict(response.request.headers),
-                "referer": response.request.headers.get("referer")
+                "lang": "Unknown"
             })
             vtt_captured = True
 
@@ -140,6 +144,18 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
     except Exception as e:
         print(f"⚠️ Subtitle button failed to become interactable: {e}")
         return
+
+    # Step 2.5: Update previosly selected fallback subtitles
+    lang = await page.evaluate("""
+    () => {
+        const el = document.querySelector('[f2id] svg')?.closest('[f2id]');
+        if (!el) return null;
+        return el.innerText?.trim();
+    }
+    """)
+    if lang and extracted["subtitles"]:
+        extracted["subtitles"][0]["lang"] = lang
+        print(f"🔤 Updated fallback subtitle lang to: {lang}")
 
     # Step 3: Setup shared subtitle event listener
     subtitle_state = {"current_lang": None}
