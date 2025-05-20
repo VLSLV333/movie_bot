@@ -38,6 +38,9 @@
     <p><small>Note: Short ad plays first, then your movie starts automatically.</small></p>
 
     <script src="https://unpkg.com/video.js@7.20.3/dist/video.min.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/videojs-contrib-quality-levels@2.1.0/dist/videojs-contrib-quality-levels.min.js"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/videojs-http-source-selector@1.1.6/dist/videojs-http-source-selector.min.js"></script>
 
     <script>
@@ -50,7 +53,7 @@
 
     const player = videojs('player', {
       html5: {
-        hls: {
+        vhs: {
           overrideNative: true  // ✅ Force VHS usage
         },
         nativeAudioTracks: false,
