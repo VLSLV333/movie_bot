@@ -46,7 +46,16 @@
     const lang = urlParams.get("lang") || "ua";
     const defaultDub = urlParams.get("dub") || null;
 
+    videojs.Hls = videojs.Vhs;
+
     const player = videojs('player', {
+      html5: {
+        hls: {
+          overrideNative: true  // ✅ Force VHS usage
+        },
+        nativeAudioTracks: false,
+        nativeVideoTracks: false
+      },
       controlBar: {
         children: [
           'playToggle',
