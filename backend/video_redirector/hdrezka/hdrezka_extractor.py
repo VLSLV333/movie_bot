@@ -358,7 +358,7 @@ async def extract_all_quality_variants(page, extracted: Dict):
 if __name__ == "__main__":
     async def test():
         movie_url = "https://hdrezka.ag/films/fiction/58225-bednye-neschastnye-2023.html"
-        result = await extract_from_hdrezka(movie_url, user_lang="ua")
+        result = await extract_from_hdrezka(movie_url, user_lang="en")
         print(result)
 
     asyncio.run(test())
