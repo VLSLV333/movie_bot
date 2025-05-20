@@ -146,11 +146,18 @@
       }
     });
 
-    player.on('loadedmetadata', () => {
+    // Watch for when menu items are inserted, then remove "Auto"
+    const observer = new MutationObserver(() => {
       const autoItem = document.querySelector('.vjs-http-source-selector .vjs-menu-item[aria-label="auto"]');
       if (autoItem) {
         autoItem.remove();
+        observer.disconnect();  // stop watching after done
       }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
     });
 
     setTimeout(() => {
