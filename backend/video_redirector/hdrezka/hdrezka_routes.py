@@ -41,7 +41,12 @@ async def extract_and_generate_master_m3u8(task_id: str, url: str, lang: str):
         else:
             config = json.dumps(config_response)
 
-        print(f"[{task_id}] get_watch_config returned:", config_response)
+        if isinstance(config_response, JSONResponse):
+            print(f"[{task_id}] get_watch_config returned:", config_response.body.decode())
+        else:
+            print(f"[{task_id}] get_watch_config returned (non-JSON):", config_response)
+
+
         await redis.set(f"extract:{task_id}:watch_config", config, ex=3600)
         await redis.set(f"extract:{task_id}:status", "done", ex=3600)
     except Exception as e:
