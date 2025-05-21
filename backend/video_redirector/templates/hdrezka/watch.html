@@ -114,7 +114,7 @@
       try {
         const res = await fetch(`/hd/watch-config/${taskId}`);
         const config = await res.json();
-        const langData = config[lang];
+        const langData = config[lang] || Object.values(config)[0];
         console.log(langData)
 
         if (!langData) throw new Error("No dubs found for lang: " + lang);
