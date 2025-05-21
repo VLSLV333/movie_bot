@@ -146,16 +146,16 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
         return
 
     # Step 2.5: Update previosly selected fallback subtitles
-    lang = await page.evaluate("""
-    () => {
-        const el = document.querySelector('[f2id] svg')?.closest('[f2id]');
-        if (!el) return null;
-        return el.innerText?.trim();
-    }
-    """)
-    if lang and extracted["subtitles"]:
-        extracted["subtitles"][0]["lang"] = lang
-        print(f"🔤 Updated fallback subtitle lang to: {lang}")
+    # lang = await page.evaluate("""
+    # () => {
+    #     const el = document.querySelector('[f2id] svg')?.closest('[f2id]');
+    #     if (!el) return null;
+    #     return el.innerText?.trim();
+    # }
+    # """)
+    # if lang and extracted["subtitles"]:
+    #     extracted["subtitles"][0]["lang"] = lang
+    #     print(f"🔤 Updated fallback subtitle lang to: {lang}")
 
     # Step 3: Setup shared subtitle event listener
     subtitle_state = {"current_lang": None}
@@ -185,12 +185,24 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
     subtitle_items = await page.query_selector_all("[f2id]")
 
     index_of_already_catched_subs = None
+
     #Step 4: Check if any subtitle is already selected (highlighted with special SVG)
     for idx, item in enumerate(subtitle_items):
         index_of_already_catched_subs = idx
         highlight = await item.query_selector('pjsdiv svg')
         if highlight:
-            lang = await item.text_content()
+            lang = await page.evaluate('''
+                        (el) => {
+                            const labelDivs = el.querySelectorAll('pjsdiv');
+                            for (let div of labelDivs) {
+                                const style = getComputedStyle(div);
+                                if (style.float === 'left') {
+                                    return div.textContent.trim();
+                                }
+                            }
+                            return el.textContent.trim();
+                        }
+                    ''', arg=item)
             print(f"🟢 Already active subtitle detected: {lang}")
             if extracted["subtitles"]:
                 extracted["subtitles"][0]["lang"] = lang
