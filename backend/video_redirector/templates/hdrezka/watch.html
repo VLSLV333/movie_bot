@@ -45,7 +45,10 @@
 
     <script>
     const urlParams = new URLSearchParams(window.location.search);
-    const taskId = window.location.pathname.split("/").pop();
+
+    const segments = window.location.pathname.split("/").filter(Boolean);
+    const taskId = segments[segments.length - 1];
+
     const lang = urlParams.get("lang") || "ua";
     const defaultDub = urlParams.get("dub") || null;
 
@@ -113,11 +116,13 @@
     async function initPlayer() {
       try {
         const res = await fetch(`/hd/watch-config/${taskId}`);
-        const config = await res.json();
-        const langData = config[lang] || Object.values(config)[0];
-        console.log(langData)
+        if (!res.ok) throw new Error("❌ Failed to fetch config (status " + res.status + ")");
 
-        if (!langData) throw new Error("No dubs found for lang: " + lang);
+        const config = await res.json();
+        if (!config || typeof config !== "object") throw new Error("❌ Config is empty or invalid");
+
+        const langData = config[lang] || Object.values(config)[0];
+        if (!langData || typeof langData !== "object") throw new Error("❌ No dubs found for lang: " + lang);
 
         for (const dubName in langData) {
           const btn = document.createElement("button");
@@ -128,8 +133,9 @@
 
         const initialDub = defaultDub && langData[defaultDub] ? defaultDub : Object.keys(langData)[0];
         loadDub(initialDub, langData[initialDub]);
+
       } catch (e) {
-        document.querySelector("h1").textContent = `❌ Failed to load movie.`;
+        document.querySelector("h1").textContent = `❌ Failed to load movie. Please report this case to admin and try finding movie from begining`;
         console.error(e);
       }
     }
@@ -153,6 +159,21 @@
         initPlayer();
       }
     }, 10000);
+
+    window.addEventListener("error", function (event) {
+      fetch("/log-client-error", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: event.message,
+          source: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+          stack: event.error?.stack,
+          url: window.location.href
+        })
+      });
+    });
   </script>
 </body>
 </html>
