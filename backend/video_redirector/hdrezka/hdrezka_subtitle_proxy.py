@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Response
 from backend.video_redirector.utils.redis_client import RedisClient
+from urllib.parse import quote
 import aiohttp
 
 router = APIRouter(prefix="/hd", tags=["HDRezka subtitles"])
@@ -16,7 +17,7 @@ FORWARD_HEADERS = {
 @router.get("/subs/{task_id}/{dub_name}/{lang}.vtt")
 async def proxy_subtitle(task_id: str, dub_name: str, lang: str):
     redis = RedisClient.get_client()
-    subtitle_key = f"subs:{task_id}:{dub_name}:{lang}"
+    subtitle_key = f"subs:{task_id}:{quote(dub_name)}:{quote(lang)}"
     subtitle_url = await redis.get(subtitle_key)
 
     if not subtitle_url:
