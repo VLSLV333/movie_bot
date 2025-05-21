@@ -178,6 +178,11 @@ async def proxy_video_router(movie_id: str, encoded_path: str, request: Request)
 async def proxy_segment_router(movie_id: str, encoded_path: str, request: Request) -> Response :
     return await proxy_segment(movie_id, encoded_path, request)
 
+@router.post("/log-client-error")
+async def log_client_error(request: Request):
+    data = await request.json()
+    print(f"⚠️ Client Error: {json.dumps(data, ensure_ascii=False, indent=2)}")
+    return {"status": "logged"}
 
 #TODO: DO we really need movie_id? We probably should change it to smth else
 
