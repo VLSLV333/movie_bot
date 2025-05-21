@@ -86,6 +86,7 @@ async def get_watch_config(task_id: str):
 
     if status == "done":
         raw_data = await redis.get(f"extract:{task_id}:watch_config")
+        print("[get_watch_config returned]:", json.dumps(raw_data, ensure_ascii=False, indent=2))
         if not raw_data:
             raise HTTPException(status_code=404, detail="Config missing despite status=done")
         try:
