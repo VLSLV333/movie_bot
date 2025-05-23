@@ -86,29 +86,37 @@ async def check_status(task_id: str):
 @router.get("/watch-config/{task_id}")
 async def get_watch_config(task_id: str):
     redis = RedisClient.get_client()
-
     status = await redis.get(f"extract:{task_id}:status")
+
+    if not status:
+        return JSONResponse(content={"error": f"Task ID '{task_id}' not found in Redis"}, status_code=404)
 
     if status == "done":
         raw_data = await redis.get(f"extract:{task_id}:watch_config")
         print("[get_watch_config returned]:", json.dumps(raw_data, ensure_ascii=False, indent=2))
         if not raw_data:
-            raise HTTPException(status_code=404, detail="Config missing despite status=done")
+            print(f"🛑 Inconsistent Redis state: {task_id} has status=done but no config found")
+            return JSONResponse(content={"error": "Config missing despite status=done"}, status_code=500)
         try:
             return JSONResponse(content=json.loads(raw_data))
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Corrupted config: {e}")
+            return JSONResponse(content={"error": f"Corrupted config JSON: {str(e)}"}, status_code=500)
 
     if status == "pending":
-        raise HTTPException(status_code=400, detail="Extraction not completed yet")
+        return JSONResponse(content={"error": "Extraction still pending"}, status_code=202)
 
-    elif status == 'extracted':
+    if status == "extracted":
 
         raw_data = await redis.get(f"extract:{task_id}:raw")
         if not raw_data:
-            raise HTTPException(status_code=404, detail="Extraction result not found")
+            print(f"🛑 Extraction raw data missing, but status is 'extracted', task_id: {task_id} ")
+            return JSONResponse(content={"error": "Extraction raw data missing"}, status_code=500)
 
-        parsed = json.loads(raw_data)
+        try:
+            parsed = json.loads(raw_data)
+        except Exception as e:
+            return JSONResponse(content={"error": f"Invalid JSON in raw data: {str(e)}"}, status_code=500)
+
         watch_config = {}
 
         for lang, dubs in parsed.items():
@@ -155,6 +163,9 @@ async def get_watch_config(task_id: str):
                 }
 
         return JSONResponse(content=watch_config)
+
+    return JSONResponse(content={"error": f"Unexpected status value: {status}"}, status_code=500)
+
 
 @router.get("/proxy-master/{task_id}")
 async def serve_master_m3u8(task_id: str, lang: str, dub: str):

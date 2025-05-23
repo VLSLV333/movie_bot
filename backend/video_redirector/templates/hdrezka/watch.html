@@ -115,11 +115,29 @@
 
     async function initPlayer() {
       try {
-        const res = await fetch(`/hd/watch-config/${taskId}`);
-        if (!res.ok) throw new Error("❌ Failed to fetch config (status " + res.status + ")");
-
-        const config = await res.json();
-        if (!config || typeof config !== "object") throw new Error("❌ Config is empty or invalid");
+        let config;
+        try {
+          const res = await fetch(`/hd/watch-config/${taskId}`);
+          if (!res.ok) {
+            await fetch("/log-client-error", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                message: "Fetch failed: " + res.status + " " + res.statusText,
+                url: window.location.href
+              })
+            });
+            throw new Error(`❌ Server error: ${res.status} ${res.statusText}`);
+          }
+          config = await res.json();
+          if (!config || typeof config !== "object") {
+            throw new Error("❌ Config is empty or invalid: " + JSON.stringify(config));
+          }
+        } catch (e) {
+          console.error("🛑 Frontend error loading config:", e);
+          document.querySelector("h1").textContent = `❌ Failed to load movie. Please try again or contact support.`;
+          return;
+        }
 
         const langData = config[lang] || Object.values(config)[0];
         if (!langData || typeof langData !== "object") throw new Error("❌ No dubs found for lang: " + lang);
