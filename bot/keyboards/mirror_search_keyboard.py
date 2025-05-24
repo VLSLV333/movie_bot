@@ -8,6 +8,12 @@ def get_mirror_search_keyboard(movie_index: int) -> types.InlineKeyboardMarkup:
     Create a keyboard with Confirm and Wrong Language buttons.
     movie_index is needed to identify which movie user confirmed.
     """
+    #TODO: I want to move wrong language from here to final step with bot
+    #TODO: After extaction user will reseave 2 btns "watch/download" and "wrong language"
+    #TODO: So if user starts watching and finds that language is wrong he can fast go back, press "wrong language" we will suggest languages current supported
+    #TODO: (UA.EN.ru) and save users prefference. After that we start same extraction with different language and user can again press
+    #TODO: After extaction 2 btns "watch/download" and "wrong language"
+
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [
             types.InlineKeyboardButton(
