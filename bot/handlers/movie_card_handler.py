@@ -69,14 +69,6 @@ async def collapse_card(query: types.CallbackQuery):
         logger.error("Failed to collapse card in bot.handlers.movie_card_callbacks:", e)
     await query.answer()
 
-
-@router.callback_query(F.data.startswith("watch_movie_card:"))
-async def watch_movie(query: types.CallbackQuery):
-    _, mid = query.data.split(":", 1)
-    movie_id = int(mid)
-    # TODO: look up real stream link…
-    await query.answer(f"🔗 Stream link for {movie_id}: <link>", show_alert=True)
-
 # 5) Download Movie stub
 @router.callback_query(F.data.startswith("download_movie_card:"))
 async def download_movie(query: types.CallbackQuery):

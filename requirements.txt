@@ -16,3 +16,4 @@ python-dotenv
 redis==5.2.1
 langdetect
 SQLAlchemy
+parsel

@@ -59,7 +59,7 @@ def render_movie_card(movie: dict, is_expanded: bool = False) -> Tuple[str, type
     if is_expanded:
         # Expanded card: full options
         buttons.append([
-            types.InlineKeyboardButton(text="✅ Select", callback_data=f"select_movie_card:{movie['id']}"),
+            types.InlineKeyboardButton(text="✅ Select", callback_data=f"select_movie_card:{movie['id']}|{title}"),
             types.InlineKeyboardButton(text="🕓 Watch Later", callback_data=f"add_watchlist_card:{movie['id']}")
         ])
         buttons.append([
@@ -78,7 +78,7 @@ def render_movie_card(movie: dict, is_expanded: bool = False) -> Tuple[str, type
     else:
         # Small card view: quick actions
         buttons.append([
-            types.InlineKeyboardButton(text="✅ Select", callback_data=f"select_movie_card:{movie['id']}"),
+            types.InlineKeyboardButton(text="✅ Select", callback_data=f"select_movie_card:{movie['id']}|{title}"),
             types.InlineKeyboardButton(text="🕓 Watch Later", callback_data=f"add_watchlist_card:{movie['id']}")
         ])
         buttons.append([
