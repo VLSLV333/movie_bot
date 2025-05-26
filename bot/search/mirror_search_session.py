@@ -7,7 +7,7 @@ class MirrorSearchSession:
         user_id: int,
         movie_id: str,
         original_query: str,
-        mirrors: List[Dict],
+        mirrors_search_results: dict[int, dict],
         current_mirror_index: int = 0,
         current_result_index: int = 0,
         confirmed_movie: Optional[Dict] = None,
@@ -19,7 +19,7 @@ class MirrorSearchSession:
         self.user_id = user_id
         self.movie_id = movie_id
         self.original_query = original_query
-        self.mirrors = mirrors  # [{mirror: name, geo_priority, results: [...]}, ...]
+        self.mirrors_search_results = mirrors_search_results  # [{mirror: name, geo_priority, results: [...]}, ...]
         self.current_mirror_index = current_mirror_index
         self.current_result_index = current_result_index
         self.confirmed_movie = confirmed_movie
@@ -33,7 +33,7 @@ class MirrorSearchSession:
             "user_id": self.user_id,
             "movie_id": self.movie_id,
             "original_query": self.original_query,
-            "mirrors": self.mirrors,
+            "mirrors_search_results": self.mirrors_search_results,
             "current_mirror_index": self.current_mirror_index,
             "current_result_index": self.current_result_index,
             "confirmed_movie": self.confirmed_movie,
@@ -49,7 +49,7 @@ class MirrorSearchSession:
             user_id=data["user_id"],
             movie_id=data["movie_id"],
             original_query=data["original_query"],
-            mirrors=data.get("mirrors", []),
+            mirrors_search_results=data.get("mirrors_search_results"),
             current_mirror_index=data.get("current_mirror_index", 0),
             current_result_index=data.get("current_result_index", 0),
             confirmed_movie=data.get("confirmed_movie"),

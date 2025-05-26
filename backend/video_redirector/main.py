@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.video_redirector.hdrezka import router as hdrezka_router
 from backend.video_redirector.utils.redis_client import RedisClient
+from backend.video_redirector.routes.mirror_search_route import  router as mirror_search_route
 
 app = FastAPI()
 
@@ -18,3 +19,4 @@ async def shutdown_redis():
     await RedisClient.close()
 
 app.include_router(hdrezka_router)
+app.include_router(mirror_search_route)
