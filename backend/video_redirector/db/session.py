@@ -4,6 +4,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
+from typing import AsyncGenerator
 
 load_dotenv()
 
@@ -17,10 +18,6 @@ AsyncSessionLocal = sessionmaker(
     expire_on_commit=False
 )
 
-@asynccontextmanager
-async def get_db():
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+        yield session
