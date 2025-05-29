@@ -92,7 +92,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
     await SessionManager.update_data(user_id, {"mirror_session": mirror_session.to_dict()})
 
     # Show top nav first
-    top_nav_text, top_nav_keyboard = get_mirror_navigation_keyboard(mirror_session, position="top")
+    top_nav_text, top_nav_keyboard = get_mirror_navigation_keyboard(mirror_session, position="top", click_source="initial")
     top_panel = await query.message.answer(top_nav_text, reply_markup=top_nav_keyboard)
     top_nav_message_id = top_panel.message_id
 
@@ -107,7 +107,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
             msg = await query.message.answer(text=msg_text, reply_markup=msg_kb)
         card_message_ids.append(msg.message_id)
 
-    bottom_nav_text, bottom_nav_keyboard = get_mirror_navigation_keyboard(mirror_session, position="bottom")
+    bottom_nav_text, bottom_nav_keyboard = get_mirror_navigation_keyboard(mirror_session, position="bottom", click_source="initial")
     bottom_panel = await query.message.answer(bottom_nav_text, reply_markup=bottom_nav_keyboard)
     bottom_nav_message_id = bottom_panel.message_id
 
