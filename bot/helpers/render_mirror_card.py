@@ -12,7 +12,7 @@ def render_mirror_card(result: dict) -> Tuple[str, types.InlineKeyboardMarkup, O
     """
     title = result.get("title", "Awesome title 🫡").strip()
     poster = result.get("poster") or None
-    stream_url = result.get("url")
+    stream_id = result.get("id") or result.get("url")
 
     if not poster or not isinstance(poster, str) or not poster.startswith("http"):
         logger.warning(f"[MirrorCard] Missing or invalid poster. Falling back to default.")
@@ -22,13 +22,13 @@ def render_mirror_card(result: dict) -> Tuple[str, types.InlineKeyboardMarkup, O
 
     buttons = [
         [
-            types.InlineKeyboardButton(text="▶️ Watch", callback_data=f"watch_mirror:{stream_url}"),
-            types.InlineKeyboardButton(text="💾 Download", callback_data=f"download_mirror:{stream_url}")
+            types.InlineKeyboardButton(text="▶️ Watch", callback_data=f"watch_mirror:{stream_id}"),
+            types.InlineKeyboardButton(text="💾 Download", callback_data=f"download_mirror:{stream_id}")
         ]
     ]
 
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
     return text, keyboard, poster
 
-async def render_mirror_card_batch(results: list[dict]) -> list[Tuple[str, types.InlineKeyboardMarkup, Optional[str]]]:
+async def   render_mirror_card_batch(results: list[dict]) -> list[Tuple[str, types.InlineKeyboardMarkup, Optional[str]]]:
     return [render_mirror_card(result) for result in results]
