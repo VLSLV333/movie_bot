@@ -71,6 +71,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
     geo_priority = first_mirror_info.get("geo_priority")
     results = first_mirror_info.get("results", [])
 
+    logger.debug(f"[User {user_id}] Full mirror results:\n{results}")
     logger.info(f"[User {user_id}] Mirror '{mirror_name}' responded with {len(results)} results (geo={geo_priority})")
 
     # Store indexed mirror result in the new structure

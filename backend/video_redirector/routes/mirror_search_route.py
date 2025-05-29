@@ -1,3 +1,4 @@
+import hashlib
 import traceback
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -27,6 +28,9 @@ async def mirror_search(req: MirrorSearchRequest, db: AsyncSession = Depends(get
 
         logger.info(f"[MirrorSearch] Selected: {first_mirror.name} (geo={first_mirror.geo}) for query: '{req.query}'")
         results = await search_for_movie_on_mirror(first_mirror.name, req.query)
+
+        for result in results:
+            result["id"] = hashlib.sha256(result["url"].encode()).hexdigest()[:16]
 
         return [{
             "mirror": first_mirror.name,
