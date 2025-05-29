@@ -21,19 +21,15 @@ def get_mirror_navigation_keyboard(session: MirrorSearchSession, position: str =
     if click_source == "top" and position == "top":
         hint = "👇 Scroll down to see all results"
     elif click_source == "top" and position == "bottom":
-        hint = "➡️ Click ➡ Next to see more movies"
+        hint = "Click ➡ Next to see more movies"
     elif click_source == "bottom" and position == "top":
-        hint = "➡️ Click ➡ Next to see more movies"
+        hint = "Click ➡ Next to see more movies"
     elif click_source == "bottom" and position == "bottom":
         hint = "👆 Scroll up to see all results"
-    elif click_source == "initial" and position == "bottom":
-        hint = "👆 Scroll up to see all results"
-    elif click_source == "initial" and position == "top":
-        hint = "➡️ Click ➡ Next to see more movies"
 
     text = "🎬 Select a movie and start watching"
     if hint:
-        text += f"\n{hint}"
+        text += f"\n\n{hint}"
 
     # ⬅ / ➡ buttons
     buttons = []
