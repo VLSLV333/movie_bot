@@ -1,3 +1,5 @@
+import re
+
 from aiogram import types
 from typing import Tuple, Optional
 from bot.utils.logger import Logger
@@ -18,13 +20,16 @@ def render_mirror_card(result: dict) -> Tuple[str, types.InlineKeyboardMarkup, O
         logger.warning(f"[MirrorCard] Missing or invalid poster. Falling back to default.")
         poster = DEFAULT_POSTER_FILE_ID
 
-    text = f"<b>{title}</b>"
+    # Strip any <b> tags from the title
+    clean_title = re.sub(r"</?b>", "", title)
+
+    # Wrap clean title in bold
+    text = f"<b>{clean_title}</b>"
 
     buttons = [
-        [
-            types.InlineKeyboardButton(text="▶️ Watch", callback_data=f"watch_mirror:{stream_id}"),
-            types.InlineKeyboardButton(text="💾 Download", callback_data=f"download_mirror:{stream_id}")
-        ]
+        [types.InlineKeyboardButton(text="▶️ Watch", callback_data=f"watch_mirror:{stream_id}")],
+        [types.InlineKeyboardButton(text="💾 Download", callback_data=f"download_mirror:{stream_id}")]
+
     ]
 
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
