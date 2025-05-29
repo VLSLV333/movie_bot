@@ -63,8 +63,8 @@ async def process_search(context: UserSearchContext, message: types.Message):
         movies = await context.get_next_movies(tmdb_service)
 
         if not movies:
-            await SessionManager.set_state(message.from_user.id, "search:waiting_for_search_input")
-            logger.info(f"[User {message.from_user.id}] Prompted to input movie name in bot.handlers.search process_search (state set: search:waiting_for_search_input)")
+            await SessionManager.set_state(message.from_user.id, "search_by_name:waiting")
+            logger.info(f"[User {message.from_user.id}] Prompted to input movie name in bot.handlers.search process_search (state set: search_by_name:waiting)")
             keyboard = get_back_button_keyboard('search')
             await message.answer(
                 "🧐 Hmm, I couldn't find anything matching. Try searching something else👇\n\nOr press Back to return.",
