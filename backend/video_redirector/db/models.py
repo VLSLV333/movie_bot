@@ -1,29 +1,26 @@
-from sqlalchemy import Column, String, Boolean, DateTime, Integer
+from enum import Enum
+from sqlalchemy import Enum as SqlEnum
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
+from sqlalchemy.dialects.postgresql import ARRAY
 
 Base = declarative_base()
 
-class MovieMirror(Base):
-    __tablename__ = "movie_mirrors"
-
-    id = Column(Integer, primary_key=True, index=True)
-    movie_id = Column(String, index=True) # Could be TMDB ID or internal
-    mirror_url = Column(String, nullable=False)
-    type = Column(String, nullable=False)  # 'yt-dlp', 'iframe', 'direct'
-    quality = Column(String, nullable=True)  # '1080p', '720p', etc.
-    geo_priority = Column(String, nullable=True)  # 'EU', 'US', etc.
-    last_checked_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    is_working = Column(Boolean, default=True)
-
+class MirrorType(str, Enum):
+    ytdlp = "yt-dlp"
+    iframe = "iframe"
+    direct = "direct"
 
 class Mirror(Base):
     __tablename__ = "mirrors"
+    __table_args__ = (UniqueConstraint("url", name="uq_mirror_url"),)
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     url = Column(String, nullable=False)
     geo = Column(String)
-    mirror_type = Column(String)  # yt-dlp / iframe / direct
+    lang = Column(ARRAY(String), nullable=True)
+    mirror_type = Column(SqlEnum(MirrorType), nullable=False)
     last_checked = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     is_working = Column(Boolean, default=True)
