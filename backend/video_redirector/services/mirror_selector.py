@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, any_
 from typing import Optional, List
 from backend.video_redirector.db.models import Mirror
 from typing import cast
@@ -19,7 +19,7 @@ async def select_working_mirrors(
     stmt = select(Mirror).where(Mirror.is_working.is_(True))
 
     if preferred_lang:
-        stmt = stmt.where(Mirror.lang == preferred_lang)
+        stmt = stmt.where(preferred_lang == any_(Mirror.lang))
 
     stmt = stmt.order_by(Mirror.last_checked.desc())
 

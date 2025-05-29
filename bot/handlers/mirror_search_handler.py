@@ -1,3 +1,5 @@
+import traceback
+
 from aiogram import Router, types, F
 from aiohttp import ClientSession
 from bot.utils.session_manager import SessionManager
@@ -20,6 +22,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
     movie_id, movie_title = query.data.split(":", 1)[1].split("|",1)
 
     await query.answer("⏳ Searching mirrors...")
+    logger.info(f"[User {user_id}] Initiating mirror search for: '{movie_title}'")
 
     # Retrieve movie title from stored session (you may pass it directly in a real scenario)
     session = await SessionManager.get_user_session(user_id)
@@ -32,8 +35,11 @@ async def handle_mirror_search(query: types.CallbackQuery):
         await query.answer()
         return
 
+
     try:
         async with ClientSession() as session:
+            logger.debug(
+                f"[User {user_id}] Sending mirror search POST to {MIRROR_SEARCH_API_URL} with payload: {{'query': '{movie_title}', 'lang': 'ua'}}")
             async with session.post(MIRROR_SEARCH_API_URL, json={
                 "query": movie_title,
     #TODO: lang needs to be dynamic. We should take user lang from TG and save in cur session or db with user info
@@ -43,12 +49,15 @@ async def handle_mirror_search(query: types.CallbackQuery):
                 if resp.status != 200:
                     #TODO: provide main menu keyboard, so user doesn't get stuck
                     await query.message.answer("❌ Failed to search mirrors. Try again later.")
+                    logger.error(
+                        f"[User {user_id}] Mirror search failed with status: {resp.status}, body: {await resp.text()}")
                     return
                 mirror_results = await resp.json()
     except Exception as e:
         #TODO: provide main menu keyboard, so user doesn't get stuck
-        logger.error(f"[User {user_id}] Mirror search failed: {e}")
+        logger.exception(f"[User {user_id}] Exception during mirror search: {e}\n{traceback.format_exc()}")
         await query.message.answer("❌ Unexpected error during mirror search.")
+
         return
 
     if not mirror_results:
@@ -62,6 +71,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
     geo_priority = first_mirror_info.get("geo_priority")
     results = first_mirror_info.get("results", [])
 
+    logger.info(f"[User {user_id}] Mirror '{mirror_name}' responded with {len(results)} results (geo={geo_priority})")
 
     # Store indexed mirror result in the new structure
     mirror_session = MirrorSearchSession(

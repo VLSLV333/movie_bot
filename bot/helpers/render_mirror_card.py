@@ -1,7 +1,9 @@
 from aiogram import types
 from typing import Tuple, Optional
+from bot.utils.logger import Logger
 
 DEFAULT_POSTER_FILE_ID = "AgACAgIAAxkBAAICNGf7lNhs16ESonKa5G8X-Nl7LV7gAAJv8jEbd87hS9GxbYmnDY9ZAQADAgADeQADNgQ"
+logger = Logger().get_logger()
 
 def render_mirror_card(result: dict) -> Tuple[str, types.InlineKeyboardMarkup, Optional[str]]:
     """
@@ -13,6 +15,7 @@ def render_mirror_card(result: dict) -> Tuple[str, types.InlineKeyboardMarkup, O
     stream_url = result.get("url")
 
     if not poster or not isinstance(poster, str) or not poster.startswith("http"):
+        logger.warning(f"[MirrorCard] Missing or invalid poster. Falling back to default.")
         poster = DEFAULT_POSTER_FILE_ID
 
     text = f"<b>{title}</b>"

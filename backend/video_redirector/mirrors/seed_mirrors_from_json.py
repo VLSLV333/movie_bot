@@ -18,12 +18,16 @@ with json_path.open("r", encoding="utf-8") as f:
 
 session = SessionLocal()
 inserted = 0
+updated = 0
 skipped = 0
 
 for entry in mirror_data:
-    name = entry["name"]
+    name = entry["name"].lower()
     domains = entry["domains"]
     geo = entry["geo_priority"]
+    lang = entry.get("lang")
+    if isinstance(lang, str):
+        lang = [s.strip() for s in lang.split(",")]
     mirror_type = entry["type"]
 
     if not domains:
@@ -31,16 +35,28 @@ for entry in mirror_data:
         continue
 
     for domain in domains:
-        mirror = Mirror(
-            name=name,
-            url=f"https://{domain}",
-            geo=geo,
-            mirror_type=mirror_type,
-            is_working=True
-        )
-        session.add(mirror)
-        inserted += 1
+        url = f"https://{domain}"
+        existing = session.query(Mirror).filter_by(url=url).first()
+
+        if existing:
+            # Update the fields
+            existing.name = name.lower()
+            existing.geo = geo
+            existing.lang = [s.strip() for s in lang.split(",")]
+            existing.mirror_type = mirror_type
+            updated += 1
+        else:
+            mirror = Mirror(
+                name=name.lower(),
+                url=url,
+                geo=geo,
+                lang=lang,
+                mirror_type=mirror_type,
+                is_working=True
+            )
+            session.add(mirror)
+            inserted += 1
 
 session.commit()
 session.close()
-print(f"✅ Inserted: {inserted} mirrors | ⏭️ Skipped: {skipped} mirrors with no domains")
+print(f"✅ Inserted: {inserted} mirrors | 🔁 Updated: {updated} | ⏭️ Skipped: {skipped}")

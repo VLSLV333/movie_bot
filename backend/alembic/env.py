@@ -1,6 +1,6 @@
 import os
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from backend.video_redirector.db.models import Base
 from dotenv import load_dotenv
@@ -48,6 +48,9 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    # Inject DB URL from .env
+    config.set_main_option("sqlalchemy.url", url)  # <-- ADD THIS LINE
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

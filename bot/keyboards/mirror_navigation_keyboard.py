@@ -1,6 +1,9 @@
 from aiogram import types
 from bot.search.mirror_search_session import MirrorSearchSession
 from typing import Tuple
+from bot.utils.logger import Logger
+
+logger = Logger().get_logger()
 
 def get_mirror_navigation_keyboard(session: MirrorSearchSession, position: str = "bottom",click_source: str | None = None) -> Tuple[str, types.InlineKeyboardMarkup]:
     """
@@ -41,5 +44,7 @@ def get_mirror_navigation_keyboard(session: MirrorSearchSession, position: str =
         )
     )
 
+    logger.debug(
+        f"[NavPanel] Mirror: {session.current_mirror_index}, Batch: {current}-{end}, Source: {click_source}, Position: {position}")
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[buttons])
     return text, keyboard
