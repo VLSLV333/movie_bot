@@ -3,7 +3,7 @@ from fastapi import HTTPException
 
 async def search_for_movie_on_mirror(mirror: str, query: str) -> list[dict]:
     try:
-        if mirror == "hdrezka":
+        if mirror.lower() == "hdrezka":
             return await search_hdrezka(query)
 
         raise ValueError(f"No extractor found for mirror: {mirror}")

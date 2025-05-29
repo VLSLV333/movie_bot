@@ -1,3 +1,4 @@
+import traceback
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from backend.video_redirector.services.mirror_selector import select_working_mirrors
@@ -33,4 +34,6 @@ async def mirror_search(req: MirrorSearchRequest, db: AsyncSession = Depends(get
             "results": results
         }]
     except Exception as e:
+        traceback.print_exc()  # <-- ADD THIS LINE
+        logger.exception(f"[MirrorSearch] Failed with exception: {e}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
