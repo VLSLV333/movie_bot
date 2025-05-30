@@ -65,6 +65,8 @@ async def handle_mirror_search(query: types.CallbackQuery):
         await query.message.answer("😔 No results found on mirror.")
         return
 
+    logger.debug(f"[User {user_id}] Received mirror search results: {[r.get('title') for r in mirror_results]}")
+
     # Extract info from backend response
     first_mirror_info = mirror_results[0]
     mirror_name = first_mirror_info.get("mirror")
