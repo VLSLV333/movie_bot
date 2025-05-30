@@ -56,6 +56,12 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
             logger.warning(f"[User {user_id}] Could not update top nav panel: {e}")
 
     # 2. Update movie cards
+    logger.debug(
+        f"[User {user_id}] Retrieved {len(results)} total results from mirror index {session.current_mirror_index}")
+    logger.debug(
+        f"[User {user_id}] Current pagination index: {session.current_result_index} → showing results {start}:{end}")
+    logger.debug(f"[User {user_id}] Titles in current batch: {[r.get('title') for r in current_batch]}")
+
     cards = await render_mirror_card_batch(current_batch)
     updated_ids = []
     navigation_deleted = False
@@ -139,7 +145,7 @@ async def next_mirror_result(query: types.CallbackQuery):
 
     session = MirrorSearchSession.from_dict(session_data.get("mirror_session"))
     session.current_result_index += BATCH_SIZE
-    click_source = detect_click_source(session_data, query.message.message_id)
+    click_source = detect_click_source(session.__dict__, query.message.message_id)
 
     await update_mirror_results_ui(query, session, click_source)
     await query.answer()
@@ -158,7 +164,7 @@ async def previous_mirror_result(query: types.CallbackQuery):
 
     session = MirrorSearchSession.from_dict(session_data.get("mirror_session"))
     session.current_result_index = max(0, session.current_result_index - BATCH_SIZE)
-    click_source = detect_click_source(session_data, query.message.message_id)
+    click_source = detect_click_source(session.__dict__, query.message.message_id)
 
     await update_mirror_results_ui(query, session, click_source)
     await query.answer()
