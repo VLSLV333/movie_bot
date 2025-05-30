@@ -6,6 +6,8 @@ from bot.search.mirror_search_session import MirrorSearchSession
 from bot.keyboards.mirror_navigation_keyboard import get_mirror_navigation_keyboard
 from bot.helpers.render_mirror_card import render_mirror_card_batch
 from bot.utils.logger import Logger
+from bot.handlers.mirror_search_handler import fetch_next_mirror_results
+from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 
 router = Router()
 logger = Logger().get_logger()
@@ -31,6 +33,7 @@ async def safely_delete_navigation(query: types.CallbackQuery, nav_message_id: i
         return False
 
 async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSearchSession, click_source: str):
+
     user_id = query.from_user.id
     mirror_data = session.mirrors_search_results.get(session.current_mirror_index, {})
     results = mirror_data.get("results", [])
@@ -46,6 +49,31 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
     start = session.current_result_index
     end = min(start + BATCH_SIZE, len(results))
     current_batch = results[start:end]
+
+    if start >= len(results):
+        searched = [v["mirror"] for v in session.mirrors_search_results.values() if "mirror" in v]
+        next_mirror = await fetch_next_mirror_results(
+            query=session.original_query,
+            lang=session.preferred_language or "ua",
+            excluded_mirrors=searched
+        )
+        if next_mirror and next_mirror.get("results"):
+            session.current_mirror_index += 1
+            session.current_result_index = 0
+            session.mirrors_search_results[session.current_mirror_index] = next_mirror
+
+            mirror_data = next_mirror
+            results = mirror_data["results"]
+            start = 0
+            end = min(BATCH_SIZE, len(results))
+            current_batch = results[start:end]
+        else:
+            # 🛑 No more mirrors → display fallback and stop pagination
+            await query.message.answer("❌ No more results found on mirrors. Try another movie.",
+                                       reply_markup=get_main_menu_keyboard())
+            session.card_message_ids = []
+            await SessionManager.update_data(user_id, {"mirror_session": session.to_dict()})
+            return
 
 
     logger.debug(f"[User {user_id}] Current batch titles: {[r.get('title') for r in results[start:end]]}")
@@ -78,6 +106,11 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
     navigation_deleted = False
 
     for i, (text, kb, poster) in enumerate(cards):
+
+        if i >= len(session.card_message_ids):
+            logger.warning(f"[User {user_id}] Not enough existing card message IDs, skipping update for index {i}")
+            continue
+
         try:
             message_id = session.card_message_ids[i]
             if poster:
@@ -178,7 +211,18 @@ async def previous_mirror_result(query: types.CallbackQuery):
     logger.info(f"[User {user_id}] Triggered pagination: 'previous'")
 
     session = MirrorSearchSession.from_dict(session_data.get("mirror_session"))
-    session.current_result_index = max(0, session.current_result_index - BATCH_SIZE)
+
+    if session.current_result_index > 0:
+        session.current_result_index = max(0, session.current_result_index - BATCH_SIZE)
+    else:
+        if session.current_mirror_index > 0:
+            session.current_mirror_index -= 1
+            prev_mirror = session.mirrors_search_results[session.current_mirror_index]
+            total_results = len(prev_mirror.get("results", []))
+            session.current_result_index = max(0, total_results - BATCH_SIZE)
+            logger.info(
+                f"[User {user_id}] Switched to mirror index {session.current_mirror_index}, result index {session.current_result_index}")
+
     click_source = detect_click_source(session.__dict__, query.message.message_id)
 
     await update_mirror_results_ui(query, session, click_source)

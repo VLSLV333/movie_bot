@@ -13,8 +13,27 @@ router = Router()
 logger = Logger().get_logger()
 
 MIRROR_SEARCH_API_URL = "https://moviebot.click/mirror/search"
+MIRROR_NEXT_API_URL = "https://moviebot.click/mirror/search/next"
 
 DEFAULT_MIRROR_INDEX = 0
+
+async def fetch_next_mirror_results(query: str, lang: str, excluded_mirrors: list[str]) -> dict | None:
+    payload = {
+        "query": query,
+        "lang": lang,
+        "excluded": excluded_mirrors
+    }
+    try:
+        async with ClientSession() as session:
+            async with session.post(MIRROR_NEXT_API_URL, json=payload) as resp:
+                if resp.status == 200:
+                    next_batch = await resp.json()
+                    return next_batch[0] if next_batch else None
+                else:
+                    logger.error(f"[MirrorPrefetch] Mirror next search failed: {resp.status} - {await resp.text()}")
+    except Exception as e:
+        logger.exception(f"[MirrorPrefetch] Exception: {e}")
+    return None
 
 @router.callback_query(F.data.startswith("select_movie_card:"))
 async def handle_mirror_search(query: types.CallbackQuery):
