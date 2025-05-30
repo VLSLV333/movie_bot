@@ -35,9 +35,20 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
     mirror_data = session.mirrors_search_results.get(session.current_mirror_index, {})
     results = mirror_data.get("results", [])
 
+    logger.debug(f"[User {user_id}] Full results from session: {results}")
+    logger.debug(f"[User {user_id}] Current result index: {session.current_result_index}")
+
+    logger.debug(f"[User {user_id}] Mirrors keys: {list(session.mirrors_search_results.keys())}")
+    logger.debug(f"[User {user_id}] Mirror data: {mirror_data}")
+    logger.debug(f"[User {user_id}] Mirror results count: {len(mirror_data.get('results', []))}")
+    logger.debug(f"[User {user_id}] Result index: {session.current_result_index}")
+
     start = session.current_result_index
     end = min(start + BATCH_SIZE, len(results))
     current_batch = results[start:end]
+
+
+    logger.debug(f"[User {user_id}] Current batch titles: {[r.get('title') for r in results[start:end]]}")
 
     # 1. Update top panel
     top_text, top_keyboard = get_mirror_navigation_keyboard(session, position="top", click_source=click_source)
@@ -146,6 +157,10 @@ async def next_mirror_result(query: types.CallbackQuery):
     session = MirrorSearchSession.from_dict(session_data.get("mirror_session"))
     session.current_result_index += BATCH_SIZE
     click_source = detect_click_source(session.__dict__, query.message.message_id)
+
+    logger.debug(f"[User {user_id}] Session mirror results keys: {list(session.mirrors_search_results.keys())}")
+    logger.debug(
+        f"[User {user_id}] Total results for current mirror: {len(session.mirrors_search_results[session.current_mirror_index]['results'])}")
 
     await update_mirror_results_ui(query, session, click_source)
     await query.answer()
