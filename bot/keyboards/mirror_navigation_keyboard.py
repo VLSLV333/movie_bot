@@ -33,7 +33,7 @@ def get_mirror_navigation_keyboard(session: MirrorSearchSession, position: str =
 
     # ⬅ / ➡ buttons
     buttons = []
-    show_previous = not (session.current_mirror_index == 0 and session.current_result_index <= 5)
+    show_previous = session.current_result_index > 0
     if show_previous:
         buttons.append(types.InlineKeyboardButton(text="⬅ Previous 5", callback_data="previous_mirror_result"))
 
