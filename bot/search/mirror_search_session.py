@@ -33,7 +33,9 @@ class MirrorSearchSession:
             "user_id": self.user_id,
             "movie_id": self.movie_id,
             "original_query": self.original_query,
-            "mirrors_search_results": self.mirrors_search_results,
+            "mirrors_search_results": {
+            str(k): v for k, v in self.mirrors_search_results.items()
+        },
             "current_mirror_index": self.current_mirror_index,
             "current_result_index": self.current_result_index,
             "confirmed_movie": self.confirmed_movie,
@@ -45,11 +47,17 @@ class MirrorSearchSession:
 
     @staticmethod
     def from_dict(data: Dict) -> 'MirrorSearchSession':
+        # Fix keys in mirrors_search_results: str -> int
+        mirrors_search_results_raw = data.get("mirrors_search_results", {})
+        mirrors_search_results = {
+            int(k): v for k, v in mirrors_search_results_raw.items()
+        }
+
         return MirrorSearchSession(
             user_id=data["user_id"],
             movie_id=data["movie_id"],
             original_query=data["original_query"],
-            mirrors_search_results=data.get("mirrors_search_results"),
+            mirrors_search_results=mirrors_search_results,
             current_mirror_index=data.get("current_mirror_index", 0),
             current_result_index=data.get("current_result_index", 0),
             confirmed_movie=data.get("confirmed_movie"),
