@@ -11,6 +11,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    command: ["redis-server", "--appendonly", "yes", "--slaveof", "no", "one"]
 
   # PostgreSQL
   db:
