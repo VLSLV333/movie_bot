@@ -13,6 +13,7 @@ from bot.handlers.movie_card_handler import router as movie_card_handler_router
 from bot.handlers.search_by_genre_handler import router as search_by_genre_handler_router
 from bot.handlers.mirror_search_handler import router as mirror_search_router
 from bot.handlers.mirror_pagination_handler import router as mirror_pagination_router
+from bot.handlers.mirror_watch_download_handler import router as mirror_watch_download_router
 
 logger = Logger().get_logger()
 logger.info("Bot started and logging initialized ")
@@ -29,6 +30,7 @@ def setup_routers(disp: Dispatcher):
     disp.include_router(back_btn_handler_router)
     disp.include_router(mirror_search_router)
     disp.include_router(mirror_pagination_router)
+    disp.include_router(mirror_watch_download_router)
     disp.include_router(fallback_input_handler_router)
 
 setup_routers(dp)

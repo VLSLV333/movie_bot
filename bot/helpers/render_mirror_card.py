@@ -1,7 +1,8 @@
 import re
 
+from bot.utils.redis_client import RedisClient
 from aiogram import types
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 from bot.utils.logger import Logger
 
 DEFAULT_POSTER_FILE_ID = "AgACAgIAAxkBAAICNGf7lNhs16ESonKa5G8X-Nl7LV7gAAJv8jEbd87hS9GxbYmnDY9ZAQADAgADeQADNgQ"
@@ -36,4 +37,19 @@ def render_mirror_card(result: dict) -> Tuple[str, types.InlineKeyboardMarkup, O
     return text, keyboard, poster
 
 async def   render_mirror_card_batch(results: list[dict]) -> list[Tuple[str, types.InlineKeyboardMarkup, Optional[str]]]:
-    return [render_mirror_card(result) for result in results]
+    redis = RedisClient.get_client()
+    rendered = []
+
+    for result in results:
+        stream_id = result.get("id")
+        stream_url = result.get("url")
+
+        if stream_id and stream_url:
+            try:
+                await redis.set(f"mirror_url:{stream_id}", stream_url, ex=3600)# 1 hour TTL
+            except Exception as e:
+                logger.warning(f"[MirrorCard] Failed to cache URL for {stream_id}: {e}")
+
+        rendered.append(render_mirror_card(result))
+
+    return rendered
