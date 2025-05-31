@@ -123,9 +123,9 @@ async def handle_mirror_search(query: types.CallbackQuery):
 
     for msg_text, msg_kb, msg_img in cards:
         if msg_img:
-            msg = await query.message.answer_photo(photo=msg_img, caption=msg_text, reply_markup=msg_kb)
+            msg = await query.message.answer_photo(photo=msg_img, caption=msg_text, reply_markup=msg_kb, parse_mode="HTML")
         else:
-            msg = await query.message.answer(text=msg_text, reply_markup=msg_kb)
+            msg = await query.message.answer(text=msg_text, reply_markup=msg_kb, parse_mode="HTML")
         card_message_ids.append(msg.message_id)
 
     bottom_nav_text, bottom_nav_keyboard = get_mirror_navigation_keyboard(mirror_session, position="bottom", click_source="bottom")
