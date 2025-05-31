@@ -63,7 +63,7 @@ async def search_movie_handler(query: types.CallbackQuery):
 #TODO:ADD THIS TEMPORARY FOR TESTING BOT BTN FOR MOVIE EXTRACTION
 EXTRACT_API_URL = "https://moviebot.click/hd/extract"
 MOVIE_URL = "https://hdrezka.ag/films/fiction/58225-bednye-neschastnye-2023.html"
-USER_LANG = "en"
+USER_LANG = "ua"
 import asyncio
 from aiohttp import ClientSession
 from urllib.parse import quote
