@@ -1,4 +1,5 @@
 import traceback
+import json
 
 from aiogram import Router, types, F
 from aiohttp import ClientSession
@@ -8,6 +9,7 @@ from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.keyboards.mirror_navigation_keyboard import get_mirror_navigation_keyboard
 from bot.helpers.render_mirror_card import render_mirror_card_batch
 from bot.utils.logger import Logger
+from bot.utils.redis_client import RedisClient
 
 router = Router()
 logger = Logger().get_logger()
@@ -39,12 +41,18 @@ async def fetch_next_mirror_results(query: str, lang: str, excluded_mirrors: lis
 
 @router.callback_query(F.data.startswith("select_movie_card:"))
 async def handle_mirror_search(query: types.CallbackQuery):
+    redis = RedisClient.get_client()
+
     user_id = query.from_user.id
-    movie_id, movie_title = query.data.split(":", 1)[1].split("|",1)
+    movie_id = query.data.split(":", 1)[1]
+
+    movie_json = await redis.get(f"movie_info:{movie_id}")
+    movie = json.loads(movie_json)
+
     tmdb_id = int(movie_id)
 
     await query.answer("⏳ Searching mirrors...")
-    logger.info(f"[User {user_id}] Initiating mirror search for: '{movie_title}'")
+    logger.info(f"[User {user_id}] Initiating mirror search for: '{movie.get('title')}'")
 
     # Retrieve movie title from stored session (you may pass it directly in a real scenario)
     session = await SessionManager.get_user_session(user_id)
@@ -61,9 +69,9 @@ async def handle_mirror_search(query: types.CallbackQuery):
     try:
         async with ClientSession() as session:
             logger.debug(
-                f"[User {user_id}] Sending mirror search POST to {MIRROR_SEARCH_API_URL} with payload: {{'query': '{movie_title}', 'lang': 'ua'}}")
+                f"[User {user_id}] Sending mirror search POST to {MIRROR_SEARCH_API_URL} with payload: {{'query': '{movie.get('title')}', 'lang': 'ua'}}")
             async with session.post(MIRROR_SEARCH_API_URL, json={
-                "query": movie_title,
+                "query": movie.get('title'),
     #TODO: lang needs to be dynamic. We should take user lang from TG and save in cur session or db with user info
     #TODO: update lang if user changes it using "wrong language" btn later
                 "lang": "ua"
@@ -102,7 +110,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
     mirror_session = MirrorSearchSession(
         user_id=user_id,
         movie_id=movie_id,
-        original_query=movie_title,
+        original_query=movie.get('title'),
         mirrors_search_results={
             DEFAULT_MIRROR_INDEX: {
                 "mirror": mirror_name,

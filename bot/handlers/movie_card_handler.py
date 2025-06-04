@@ -31,7 +31,7 @@ async def expand_card(query: types.CallbackQuery):
         await query.answer()
         return
 
-    text, keyboard, poster = render_movie_card(movie, is_expanded=True)
+    text, keyboard, poster = await render_movie_card(movie, is_expanded=True)
     try:
         await query.bot.edit_message_media(
             chat_id=query.message.chat.id,
@@ -57,7 +57,7 @@ async def collapse_card(query: types.CallbackQuery):
         await query.answer()
         return
 
-    text, keyboard, poster = render_movie_card(movie, is_expanded=False)
+    text, keyboard, poster = await render_movie_card(movie, is_expanded=False)
     try:
         await query.bot.edit_message_media(
             chat_id=query.message.chat.id,

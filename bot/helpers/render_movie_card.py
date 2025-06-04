@@ -1,6 +1,10 @@
 from aiogram import types
 from typing import Tuple, Optional
+import json
+from bot.utils.redis_client import RedisClient
+from bot.utils.logger import Logger
 
+logger = Logger().get_logger()
 
 # ✅ Optional: default poster fallback image in TG memory now (replace with hosted later)
 DEFAULT_POSTER_FILE_ID = "AgACAgIAAxkBAAICNGf7lNhs16ESonKa5G8X-Nl7LV7gAAJv8jEbd87hS9GxbYmnDY9ZAQADAgADeQADNgQ"
@@ -13,7 +17,7 @@ def truncate_text(text: str, max_length: int = 200) -> str:
         return text
     return text[:max_length].rstrip() + "..."
 
-def render_movie_card(movie: dict, is_expanded: bool = False) -> Tuple[str, types.InlineKeyboardMarkup, Optional[str]]:
+async def render_movie_card(movie: dict, is_expanded: bool = False) -> Tuple[str, types.InlineKeyboardMarkup, Optional[str]]:
     """
     Generate the movie card text, buttons, and poster URL.
     :param movie: Movie data dictionary from TMDB
@@ -59,7 +63,7 @@ def render_movie_card(movie: dict, is_expanded: bool = False) -> Tuple[str, type
     if is_expanded:
         # Expanded card: full options
         buttons.append([
-            types.InlineKeyboardButton(text="✅ Select", callback_data=f"select_movie_card:{movie['id']}|{title}"),
+            types.InlineKeyboardButton(text="✅ Select", callback_data=f"select_movie_card:{movie['id']}"),
             types.InlineKeyboardButton(text="🕓 Watch Later", callback_data=f"add_watchlist_card:{movie['id']}")
         ])
         buttons.append([
@@ -78,14 +82,20 @@ def render_movie_card(movie: dict, is_expanded: bool = False) -> Tuple[str, type
     else:
         # Small card view: quick actions
         buttons.append([
-            types.InlineKeyboardButton(text="✅ Select", callback_data=f"select_movie_card:{movie['id']}|{title}"),
+            types.InlineKeyboardButton(text="✅ Select", callback_data=f"select_movie_card:{movie['id']}"),
             types.InlineKeyboardButton(text="🕓 Watch Later", callback_data=f"add_watchlist_card:{movie['id']}")
         ])
         buttons.append([
             types.InlineKeyboardButton(text="⬇️ Expand", callback_data=f"expand_card:{movie['id']}")
         ])
 
+    await save_movie_info_to_redis(movie)
 
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
 
     return text, keyboard, poster_url
+
+async def save_movie_info_to_redis(movie):
+    redis = RedisClient.get_client()
+    logger.info(f"movie {movie.get('title')} with id {movie['id']} saved to redis")
+    await redis.set(f"movie_info:{movie['id']}", json.dumps(movie), ex=3600)

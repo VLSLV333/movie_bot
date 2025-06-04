@@ -171,7 +171,7 @@ async def confirm_selected_years(query: types.CallbackQuery):
     top_id = top_msg.message_id
 
     for movie in movies:
-        text, keyboard, poster = render_movie_card(movie, is_expanded=False)
+        text, keyboard, poster = await render_movie_card(movie, is_expanded=False)
         msg = await query.message.answer_photo(photo=poster, caption=text, reply_markup=keyboard, parse_mode="HTML")
         message_ids.append(msg.message_id)
 
