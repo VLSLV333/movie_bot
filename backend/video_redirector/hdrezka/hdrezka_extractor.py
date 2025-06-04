@@ -145,18 +145,6 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
         print(f"⚠️ Subtitle button failed to become interactable: {e}")
         return
 
-    # Step 2.5: Update previosly selected fallback subtitles
-    # lang = await page.evaluate("""
-    # () => {
-    #     const el = document.querySelector('[f2id] svg')?.closest('[f2id]');
-    #     if (!el) return null;
-    #     return el.innerText?.trim();
-    # }
-    # """)
-    # if lang and extracted["subtitles"]:
-    #     extracted["subtitles"][0]["lang"] = lang
-    #     print(f"🔤 Updated fallback subtitle lang to: {lang}")
-
     # Step 3: Setup shared subtitle event listener
     subtitle_state = {"current_lang": None}
     vtt_event = asyncio.Event()
@@ -364,13 +352,3 @@ async def extract_all_quality_variants(page, extracted: Dict):
         print(f"❌ Failed to extract the following qualities after {MAX_RETRIES} retries: {sorted(missing_set)}")
 
     quality_state["current"] = None
-
-
-# Example usage:
-if __name__ == "__main__":
-    async def test():
-        movie_url = "https://hdrezka.ag/films/fiction/58225-bednye-neschastnye-2023.html"
-        result = await extract_from_hdrezka(movie_url, user_lang="ua")
-        print(result)
-
-    asyncio.run(test())

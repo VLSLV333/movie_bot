@@ -13,6 +13,8 @@ router = Router()
 logger = Logger().get_logger()
 
 MIRROR_SEARCH_API_URL = "https://moviebot.click/mirror/search"
+
+#TODO: this endpoint is not yet implemented in backend! Add new mirrors first
 MIRROR_NEXT_API_URL = "https://moviebot.click/mirror/search/next"
 
 DEFAULT_MIRROR_INDEX = 0
@@ -39,6 +41,7 @@ async def fetch_next_mirror_results(query: str, lang: str, excluded_mirrors: lis
 async def handle_mirror_search(query: types.CallbackQuery):
     user_id = query.from_user.id
     movie_id, movie_title = query.data.split(":", 1)[1].split("|",1)
+    tmdb_id = int(movie_id)
 
     await query.answer("⏳ Searching mirrors...")
     logger.info(f"[User {user_id}] Initiating mirror search for: '{movie_title}'")
@@ -118,7 +121,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
     top_nav_message_id = top_panel.message_id
 
     # Show first 5 results
-    cards = await render_mirror_card_batch(results[:5])
+    cards = await render_mirror_card_batch(results[:5], tmdb_id=tmdb_id)
     card_message_ids = []
 
     for msg_text, msg_kb, msg_img in cards:
