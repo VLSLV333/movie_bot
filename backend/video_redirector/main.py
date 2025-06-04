@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from backend.video_redirector.hdrezka import router as hdrezka_router
 from backend.video_redirector.utils.redis_client import RedisClient
@@ -7,7 +8,10 @@ from backend.video_redirector.routes.mirror_search_route import  router as mirro
 
 app = FastAPI()
 
-app.mount("/static", StaticFiles(directory="video_redirector/static"), name="static")
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 #TODO: CHANGE DEPRECATED METHODS
 @app.on_event("startup")
