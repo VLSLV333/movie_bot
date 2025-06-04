@@ -85,7 +85,7 @@ async def process_search(context: UserSearchContext, message: types.Message):
 
         # Movie cards
         for movie in movies:
-            text, keyboard, poster_url = render_movie_card(movie, is_expanded=False)
+            text, keyboard, poster_url = await render_movie_card(movie, is_expanded=False)
             try:
                 movie_card =  await message.answer_photo(
                     photo=poster_url,

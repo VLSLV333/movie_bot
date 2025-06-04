@@ -135,7 +135,7 @@ async def handle_pagination(query: types.CallbackQuery, direction: str):
 
         # Try to update movie cards
         for movie, message_id in zip(movies, message_ids):
-            text, keyboard, poster_url = render_movie_card(movie, is_expanded=False)
+            text, keyboard, poster_url = await render_movie_card(movie, is_expanded=False)
             try:
                 await query.bot.edit_message_media(
                     chat_id=query.message.chat.id,
