@@ -84,7 +84,7 @@ class UserSearchContext:
             self.prev_preload_page_num = prev_pg
             asyncio.create_task(self._preload_previous_page(tmdb_service))
 
-        if self.current_result_idx - BATCH_SIZE * 2 < 0:
+        if self.current_result_idx - batch_size * 2 < 0:
             if self.preloaded_previous_page:
                 self.current_results = self.preloaded_previous_page
                 self.preloaded_previous_page = None
@@ -108,9 +108,9 @@ class UserSearchContext:
                 else:
                     self.current_result_idx = 0
         else:
-            self.current_result_idx -= BATCH_SIZE * 2
+            self.current_result_idx -= batch_size * 2
 
-        return await self.get_next_movies(tmdb_service)
+        return await self.get_next_movies(tmdb_service, batch_size = batch_size)
 
     async def _preload_next_page(self, tmdb_service: TMDBService):
         try:
