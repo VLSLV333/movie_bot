@@ -42,7 +42,10 @@ for entry in mirror_data:
             # Update the fields
             existing.name = name.lower()
             existing.geo = geo
-            existing.lang = [s.strip() for s in lang.split(",")]
+            if isinstance(lang, str):
+                existing.lang = [s.strip() for s in lang.split(",")]
+            else:
+                existing.lang = lang
             existing.mirror_type = mirror_type
             updated += 1
         else:
