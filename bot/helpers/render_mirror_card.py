@@ -1,4 +1,5 @@
 import re
+import json
 
 from bot.utils.redis_client import RedisClient
 from aiogram import types
@@ -21,7 +22,7 @@ def render_mirror_card(result: dict) -> Tuple[str, types.InlineKeyboardMarkup, O
         logger.warning(f"[MirrorCard] Missing or invalid poster. Falling back to default.")
         poster = DEFAULT_POSTER_FILE_ID
 
-    # Strip any <b> tags from the title
+    # Strip any <b> tags from the titlex
     clean_title = re.sub(r"</?b>", "", title)
 
     # Wrap clean title in bold
@@ -30,13 +31,12 @@ def render_mirror_card(result: dict) -> Tuple[str, types.InlineKeyboardMarkup, O
     buttons = [
         [types.InlineKeyboardButton(text="▶️ Watch", callback_data=f"watch_mirror:{stream_id}")],
         [types.InlineKeyboardButton(text="💾 Download", callback_data=f"download_mirror:{stream_id}")]
-
     ]
 
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
     return text, keyboard, poster
 
-async def   render_mirror_card_batch(results: list[dict]) -> list[Tuple[str, types.InlineKeyboardMarkup, Optional[str]]]:
+async def   render_mirror_card_batch(results: list[dict],tmdb_id) -> list[Tuple[str, types.InlineKeyboardMarkup, Optional[str]]]:
     redis = RedisClient.get_client()
     rendered = []
 
@@ -46,7 +46,10 @@ async def   render_mirror_card_batch(results: list[dict]) -> list[Tuple[str, typ
 
         if stream_id and stream_url:
             try:
-                await redis.set(f"mirror_url:{stream_id}", stream_url, ex=3600)# 1 hour TTL
+                await redis.set(f"mirror_url:{stream_id}", json.dumps({
+                    "url": result["url"],
+                    "tmdb_id": tmdb_id  # <-- pass this in from higher context
+                }), ex=3600) # 1 hour TTL
             except Exception as e:
                 logger.warning(f"[MirrorCard] Failed to cache URL for {stream_id}: {e}")
 

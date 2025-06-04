@@ -60,63 +60,10 @@ async def search_movie_handler(query: types.CallbackQuery):
     )
     await query.answer()
 
-#TODO:ADD THIS TEMPORARY FOR TESTING BOT BTN FOR MOVIE EXTRACTION
-EXTRACT_API_URL = "https://moviebot.click/hd/extract"
-MOVIE_URL = "https://hdrezka.ag/films/fiction/58225-bednye-neschastnye-2023.html"
-USER_LANG = "ua"
-import asyncio
-from aiohttp import ClientSession
-from urllib.parse import quote
-
-
 @router.callback_query(F.data == "suggest_movie")
 async def suggest_movie_handler(query: types.CallbackQuery):
     logger.info(f"[User {query.from_user.id}] Clicked 'Recommend Me' button")
-    # await query.answer("💯 Smart suggestions coming soon!", show_alert=True)
-    #TODO: WE WILL MAKE GIFS/PICTURES FOR USER TO SEE WE ARE PREPARING
-    loading_gif_msg = await query.message.answer_animation(
-        animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
-        caption="🎬 Preparing your movie... Hang tight!"
-    )
-    await query.answer("🔍 Getting your movie ready...", show_alert=True)
-
-    # 1. Trigger extraction
-    async with ClientSession() as session:
-        async with session.post(EXTRACT_API_URL, json={"url": MOVIE_URL, "lang": USER_LANG}) as resp:
-            data = await resp.json()
-            task_id = data.get("task_id")
-
-    # 2. get config with .m3u8 and .vtt files for movie user selected
-    config = await poll_task_until_ready(
-    user_id=query.from_user.id,
-    task_id=task_id,
-    status_url="https://moviebot.click/hd/status",
-    loading_gif_msg=loading_gif_msg,
-    query=query
-    )
-    if not config:
-#TODO: USER MUST NOT STUCK IN THIS SITUATION! SHOULD WE REPRAPER MOVIE? OR GO TO MAIN MENU OR TELL USER WE ARE NOT AVAILABLE NOW?
-        await query.message.edit_text(
-            "😕 Sorry, we couldn't extract the movie right now.\nTry again pls.",
-            reply_markup=get_main_menu_keyboard())
-        return
-
-    # 3. Pick first dub that is not "одноголосый"
-    selected_dub = None
-    lang = list(config.keys())[0]
-    for dub in config[lang].keys():
-        if "одноголосый" not in dub.lower():
-            selected_dub = dub
-            break
-    if not selected_dub:
-        selected_dub = list(config[lang].keys())[0]
-
-    watch_url = f"https://moviebot.click/hd/watch/{task_id}?lang={lang}&dub={quote(selected_dub)}"
-    kb = [[types.InlineKeyboardButton(text="▶️ Watch", url=watch_url)]]
-    markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
-
-    await loading_gif_msg.delete()
-    await query.message.answer("🎬 Your movie is ready:", reply_markup=markup)
+    await query.answer("💯 Smart suggestions coming soon!", show_alert=True)
 
 
 @router.callback_query(F.data == "watch_history")

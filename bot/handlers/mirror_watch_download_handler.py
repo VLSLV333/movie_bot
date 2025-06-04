@@ -1,3 +1,4 @@
+import json
 from aiogram import Router, types, F
 from aiohttp import ClientSession
 from urllib.parse import quote
@@ -20,11 +21,20 @@ async def watch_mirror_handler(query: types.CallbackQuery):
     stream_id = query.data.split("watch_mirror:")[1]
 
     redis = RedisClient.get_client()
-    movie_url = await redis.get(f"mirror_url:{stream_id}")
+    movie_data_raw = await redis.get(f"mirror_url:{stream_id}")
 
-    if not movie_url:
+    if not movie_data_raw:
         await query.answer("⚠️ Movie link expired. Try searching again.", show_alert=True)
         await query.message.answer("❌ This movie link is no longer valid. Please re-search from the main menu.",
+                                   reply_markup=get_main_menu_keyboard())
+        return
+
+    try:
+        movie_data = json.loads(movie_data_raw)
+        movie_url = movie_data.get("url")
+    except Exception as e:
+        logger.error(f"[User {user_id}] Failed to parse cached mirror data: {e}")
+        await query.message.answer("⚠️ We lost movie somewhere along the way!:(. Please re-search from the main menu.",
                                    reply_markup=get_main_menu_keyboard())
         return
 
@@ -75,5 +85,29 @@ async def watch_mirror_handler(query: types.CallbackQuery):
 
 @router.callback_query(F.data.startswith("download_mirror:"))
 async def download_mirror_handler(query: types.CallbackQuery):
-    # TODO: identical logic to watch, but sends download link instead of watch
-    await query.answer("💾 Download support coming soon!", show_alert=True)
+    user_id = query.from_user.id
+    stream_id = query.data.split("download_mirror:")[1]
+
+    redis = RedisClient.get_client()
+    movie_data_raw = await redis.get(f"mirror_url:{stream_id}")
+
+    if not movie_data_raw:
+        await query.answer("⚠️ Movie link expired. Try searching again.", show_alert=True)
+        await query.message.answer("❌ This movie link is no longer valid. Please re-search from the main menu.",
+                                   reply_markup=get_main_menu_keyboard())
+        return
+
+    try:
+        movie_data = json.loads(movie_data_raw)
+        movie_url = movie_data.get("url")
+        tmdb_id = movie_data.get("tmdb_id")
+    except Exception as e:
+        logger.error(f"[User {user_id}] Failed to parse cached mirror data: {e}")
+        await query.message.answer("⚠️ We lost movie somewhere along the way!:(. Please re-search from the main menu.",
+                                   reply_markup=get_main_menu_keyboard())
+        return
+
+    logger.info(f"[User {user_id}] Requested 💾 Download for TMDB_ID={tmdb_id}, stream={movie_url}")
+
+    # TODO: Proceed to check backend /hd/ready and handle dub selection flow
+    await query.answer("💾 Preparing download options...", show_alert=True)

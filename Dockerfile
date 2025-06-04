@@ -6,6 +6,7 @@ COPY . /app
 RUN echo "✅ Project files copied to /app"
 
 RUN apt-get update && apt-get install -y \
+    ffmpeg \
     build-essential \
     gcc \
     python3-dev \
