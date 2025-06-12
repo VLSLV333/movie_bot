@@ -7,7 +7,7 @@ from bot.utils.logger import Logger
 logger = Logger().get_logger()
 
 
-async def poll_task_until_ready(
+async def poll_watch_until_ready(
     user_id: int,
     task_id: str,
     status_url: str,

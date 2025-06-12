@@ -1,6 +1,12 @@
+# app/backend/Dockerfile
 FROM python:3.11
 
 WORKDIR /app
+
+RUN pip install -U camoufox[geoip]
+ENV CAMOUFOX_CACHE_DIR=/usr/local/share/camoufox
+RUN python3 -m camoufox fetch
+RUN echo "✅ Camoufox installed and browser binary fetched"
 
 COPY . /app
 RUN echo "✅ Project files copied to /app"

@@ -1,11 +1,8 @@
 from aiogram import Router, types, F
 from aiogram.filters import CommandStart
 from bot.utils.logger import Logger
-from aiogram.types import ForceReply, InlineKeyboardMarkup, InlineKeyboardButton
-from bot.helpers.back_button import add_back_button
 from bot.utils.session_manager import SessionManager
 from bot.keyboards.search_type_keyboard import get_search_type_keyboard
-from bot.utils.poll_from_hdrezka_extractor import poll_task_until_ready
 
 router = Router()
 logger = Logger().get_logger()
