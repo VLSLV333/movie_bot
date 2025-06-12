@@ -1,3 +1,5 @@
+import logging
+
 import json
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException, Response
 from fastapi.responses import HTMLResponse,JSONResponse,PlainTextResponse
@@ -10,7 +12,16 @@ from backend.video_redirector.hdrezka.hdrezka_proxy_handler import proxy_video, 
 from backend.video_redirector.utils.templates import templates
 from backend.video_redirector.utils.redis_client import RedisClient
 
-class ExtractRequest(BaseModel):
+from backend.video_redirector.hdrezka.hdrezka_all_dubs_scrapper import scrape_dubs_for_movie
+from backend.video_redirector.hdrezka.hdrezka_downloader import secure_download
+from backend.video_redirector.hdrezka.hdrezka_merge_ts_into_mp4 import get_task_progress
+from backend.video_redirector.utils.download_queue_manager import DownloadQueueManager
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+class MovieInput(BaseModel):
     url: str
     lang: str = "ua"
 
@@ -56,7 +67,7 @@ async def extract_and_generate_master_m3u8(task_id: str, url: str, lang: str):
 
 
 @router.post("/extract")
-async def extract_entry(data: ExtractRequest, background_tasks: BackgroundTasks):
+async def extract_entry(data: MovieInput, background_tasks: BackgroundTasks):
     task_id = str(uuid4())
     redis = RedisClient.get_client()
     await redis.set(f"extract:{task_id}:status", "pending", ex=3600)
@@ -66,8 +77,8 @@ async def extract_entry(data: ExtractRequest, background_tasks: BackgroundTasks)
 
     return {"task_id": task_id, "status": "started"}
 
-@router.get("/status/{task_id}")
-async def check_status(task_id: str):
+@router.get("/status/watch/{task_id}")
+async def check_watch_status(task_id: str):
     redis = RedisClient.get_client()
 
     status = await redis.get(f"extract:{task_id}:status")
@@ -82,6 +93,14 @@ async def check_status(task_id: str):
         return {"status": status, "error": error}
     else:
         return {"status": status}
+
+@router.get("/status/merge_progress/{task_id}")
+async def check_merge_status(task_id: str):
+    """
+    Check the progress of .ts -> .mp4 merging for a given task_id.
+    Returns: {status, message, progress, done, total}
+    """
+    return JSONResponse(content=get_task_progress(task_id))
 
 @router.get("/watch-config/{task_id}")
 async def get_watch_config(task_id: str):
@@ -205,7 +224,43 @@ async def watch_movie(movie_id: str, request: Request):
         "movie_id": movie_id,
     })
 
-@router.get("/download/{movie_id}", response_class=HTMLResponse)
-async def redirect_download(movie_id: str, request: Request):
-    # TODO: create download logic
-    return
+@router.get("/download")
+async def download(data: str, sig: str, background_tasks: BackgroundTasks):
+    return await secure_download(data, sig, background_tasks)
+
+@router.get("/status/download/{task_id}")
+async def check_full_download_status(task_id: str):
+    redis = RedisClient.get_client()
+
+    status = await redis.get(f"download:{task_id}:status")
+    if not status:
+        raise HTTPException(status_code=404, detail="Download task not found")
+
+    response = {"status": status}
+
+    if status == "error":
+        response["error"] = await redis.get(f"download:{task_id}:error")
+
+    elif status == "done":
+        result = await redis.get(f"download:{task_id}:result")
+        if result:
+            response["result"] = json.loads(result)
+
+    retries = await redis.get(f"download:{task_id}:retries")
+    if retries is not None:
+        response["retries"] = int(retries)
+
+    position = await DownloadQueueManager.get_position_by_task_id(task_id)
+    if position:
+        response["queue_position"] = position
+
+    return response
+
+@router.post("/alldubs")
+async def get_all_dubs(data: MovieInput):
+    try:
+        result = await scrape_dubs_for_movie(data.url, data.lang)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Failed to scrape dubs: {e}")
+        return JSONResponse(status_code=500, content={"error": "Internal error while scraping dubs"})

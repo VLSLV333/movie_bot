@@ -9,7 +9,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    command: ["redis-server", "--appendonly", "yes", "--slaveof", "no", "one"]
+    command: ["redis-server", "--appendonly", "yes"]
 
   # PostgreSQL
   db:
@@ -65,12 +65,13 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: app/backend/Dockerfile
     container_name: backend
     working_dir: /app/backend
-    command: uvicorn backend.video_redirector.main:app --host 0.0.0.0 --port 8018 --reload
+    command: uvicorn backend.video_redirector.main:app --host 0.0.0.0 --port 8018
     volumes:
       - .:/app
+      - camoufox_cache:/usr/local/share/camoufox
     ports:
       - "8018:8018"
     depends_on:
@@ -83,5 +84,28 @@ services:
       - PYTHONPATH=/app
     restart: unless-stopped
 
+  delivery_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: delivery_bot
+    working_dir: /app/delivery_bot
+    command: [ "python", "main.py" ]
+    volumes:
+      - .:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - DELIVERY_BOT_TOKEN=${DELIVERY_BOT_TOKEN}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - BACKEND_DOWNLOAD_SECRET=${BACKEND_DOWNLOAD_SECRET}
+      - ADMIN_CHAT_ID=${ADMIN_CHAT_ID}
+      - PING_BOT_TOKEN=${PING_BOT_TOKEN}
+      - PYTHONPATH=/app
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  camoufox_cache:

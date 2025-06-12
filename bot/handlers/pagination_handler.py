@@ -62,7 +62,7 @@ async def handle_pagination(query: types.CallbackQuery, direction: str):
 
     # 2) if it’s already locked, just ignore the extra tap
     if lock.locked():
-        return await query.answer("Hang on—still updating…", show_alert=False)
+        return await query.answer("Wait pls, some cards are still updating", show_alert=False)
 
     # 3) only one runner at a time
     async with lock:

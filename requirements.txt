@@ -18,3 +18,5 @@ langdetect
 SQLAlchemy
 parsel
 certifi
+beautifulsoup4
+requests

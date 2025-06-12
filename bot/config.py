@@ -12,3 +12,17 @@ STATE_EXPIRATION_SECONDS = 1800  # time to expire redis session if user is inact
 BATCH_SIZE = 5 # number of movies to show at one time when user is searching by movie title
 MINIMUM_NUM_OF_VOTES_FOR_MOVIE_TO_GET_INTO_SUGGESTIONS = 100
 SORT_MOVIES_IN_TMDB_RESPONSE_BY = "vote_average.desc"
+DUB_TRANSLATION_MAP ={
+    "Украинский": "Український",
+    "украинский": "український",
+    "одноголосый":"одноголосий",
+    "двухголосый":"двоголосий",
+    "многоголосый":"многоголосий",
+    "оригинал":"оригінал",
+    "субтитры":"субтитри",
+    "Одноголосый":"Одноголосий",
+    "Двухголосый":"Двоголосий",
+    "Многоголосый":"Многоголосий",
+    "Оригинал":"Оригінал",
+    "Субтитры":"Субтитри",
+}
