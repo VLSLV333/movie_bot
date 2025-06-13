@@ -177,6 +177,7 @@ async def download_mirror_handler(query: types.CallbackQuery):
         return
 
     if not list_of_available_dubs_for_tmdb_id_and_lang:
+        movie_data = json.loads(movie_data_raw)
         logger.info(f"[User {user_id}] No existing dubs found. Triggering dub selection flow.")
         markup = types.InlineKeyboardMarkup(inline_keyboard=[[
             types.InlineKeyboardButton(
@@ -184,7 +185,7 @@ async def download_mirror_handler(query: types.CallbackQuery):
                 callback_data=f"fetch_dubs:{stream_id}"
             )
         ]])
-        await query.message.answer(f"{movie_data_raw['title']} was never downloaded before! Be the first:", reply_markup=markup)
+        await query.message.answer(f"{movie_data['title']} was never downloaded before! Be the first:", reply_markup=markup)
         await query.answer()
         return
 
