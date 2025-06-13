@@ -184,7 +184,8 @@ async def download_mirror_handler(query: types.CallbackQuery):
                 callback_data=f"fetch_dubs:{stream_id}"
             )
         ]])
-        await query.message.answer("This content was never downloaded before! Be the first:", reply_markup=markup)
+        await query.message.answer(f"{movie_data_raw['title']} was never downloaded before! Be the first:", reply_markup=markup)
+        await query.answer()
         return
 
 
@@ -390,7 +391,7 @@ async def select_dub_handler(query: types.CallbackQuery):
         result = await poll_download_until_ready(
             user_id=user_id,
             task_id=task_id,
-            status_url="https://moviebot.click/status/download",  # backend endpoint
+            status_url="https://moviebot.click/hd/status/download",  # backend endpoint
             loading_msg=loading_msg,
             query=query
         )

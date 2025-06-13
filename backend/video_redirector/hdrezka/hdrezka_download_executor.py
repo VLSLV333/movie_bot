@@ -62,7 +62,7 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
         if len(parts) == 1:
             await redis.set(f"download:{task_id}:result", json.dumps({
                 "tg_bot_token_file_owner":tg_bot_token_file_owner,
-                "telegram_file_id":part["file_id"]
+                "telegram_file_id":parts[0]["file_id"]
             }), ex=86400)
         else:
             await redis.set(f"download:{task_id}:result", json.dumps({
