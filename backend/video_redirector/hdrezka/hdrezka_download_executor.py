@@ -1,11 +1,6 @@
 import json
-import time
 import logging
-from uuid import uuid4
-from fastapi import APIRouter,HTTPException, BackgroundTasks
-from fastapi.responses import JSONResponse
-from backend.video_redirector.utils.redis_client import RedisClient
-from backend.video_redirector.utils.signed_token_manager import SignedTokenManager
+import time
 from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePart
 from backend.video_redirector.db.session import get_db
 from backend.video_redirector.hdrezka.extract_to_download_from_hdrezka import extract_to_download_from_hdrezka
@@ -13,53 +8,10 @@ from backend.video_redirector.hdrezka.hdrezka_merge_ts_into_mp4 import merge_ts_
 from backend.video_redirector.utils.upload_video_to_tg import check_size_upload_large_file
 from backend.video_redirector.utils.notify_admin import notify_admin
 from backend.video_redirector.exceptions import RetryableDownloadError, RETRYABLE_EXCEPTIONS
-from typing import Optional, Union
+from backend.video_redirector.utils.redis_client import RedisClient
+from typing import Optional
 
-router = APIRouter()
 logger = logging.getLogger(__name__)
-
-async def secure_download(data: str, sig: str, background_tasks: BackgroundTasks):
-    from backend.video_redirector.utils.download_queue_manager import DownloadQueueManager
-    try:
-        payload = SignedTokenManager.verify_token(data, sig)
-    except ValueError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-
-    tmdb_id = payload["tmdb_id"]
-    lang = payload["lang"]
-    dub = payload["dub"]
-    tg_user_id = payload["tg_user_id"]
-    movie_url= payload["movie_url"]
-    task_id = str(uuid4())
-
-    redis = RedisClient.get_client()
-
-    await redis.set(f"download:{task_id}:status", "queued", ex=3600)
-    await redis.set(f"download:{task_id}:progress", 0, ex=3600)
-    await redis.set(f"download:{task_id}:user_id", tg_user_id, ex=3600)
-    await redis.set(f"download:{task_id}:retries", 0, ex=3600)
-
-    # Create task payload
-    task = {
-        "task_id": task_id,
-        "movie_url": movie_url,
-        "tmdb_id": tmdb_id,
-        "lang": lang,
-        "dub": dub,
-        "tg_user_id": tg_user_id,
-    }
-
-    # Enqueue the task
-    position = await DownloadQueueManager.enqueue(task)
-
-    await redis.set(f"download:{task_id}:queue_position", position, ex=3600)
-
-    return JSONResponse({
-        "task_id": task_id,
-        "status": "queued",
-        "queue_position": position
-    })
-
 
 async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang: str, dub: str):
     redis = RedisClient.get_client()

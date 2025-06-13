@@ -3,7 +3,7 @@ import json
 import logging
 from typing import Optional
 from backend.video_redirector.utils.redis_client import RedisClient
-from backend.video_redirector.hdrezka.hdrezka_downloader import handle_download_task
+from backend.video_redirector.hdrezka.hdrezka_download_executor import handle_download_task
 from backend.video_redirector.exceptions import RetryableDownloadError
 
 logger = logging.getLogger(__name__)
