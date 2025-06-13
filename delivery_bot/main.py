@@ -11,6 +11,7 @@ from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from redis.asyncio import Redis
 from dotenv import load_dotenv
+from aiogram.client.default import DefaultBotProperties
 
 load_dotenv()
 
@@ -24,7 +25,10 @@ redis_port = int(os.getenv("REDIS_PORT", 6379))
 REDIS_URL = f"redis://{redis_host}:{redis_port}"
 redis = Redis.from_url(REDIS_URL, decode_responses=True)
 
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
 dp = Dispatcher()
 
 logging.basicConfig(level=logging.INFO)
