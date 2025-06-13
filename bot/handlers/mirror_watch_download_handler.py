@@ -160,7 +160,7 @@ async def download_mirror_handler(query: types.CallbackQuery):
             display_dub = translate_dub_to_ua(dub) if USER_LANG == 'ua' else dub
             kb.append([
                 types.InlineKeyboardButton(
-                    text=f"▶️ Instantly watch with {emoji} {display_dub} dub",
+                    text=f"▶️ Watch via Delivery Bot with {emoji} {display_dub} dub",
                     callback_data=f"watch_downloaded:{token}"
                 )
             ])
@@ -175,6 +175,18 @@ async def download_mirror_handler(query: types.CallbackQuery):
         markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
         await query.message.answer("🎉 We already have this movie! Choose an option:", reply_markup=markup)
         return
+
+    if not list_of_available_dubs_for_tmdb_id_and_lang:
+        logger.info(f"[User {user_id}] No existing dubs found. Triggering dub selection flow.")
+        markup = types.InlineKeyboardMarkup(inline_keyboard=[[
+            types.InlineKeyboardButton(
+                text="📥 Choose dub to download",
+                callback_data=f"fetch_dubs:{stream_id}"
+            )
+        ]])
+        await query.message.answer("This content was never downloaded before! Be the first:", reply_markup=markup)
+        return
+
 
 @router.callback_query(F.data.startswith("fetch_dubs:"))
 async def fetch_dubs_handler(query: types.CallbackQuery):
@@ -271,7 +283,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
             display_dub = translate_dub_to_ua(dub) if USER_LANG == 'ua' else dub
             kb.append([
                 types.InlineKeyboardButton(
-                    text=f"▶️ Instantly watch with {emoji} {display_dub} dub",
+                    text=f"▶️ Watch via Delivery Bot with {emoji} {display_dub} dub",
                     callback_data=f"watch_downloaded:{token}"
                 )
             ])
@@ -294,7 +306,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
 
     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
     await loading_msg.delete()
-    await query.message.answer("🎙 Choose a dub to download (or instantly watch one we already have):",
+    await query.message.answer("🎙 Choose a dub to download (or fast watch one we already have in Delivery Bot):",
                                reply_markup=markup)
 
 @router.callback_query(F.data.startswith("watch_downloaded:"))
@@ -400,3 +412,7 @@ async def select_dub_handler(query: types.CallbackQuery):
         await loading_msg.delete()
         await query.message.answer("⚠️ Unexpected error during download. Try again later.",
                                    reply_markup=get_main_menu_keyboard())
+
+@router.callback_query(F.data == "noop")
+async def noop_handler(query: types.CallbackQuery):
+    await query.answer()
