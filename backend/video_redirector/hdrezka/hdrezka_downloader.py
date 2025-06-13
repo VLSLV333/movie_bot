@@ -11,7 +11,6 @@ from backend.video_redirector.db.session import get_db
 from backend.video_redirector.hdrezka.extract_to_download_from_hdrezka import extract_to_download_from_hdrezka
 from backend.video_redirector.hdrezka.hdrezka_merge_ts_into_mp4 import merge_ts_to_mp4
 from backend.video_redirector.utils.upload_video_to_tg import check_size_upload_large_file
-from backend.video_redirector.utils.download_queue_manager import DownloadQueueManager
 from backend.video_redirector.utils.notify_admin import notify_admin
 from backend.video_redirector.exceptions import RetryableDownloadError, RETRYABLE_EXCEPTIONS
 from typing import Optional, Union
@@ -20,6 +19,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 async def secure_download(data: str, sig: str, background_tasks: BackgroundTasks):
+    from backend.video_redirector.utils.download_queue_manager import DownloadQueueManager
     try:
         payload = SignedTokenManager.verify_token(data, sig)
     except ValueError as e:
