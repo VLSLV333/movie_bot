@@ -15,7 +15,6 @@ from backend.video_redirector.utils.redis_client import RedisClient
 from backend.video_redirector.hdrezka.hdrezka_all_dubs_scrapper import scrape_dubs_for_movie
 from backend.video_redirector.hdrezka.hdrezka_download_setup import download_setup
 from backend.video_redirector.hdrezka.hdrezka_merge_ts_into_mp4 import get_task_progress
-from backend.video_redirector.utils.download_queue_manager import DownloadQueueManager
 
 
 logger = logging.getLogger(__name__)
@@ -230,6 +229,7 @@ async def download(data: str, sig: str, background_tasks: BackgroundTasks):
 
 @router.get("/status/download/{task_id}")
 async def check_full_download_status(task_id: str):
+    from backend.video_redirector.utils.download_queue_manager import DownloadQueueManager
     redis = RedisClient.get_client()
 
     status = await redis.get(f"download:{task_id}:status")
