@@ -18,7 +18,7 @@ if not logging.getLogger().hasHandlers():
 
 logger = logging.getLogger(__name__)
 
-session_path = os.path.join("backend", "user_uploader_session.session")
+session_path = "/app/backend/user_uploader_session.session"
 if not os.path.exists(session_path):
     logger.critical(f"❗️ Pyrogram .session file NOT FOUND! Expected at: {session_path}")
     logger.critical("🛑 Upload to Telegram with user account will FAIL. Stopping application startup.")
