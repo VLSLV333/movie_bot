@@ -20,3 +20,5 @@ parsel
 certifi
 beautifulsoup4
 requests
+pyrogram
+tgcrypto

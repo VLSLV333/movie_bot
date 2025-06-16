@@ -72,6 +72,7 @@ services:
     volumes:
       - .:/app
       - camoufox_cache:/usr/local/share/camoufox
+      - /root/session_files/user_uploader_session.session:/app/backend/user_uploader_session.session:ro
     ports:
       - "8018:8018"
     depends_on:

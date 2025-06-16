@@ -6,56 +6,47 @@ from dotenv import load_dotenv
 import math
 import subprocess
 import asyncio
+from pyrogram import Client
 
 from backend.video_redirector.utils.notify_admin import notify_admin
 
 logger = logging.getLogger(__name__)
 load_dotenv()
 
+API_ID = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
+SESSION_NAME = os.getenv("SESSION_NAME")
+TG_DELIVERY_BOT_USERNAME = os.getenv("TG_DELIVERY_BOT_USERNAME")
 
 bot_tokens = os.getenv("DELIVERY_BOT_TOKEN", "").split(",")
 bot_tokens = [t.strip() for t in bot_tokens if t.strip()]
 
-MAX_MB = 1900  # safety limit to stay below Telegram's 2GB
+MAX_MB = 1900
 PARTS_DIR = "downloads/parts"
+TG_USER_ID_TO_UPLOAD = 7841848291
 os.makedirs(PARTS_DIR, exist_ok=True)
 
-async def upload_part_to_tg(file_path: str, task_id: str, token: str, part_num: int):
+async def upload_part_to_tg(file_path: str, task_id: str, part_num: int):
     if not os.path.exists(file_path):
         logger.error(f"[{task_id}] Part {part_num} file not found: {file_path}")
         return None
 
-    upload_url = f"https://api.telegram.org/bot{token}/sendVideo"
-    chat_id_url = f"https://api.telegram.org/bot{token}/getMe"
-
     try:
-        async with aiohttp.ClientSession() as session:
-            # Get bot's own chat ID
-            async with session.get(chat_id_url) as res:
-                data = await res.json()
-                chat_id = data["result"]["id"]
-
-            with open(file_path, "rb") as f:
-                form = aiohttp.FormData()
-                form.add_field("chat_id", str(chat_id))
-                form.add_field("video", f, filename=f"{task_id}_part{part_num}.mp4", content_type="video/mp4")
-                form.add_field("supports_streaming", "true")
-                form.add_field("disable_notification", "false")
-
-                async with session.post(upload_url, data=form) as resp:
-                    if resp.status != 200:
-                        text = await resp.text()
-                        logger.error(f"❌ [{task_id}] Part {part_num} upload failed: HTTP {resp.status}: {text}")
-                        await notify_admin(f"❌ [{task_id}] Part {part_num} upload failed: HTTP {resp.status}: {text}")
-                        return None
-
-                    data = await resp.json()
-                    file_id = data["result"]["video"]["file_id"]
-                    logger.info(f"✅ [{task_id}] Uploaded part {part_num}. file_id: {file_id}")
-                    return file_id
+        async with Client(SESSION_NAME, api_id=API_ID, api_hash=API_HASH) as app:
+            logger.info(f"[{task_id}] Uploading part {part_num} with Pyrogram...")
+            msg = await app.send_video(
+                chat_id=TG_DELIVERY_BOT_USERNAME,
+                video=file_path,
+                caption=f"🎬 Part {part_num}",
+                disable_notification=True,
+                supports_streaming=True
+            )
+            file_id = msg.video.file_id
+            logger.info(f"✅ [{task_id}] Uploaded part {part_num}. file_id: {file_id}")
+            return file_id
     except Exception as e:
-        logger.error(f"❌ [{task_id}] Part {part_num} upload exception: {e}")
-        await notify_admin(f"❌ [{task_id}] Part {part_num} upload exception: {e}")
+        logger.error(f"❌ [{task_id}] Pyrogram upload failed for part {part_num}: {e}")
+        await notify_admin(f"❌ [{task_id}] Pyrogram upload failed for part {part_num}: {e}")
         return None
     finally:
         try:
@@ -104,7 +95,7 @@ async def check_size_upload_large_file(file_path: str, task_id: str):
         try:
             if file_size_mb <= MAX_MB:
                 logger.info(f"[{task_id}] File is {round(file_size_mb)} MB — uploading as one part")
-                file_id = await upload_part_to_tg(file_path, task_id, token, 1)
+                file_id = await upload_part_to_tg(file_path, task_id, 1)
                 if file_id:
                     return {
                         "bot_token": token,
@@ -143,7 +134,7 @@ async def check_size_upload_large_file(file_path: str, task_id: str):
 
             for idx, part_path in enumerate(part_paths):
                 try:
-                    file_id = await upload_part_to_tg(part_path, task_id, token, idx + 1)
+                    file_id = await upload_part_to_tg(part_path, task_id, idx + 1)
                     if not file_id:
                         raise RuntimeError(f"Upload failed for part {idx + 1}")
                     parts_result.append({"part": idx + 1, "file_id": file_id})
@@ -180,3 +171,23 @@ async def check_size_upload_large_file(file_path: str, task_id: str):
     logger.critical(f"🆘 [{task_id}] All delivery bots failed. No movie uploaded.")
     await notify_admin(f"🆘 [{task_id}] All delivery bots failed. User can't get content.")
     return None
+
+async def main():
+    test_file_path = "C:/Users/vlads/MY_IDEAS/movie_bot/backend/video_redirector/static/ad_dummy.mp4"
+    task_id = "test_ad_upload"
+
+    if not os.path.exists(test_file_path):
+        print(f"❌ File not found: {test_file_path}")
+        return
+
+    print(f"📤 Starting upload test for: {test_file_path}")
+    result = await check_size_upload_large_file(test_file_path, task_id)
+
+    if result:
+        print("✅ Upload successful!")
+        print(result)
+    else:
+        print("❌ Upload failed.")
+
+if __name__ == "__main__":
+    asyncio.run(main())

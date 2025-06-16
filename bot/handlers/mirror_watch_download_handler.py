@@ -174,6 +174,7 @@ async def download_mirror_handler(query: types.CallbackQuery):
 
         markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
         await query.message.answer("🎉 We already have this movie! Choose an option:", reply_markup=markup)
+        await query.answer()
         return
 
     if not list_of_available_dubs_for_tmdb_id_and_lang:
@@ -310,6 +311,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
     await loading_msg.delete()
     await query.message.answer("🎙 Choose a dub to download (or fast watch one we already have in Delivery Bot):",
                                reply_markup=markup)
+    await query.answer()
 
 @router.callback_query(F.data.startswith("watch_downloaded:"))
 async def watch_downloaded_handler(query: types.CallbackQuery):
@@ -327,6 +329,7 @@ async def watch_downloaded_handler(query: types.CallbackQuery):
             ]
         )
     )
+    await query.answer()
 
 @router.callback_query(F.data.startswith("select_dub:"))
 async def select_dub_handler(query: types.CallbackQuery):
@@ -408,6 +411,8 @@ async def select_dub_handler(query: types.CallbackQuery):
                     ]
                 )
             )
+
+        await query.answer()
 
     except Exception as e:
         logger.error(f"[User {user_id}] Failed during download flow: {e}")
