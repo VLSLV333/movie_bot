@@ -72,7 +72,7 @@ services:
     volumes:
       - .:/app
       - camoufox_cache:/usr/local/share/camoufox
-      - /home/vladadmin/session_files/user_uploader_session.session:/app/backend/user_uploader_session.session:ro
+      - /home/vladadmin/session_files:/app/backend/session_files
     ports:
       - "8018:8018"
     depends_on:
