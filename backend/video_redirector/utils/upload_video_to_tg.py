@@ -32,29 +32,31 @@ async def upload_part_to_tg(file_path: str, task_id: str, part_num: int):
         return None
 
     logger.info(f"[{task_id}] Starting upload of part {part_num}: {file_path}")
+    app = Client(f"session_files/{SESSION_NAME}", api_id=API_ID, api_hash=API_HASH)
+    await app.start()
     try:
-        print(f"API_ID={API_ID}, API_HASH={API_HASH}, SESSION_NAME={SESSION_NAME}")
-        async with Client(f"session_files/{SESSION_NAME}", api_id=API_ID, api_hash=API_HASH) as app:
-            logger.info(f"[{task_id}] Uploading part {part_num} with Pyrogram...")
-            msg = await app.send_video(
-                chat_id=TG_DELIVERY_BOT_USERNAME,
-                video=file_path,
-                caption=f"🎬 Part {part_num}",
-                disable_notification=True,
-                supports_streaming=True
-            )
-            file_id = msg.video.file_id
-            logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
-            return file_id
+        logger.info(f"💬 Using session path: session_files/{SESSION_NAME}")
+        logger.info(f"[{task_id}] Uploading part {part_num} with Pyrogram...")
+        msg = await app.send_video(
+            chat_id=TG_DELIVERY_BOT_USERNAME,
+            video=file_path,
+            caption=f"🎬 Part {part_num}",
+            disable_notification=True,
+            supports_streaming=True
+        )
+        file_id = msg.video.file_id
+        logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
+        return file_id
     except Exception as err:
         logger.error(f"❌ [{task_id}] Pyrogram upload failed for part {part_num}: {err}")
         await notify_admin(f"❌ [{task_id}] Pyrogram upload failed for part {part_num}: {err}")
         return None
     finally:
         try:
+            await app.stop()
             os.remove(file_path)
         except Exception as e:
-            logger.warning(f"[{task_id}] Failed to delete part file {file_path}: {e}")
+            logger.warning(f"[{task_id}] Fail in finally block, file path - {file_path}, error: {e}")
 
 def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_duration: float) -> list[str] | None:
     part_paths = []
