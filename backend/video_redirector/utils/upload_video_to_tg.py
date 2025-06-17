@@ -34,7 +34,7 @@ async def upload_part_to_tg(file_path: str, task_id: str, part_num: int):
     logger.info(f"[{task_id}] Starting upload of part {part_num}: {file_path}")
     try:
         print(f"API_ID={API_ID}, API_HASH={API_HASH}, SESSION_NAME={SESSION_NAME}")
-        async with Client(SESSION_NAME, api_id=API_ID, api_hash=API_HASH) as app:
+        async with Client(f"session_files/{SESSION_NAME}", api_id=API_ID, api_hash=API_HASH) as app:
             logger.info(f"[{task_id}] Uploading part {part_num} with Pyrogram...")
             msg = await app.send_video(
                 chat_id=TG_DELIVERY_BOT_USERNAME,
