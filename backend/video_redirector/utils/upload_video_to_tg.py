@@ -31,6 +31,7 @@ async def upload_part_to_tg(file_path: str, task_id: str, part_num: int):
         logger.error(f"[{task_id}] Part {part_num} file not found: {file_path}")
         return None
 
+    logger.info(f"[{task_id}] Starting upload of part {part_num}: {file_path}")
     try:
         async with Client(SESSION_NAME, api_id=API_ID, api_hash=API_HASH) as app:
             logger.info(f"[{task_id}] Uploading part {part_num} with Pyrogram...")
@@ -42,11 +43,11 @@ async def upload_part_to_tg(file_path: str, task_id: str, part_num: int):
                 supports_streaming=True
             )
             file_id = msg.video.file_id
-            logger.info(f"✅ [{task_id}] Uploaded part {part_num}. file_id: {file_id}")
+            logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
             return file_id
-    except Exception as e:
-        logger.error(f"❌ [{task_id}] Pyrogram upload failed for part {part_num}: {e}")
-        await notify_admin(f"❌ [{task_id}] Pyrogram upload failed for part {part_num}: {e}")
+    except Exception as err:
+        logger.error(f"❌ [{task_id}] Pyrogram upload failed for part {part_num}: {err}")
+        await notify_admin(f"❌ [{task_id}] Pyrogram upload failed for part {part_num}: {err}")
         return None
     finally:
         try:
@@ -73,17 +74,23 @@ def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_d
 
         logger.info(f"[{task_id}] Generating part {i+1}: {cmd}")
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        logger.debug(f"[{task_id}] ffprobe output: {result.stdout}")
+        logger.debug(f"[{task_id}] ffprobe errors: {result.stderr}")
+        logger.info(f"✅ [{task_id}] Part {i + 1} generated: {part_output}")
 
         if result.returncode != 0:
             logger.error(f"[{task_id}] FFmpeg failed on part {i+1}: {result.stderr}")
             return None
 
+
         part_paths.append(part_output)
 
+    logger.info(f"✅ [{task_id}] All {num_parts} parts generated successfully.")
     return part_paths
 
 async def check_size_upload_large_file(file_path: str, task_id: str):
     file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+    logger.info(f"[{task_id}] Checking file: {file_path} ({file_size_mb:.2f} MB)")
     global bot_tokens
     tokens = bot_tokens[:]  # Copy to preserve original
     random.shuffle(tokens)
@@ -97,6 +104,7 @@ async def check_size_upload_large_file(file_path: str, task_id: str):
                 logger.info(f"[{task_id}] File is {round(file_size_mb)} MB — uploading as one part")
                 file_id = await upload_part_to_tg(file_path, task_id, 1)
                 if file_id:
+                    logger.info(f"✅ [{task_id}] Single-part upload complete. file_id: {file_id}")
                     return {
                         "bot_token": token,
                         "parts": [{"part": 1, "file_id": file_id}]
@@ -116,12 +124,14 @@ async def check_size_upload_large_file(file_path: str, task_id: str):
                     "-of", "default=noprint_wrappers=1:nokey=1",
                     file_path
                 ], capture_output=True, text=True, check=True)
+                logger.debug(f"[{task_id}] ffprobe output: {result.stdout}")
+                logger.debug(f"[{task_id}] ffprobe errors: {result.stderr}")
                 if not result.stdout.strip():
                     raise ValueError("FFprobe returned empty duration.")
                 duration = float(result.stdout.strip())
-            except Exception as e:
+            except Exception as ero:
                 logger.exception(f"[{task_id}] FFprobe failed")
-                await notify_admin(f"❌ [Task {task_id}] Failed to get video duration: {e}")
+                await notify_admin(f"❌ [Task {task_id}] Failed to get video duration: {ero}")
                 continue
 
             num_parts = math.ceil(file_size_mb / MAX_MB)
@@ -146,16 +156,17 @@ async def check_size_upload_large_file(file_path: str, task_id: str):
             if len(parts_result) == num_parts:
                 try:
                     os.remove(file_path)
-                except Exception as e:
-                    logger.warning(f"[{task_id}] Couldn't clean up original movie file: {e}")
+                except Exception as errr:
+                    logger.warning(f"[{task_id}] Couldn't clean up original movie file: {errr}")
                 logger.info(f"[{task_id}] Upload successful with bot: {token[:10]}...")
+                logger.info(f"✅ [{task_id}] Multipart upload complete. {len(parts_result)} parts uploaded.")
                 return {
                     "bot_token": token,
                     "parts": parts_result
                 }
             else:
                 logger.warning(f"[{task_id}] Upload incomplete with bot {token[:10]}... Trying another...")
-                await notify_admin(f"⚠️ [Task {task_id}] Upload incomplete. Trying next delivery bot.")
+                await notify_admin(f"⚠️ [Task {task_id}] Upload incomplete with bot `{token[:10]}...`. Uploaded {len(parts_result)} of {num_parts}. Trying next...")
 
         except Exception as e:
             logger.exception(f"[{task_id}] Critical error with token {token[:10]}")
@@ -186,8 +197,12 @@ async def main():
     if result:
         print("✅ Upload successful!")
         print(result)
+        logger.info(f"[{task_id}] Upload test finished successfully.")
     else:
         print("❌ Upload failed.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logger.critical(f"Unhandled error during test: {e}", exc_info=True)

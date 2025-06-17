@@ -70,10 +70,10 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
             }), ex=86400)
 
     except RETRYABLE_EXCEPTIONS as e:
-        logger.error(f"[Download Task {task_id}] Failed: {e}")
+        logger.error(f"[Download Task {task_id}] Failed RETRYABLE_EXCEPTIONS: {e}")
         raise RetryableDownloadError(f"Temporary issue during extract: {e}")
     except Exception as e:
-        logger.error(f"[Download Task {task_id}] Failed: {e}")
+        logger.error(f"[Download Task {task_id}] Failed Exception: {e}")
         await redis.set(f"download:{task_id}:status", "error", ex=3600)
         await redis.set(f"download:{task_id}:error", str(e), ex=3600)
         await notify_admin(f"[Download Task {task_id}] Failed: {e}")
