@@ -33,6 +33,7 @@ async def upload_part_to_tg(file_path: str, task_id: str, part_num: int):
 
     logger.info(f"[{task_id}] Starting upload of part {part_num}: {file_path}")
     try:
+        print(f"API_ID={API_ID}, API_HASH={API_HASH}, SESSION_NAME={SESSION_NAME}")
         async with Client(SESSION_NAME, api_id=API_ID, api_hash=API_HASH) as app:
             logger.info(f"[{task_id}] Uploading part {part_num} with Pyrogram...")
             msg = await app.send_video(
@@ -182,27 +183,3 @@ async def check_size_upload_large_file(file_path: str, task_id: str):
     logger.critical(f"🆘 [{task_id}] All delivery bots failed. No movie uploaded.")
     await notify_admin(f"🆘 [{task_id}] All delivery bots failed. User can't get content.")
     return None
-
-async def main():
-    test_file_path = "C:/Users/vlads/MY_IDEAS/movie_bot/backend/video_redirector/static/ad_dummy.mp4"
-    task_id = "test_ad_upload"
-
-    if not os.path.exists(test_file_path):
-        print(f"❌ File not found: {test_file_path}")
-        return
-
-    print(f"📤 Starting upload test for: {test_file_path}")
-    result = await check_size_upload_large_file(test_file_path, task_id)
-
-    if result:
-        print("✅ Upload successful!")
-        print(result)
-        logger.info(f"[{task_id}] Upload test finished successfully.")
-    else:
-        print("❌ Upload failed.")
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        logger.critical(f"Unhandled error during test: {e}", exc_info=True)
