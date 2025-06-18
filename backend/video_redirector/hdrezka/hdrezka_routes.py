@@ -47,12 +47,13 @@ async def extract_and_generate_master_m3u8(task_id: str, url: str, lang: str):
             raise Exception("❌ watch_config was empty or None")
 
         if isinstance(config_response, JSONResponse):
-            config = config_response.body.decode()
+            config = bytes(config_response.body).decode('utf-8')
         else:
             config = json.dumps(config_response)
 
         if isinstance(config_response, JSONResponse):
-            print(f"[{task_id}] get_watch_config returned:", config_response.body.decode())
+            body_content = bytes(config_response.body).decode('utf-8')
+            print(f"[{task_id}] get_watch_config returned:", body_content)
         else:
             print(f"[{task_id}] get_watch_config returned (non-JSON):", config_response)
 
