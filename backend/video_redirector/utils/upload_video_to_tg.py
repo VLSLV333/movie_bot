@@ -2,11 +2,14 @@ import os
 import logging
 import aiohttp
 import random
+import time
 from dotenv import load_dotenv
 import math
 import subprocess
 import asyncio
 from pyrogram.client import Client
+from typing import Optional, Dict, Any
+import shutil
 
 from backend.video_redirector.utils.notify_admin import notify_admin
 
@@ -37,6 +40,21 @@ PARTS_DIR = "downloads/parts"
 SESSION_DIR = "/app/backend/session_files"
 TG_USER_ID_TO_UPLOAD = 7841848291
 
+# Upload configuration
+UPLOAD_TIMEOUT = 420  # 7 minutes per part
+MAX_RETRIES = 3
+RETRY_DELAY = 2  # seconds
+MIN_DISK_SPACE_MB = 1000  # 1GB minimum free space
+
+# Upload monitoring
+_upload_stats = {
+    "total_uploads": 0,
+    "successful_uploads": 0,
+    "failed_uploads": 0,
+    "retry_count": 0,
+    "total_bytes_uploaded": 0
+}
+
 # Create necessary directories
 os.makedirs(PARTS_DIR, exist_ok=True)
 os.makedirs(SESSION_DIR, exist_ok=True)
@@ -48,12 +66,51 @@ logger.info(f"📁 Parts directory: {PARTS_DIR}")
 # Global client instance to avoid multiple connections
 _client_instance = None
 _client_lock = asyncio.Lock()
+_client_last_used = 0
+_client_ref_count = 0  # Track how many users are using the client
+CLIENT_TIMEOUT = 300  # 5 minutes timeout
+
+async def check_system_resources() -> Dict[str, Any]:
+    """Check system resources before upload"""
+    try:
+        # Check disk space
+        total, used, free = shutil.disk_usage(PARTS_DIR)
+        free_mb = free / (1024 * 1024)
+        
+        # Check memory (simplified)
+        with open('/proc/meminfo', 'r') as f:
+            meminfo = f.read()
+            available_mb = int([line for line in meminfo.split('\n') if 'MemAvailable:' in line][0].split()[1]) / 1024
+        
+        return {
+            "disk_free_mb": free_mb,
+            "memory_available_mb": available_mb,
+            "disk_ok": free_mb > MIN_DISK_SPACE_MB,
+            "memory_ok": available_mb > 500  # 500MB minimum
+        }
+    except Exception as e:
+        logger.warning(f"⚠️ Could not check system resources: {e}")
+        return {"disk_ok": True, "memory_ok": True}  # Assume OK if can't check
 
 async def get_client():
     """Get or create a Pyrogram client instance with proper session handling"""
-    global _client_instance
+    global _client_instance, _client_last_used, _client_ref_count
     
     async with _client_lock:
+        current_time = time.time()
+        
+        # Check if client exists and is healthy
+        if _client_instance is not None:
+            # Check if client is too old and should be refreshed
+            if current_time - _client_last_used > CLIENT_TIMEOUT:
+                logger.info("🔄 Client timeout reached, refreshing connection...")
+                try:
+                    await _client_instance.stop()
+                except Exception as e:
+                    logger.warning(f"⚠️ Error stopping old client: {e}")
+                _client_instance = None
+                _client_ref_count = 0  # Reset ref count when client is refreshed
+        
         if _client_instance is None:
             session_path = os.path.join(SESSION_DIR, SESSION_NAME)
             logger.info(f"🔧 Creating Pyrogram client with session path: {session_path}")
@@ -77,40 +134,142 @@ async def get_client():
                 logger.error(f"❌ Failed to create Pyrogram client: {e}")
                 raise e
         
+        _client_last_used = current_time
+        _client_ref_count += 1
+        logger.debug(f"📊 Client reference count: {_client_ref_count}")
         return _client_instance
 
-async def upload_part_to_tg(file_path: str, task_id: str, part_num: int):
-    if not os.path.exists(file_path):
-        logger.error(f"[{task_id}] Part {part_num} file not found: {file_path}")
-        return None
-
-    logger.info(f"[{task_id}] Starting upload of part {part_num}: {file_path}")
+async def release_client():
+    """Release a reference to the client (called when upload completes)"""
+    global _client_ref_count
     
-    try:
-        app = await get_client()
-        logger.info(f"[{task_id}] Uploading part {part_num} with Pyrogram...")
-        
-        msg = await app.send_video(
-            chat_id=TG_DELIVERY_BOT_USERNAME,
-            video=file_path,
-            caption=f"🎬 Part {part_num}",
-            disable_notification=True,
-            supports_streaming=True
-        )
-        
-        if msg and msg.video:
-            file_id = msg.video.file_id
-            logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
-            return file_id
-        else:
-            logger.error(f"[{task_id}] Upload succeeded but no video data returned")
-            return None
-            
-    except Exception as err:
-        logger.error(f"❌ [{task_id}] Pyrogram upload failed for part {part_num}: {err}")
-        await notify_admin(f"❌ [{task_id}] Pyrogram upload failed for part {part_num}: {err}")
+    async with _client_lock:
+        if _client_ref_count > 0:
+            _client_ref_count -= 1
+            logger.debug(f"📊 Client reference count: {_client_ref_count}")
+
+async def cleanup_client():
+    """Clean up the global Pyrogram client instance only if no one is using it"""
+    global _client_instance, _client_last_used, _client_ref_count
+    
+    async with _client_lock:
+        if _client_instance is not None and _client_ref_count == 0:
+            try:
+                await _client_instance.stop()
+                logger.info("🔌 Pyrogram client stopped successfully")
+            except Exception as e:
+                logger.warning(f"⚠️ Error stopping Pyrogram client: {e}")
+            finally:
+                _client_instance = None
+                _client_last_used = 0
+                _client_ref_count = 0
+        elif _client_ref_count > 0:
+            logger.info(f"⚠️ Client cleanup skipped - {_client_ref_count} users still using it")
+
+async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: int) -> Optional[str]:
+    """Upload a part with retry logic and comprehensive error handling"""
+    
+    # Pre-upload checks
+    resources = await check_system_resources()
+    if not resources["disk_ok"]:
+        error_msg = f"Insufficient disk space: {resources['disk_free_mb']:.1f}MB free"
+        logger.error(f"[{task_id}] {error_msg}")
+        await notify_admin(f"❌ [{task_id}] {error_msg}")
+        await log_upload_metrics(task_id, 0, False, 0)
         return None
+    
+    if not resources["memory_ok"]:
+        error_msg = f"Low memory: {resources['memory_available_mb']:.1f}MB available"
+        logger.warning(f"[{task_id}] {error_msg}")
+    
+    file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+    retry_count = 0
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            logger.info(f"[{task_id}] Upload attempt {attempt + 1}/{MAX_RETRIES} for part {part_num}")
+            
+            # Check if file still exists
+            if not os.path.exists(file_path):
+                logger.error(f"[{task_id}] Part {part_num} file not found: {file_path}")
+                await log_upload_metrics(task_id, file_size, False, retry_count)
+                return None
+            
+            # Check file size
+            file_size = os.path.getsize(file_path)
+            if file_size == 0:
+                logger.error(f"[{task_id}] Part {part_num} file is empty: {file_path}")
+                await log_upload_metrics(task_id, file_size, False, retry_count)
+                return None
+            
+            app = await get_client()
+            
+            # Upload with timeout
+            async with asyncio.timeout(UPLOAD_TIMEOUT):
+                msg = await app.send_video(
+                    chat_id=TG_DELIVERY_BOT_USERNAME,
+                    video=file_path,
+                    caption=f"🎬 Part {part_num}",
+                    disable_notification=True,
+                    supports_streaming=True
+                )
+            
+            if msg and msg.video:
+                file_id = msg.video.file_id
+                logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
+                await log_upload_metrics(task_id, file_size, True, retry_count)
+                return file_id
+            else:
+                logger.error(f"[{task_id}] Upload succeeded but no video data returned")
+                await log_upload_metrics(task_id, file_size, False, retry_count)
+                return None
+                
+        except asyncio.TimeoutError:
+            retry_count += 1
+            logger.error(f"[{task_id}] Upload timeout for part {part_num} (attempt {attempt + 1})")
+            if attempt == MAX_RETRIES - 1:
+                await notify_admin(f"⏰ [{task_id}] Upload timeout for part {part_num} after {MAX_RETRIES} attempts")
+                await log_upload_metrics(task_id, file_size, False, retry_count)
+                return None
+                
+        except Exception as err:
+            retry_count += 1
+            error_type = type(err).__name__
+            logger.error(f"❌ [{task_id}] Upload failed for part {part_num} (attempt {attempt + 1}): {error_type}: {err}")
+            
+            # Handle specific error types
+            if "network" in str(err).lower() or "connection" in str(err).lower():
+                logger.info(f"[{task_id}] Network error detected, will retry...")
+            elif "rate" in str(err).lower() or "flood" in str(err).lower():
+                logger.warning(f"[{task_id}] Rate limit detected, waiting longer...")
+                await asyncio.sleep(RETRY_DELAY * (attempt + 1) * 2)  # Exponential backoff
+            elif "session" in str(err).lower() or "auth" in str(err).lower():
+                logger.error(f"[{task_id}] Session/auth error, cannot retry: {err}")
+                await notify_admin(f"🔐 [{task_id}] Session error for part {part_num}: {err}")
+                await log_upload_metrics(task_id, file_size, False, retry_count)
+                return None
+            else:
+                logger.warning(f"[{task_id}] Unknown error type: {error_type}")
+            
+            if attempt == MAX_RETRIES - 1:
+                await notify_admin(f"❌ [{task_id}] Upload failed for part {part_num} after {MAX_RETRIES} attempts: {err}")
+                await log_upload_metrics(task_id, file_size, False, retry_count)
+                return None
+            
+            # Wait before retry
+            await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+    
+    await log_upload_metrics(task_id, file_size, False, retry_count)
+    return None
+
+async def upload_part_to_tg(file_path: str, task_id: str, part_num: int):
+    """Wrapper for upload_part_to_tg_with_retry with cleanup"""
+    try:
+        return await upload_part_to_tg_with_retry(file_path, task_id, part_num)
     finally:
+        # Always release the client reference when done
+        await release_client()
+        
         try:
             os.remove(file_path)
         except Exception as e:
@@ -243,3 +402,27 @@ async def check_size_upload_large_file(file_path: str, task_id: str):
     logger.critical(f"🆘 [{task_id}] All delivery bots failed. No movie uploaded.")
     await notify_admin(f"🆘 [{task_id}] All delivery bots failed. User can't get content.")
     return None
+
+async def get_upload_stats() -> Dict[str, Any]:
+    """Get upload statistics for monitoring"""
+    return _upload_stats.copy()
+
+async def log_upload_metrics(task_id: str, file_size: int, success: bool, retries: int = 0):
+    """Log upload metrics for monitoring"""
+    global _upload_stats
+    
+    _upload_stats["total_uploads"] += 1
+    if success:
+        _upload_stats["successful_uploads"] += 1
+        _upload_stats["total_bytes_uploaded"] += file_size
+    else:
+        _upload_stats["failed_uploads"] += 1
+    
+    _upload_stats["retry_count"] += retries
+    
+    # Log metrics every 10 uploads
+    if _upload_stats["total_uploads"] % 10 == 0:
+        success_rate = (_upload_stats["successful_uploads"] / _upload_stats["total_uploads"]) * 100
+        logger.info(f"📊 Upload Stats: {_upload_stats['total_uploads']} total, "
+                   f"{success_rate:.1f}% success rate, "
+                   f"{_upload_stats['retry_count']} total retries")
