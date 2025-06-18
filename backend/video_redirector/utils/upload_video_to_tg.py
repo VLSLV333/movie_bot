@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import math
 import subprocess
 import asyncio
-from pyrogram import Client
+from pyrogram.client import Client
 
 from backend.video_redirector.utils.notify_admin import notify_admin
 
@@ -33,13 +33,15 @@ bot_tokens = [t.strip() for t in bot_tokens if t.strip()]
 
 MAX_MB = 1900
 PARTS_DIR = "downloads/parts"
-SESSION_DIR = "session_files"  # Use relative path like your working example
+# Use absolute path to match where your working test created the session file
+SESSION_DIR = "/app/backend/session_files"
 TG_USER_ID_TO_UPLOAD = 7841848291
 
 # Create necessary directories
 os.makedirs(PARTS_DIR, exist_ok=True)
 os.makedirs(SESSION_DIR, exist_ok=True)
 
+logger.info(f"📁 Current working directory: {os.getcwd()}")
 logger.info(f"📁 Session directory: {SESSION_DIR}")
 logger.info(f"📁 Parts directory: {PARTS_DIR}")
 
@@ -56,6 +58,13 @@ async def get_client():
             session_path = os.path.join(SESSION_DIR, SESSION_NAME)
             logger.info(f"🔧 Creating Pyrogram client with session path: {session_path}")
             
+            # Check if session file exists
+            session_file = f"{session_path}.session"
+            if os.path.exists(session_file):
+                logger.info(f"✅ Session file exists: {session_file}")
+            else:
+                logger.warning(f"⚠️ Session file does not exist: {session_file}")
+            
             try:
                 _client_instance = Client(
                     session_path, 
@@ -66,7 +75,6 @@ async def get_client():
                 logger.info(f"✅ Pyrogram client started successfully")
             except Exception as e:
                 logger.error(f"❌ Failed to create Pyrogram client: {e}")
-                
                 raise e
         
         return _client_instance
