@@ -35,7 +35,7 @@ class DownloadedFile(Base):
     dub = Column(String, nullable=False)
     quality = Column(String, nullable=True)  # optional field if we track resolution
     tg_bot_token_file_owner = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class DownloadedFilePart(Base):
