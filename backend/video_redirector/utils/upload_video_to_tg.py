@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 import math
 import subprocess
 import asyncio
-from pyrogram import Client
+from pyrogram.client import Client
+from typing import cast
 
 from backend.video_redirector.utils.notify_admin import notify_admin
 
@@ -18,13 +19,45 @@ API_HASH = os.getenv("API_HASH")
 SESSION_NAME = os.getenv("SESSION_NAME")
 TG_DELIVERY_BOT_USERNAME = os.getenv("TG_DELIVERY_BOT_USERNAME")
 
+if not all([API_ID, API_HASH, SESSION_NAME, TG_DELIVERY_BOT_USERNAME]):
+    raise ValueError("Missing required environment variables: API_ID, API_HASH, SESSION_NAME, or TG_DELIVERY_BOT_USERNAME")
+
+# Type assertion after validation - we know these are not None due to the check above
+API_ID = int(API_ID)  # type: ignore
+API_HASH = str(API_HASH)  # type: ignore
+SESSION_NAME = str(SESSION_NAME)  # type: ignore
+TG_DELIVERY_BOT_USERNAME = str(TG_DELIVERY_BOT_USERNAME)  # type: ignore
+
 bot_tokens = os.getenv("DELIVERY_BOT_TOKEN", "").split(",")
 bot_tokens = [t.strip() for t in bot_tokens if t.strip()]
 
 MAX_MB = 1900
 PARTS_DIR = "downloads/parts"
+SESSION_DIR = "session_files"
 TG_USER_ID_TO_UPLOAD = 7841848291
+
 os.makedirs(PARTS_DIR, exist_ok=True)
+os.makedirs(SESSION_DIR, exist_ok=True)
+
+_client_instance = None
+_client_lock = asyncio.Lock()
+
+async def get_client():
+    """Get or create a Pyrogram client instance with proper session handling"""
+    global _client_instance
+    
+    async with _client_lock:
+        if _client_instance is None:
+            session_path = os.path.join(SESSION_DIR, SESSION_NAME)
+            _client_instance = Client(
+                session_path, 
+                api_id=API_ID, 
+                api_hash=API_HASH
+            )
+            await _client_instance.start()
+            logger.info(f"💬 Created new Pyrogram client with session: {session_path}")
+        
+        return _client_instance
 
 async def upload_part_to_tg(file_path: str, task_id: str, part_num: int):
     if not os.path.exists(file_path):
@@ -32,11 +65,11 @@ async def upload_part_to_tg(file_path: str, task_id: str, part_num: int):
         return None
 
     logger.info(f"[{task_id}] Starting upload of part {part_num}: {file_path}")
-    app = Client(f"session_files/{SESSION_NAME}", api_id=API_ID, api_hash=API_HASH)
-    await app.start()
+    
     try:
-        logger.info(f"💬 Using session path: session_files/{SESSION_NAME}")
+        app = await get_client()
         logger.info(f"[{task_id}] Uploading part {part_num} with Pyrogram...")
+        
         msg = await app.send_video(
             chat_id=TG_DELIVERY_BOT_USERNAME,
             video=file_path,
@@ -44,16 +77,21 @@ async def upload_part_to_tg(file_path: str, task_id: str, part_num: int):
             disable_notification=True,
             supports_streaming=True
         )
-        file_id = msg.video.file_id
-        logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
-        return file_id
+        
+        if msg and msg.video:
+            file_id = msg.video.file_id
+            logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
+            return file_id
+        else:
+            logger.error(f"[{task_id}] Upload succeeded but no video data returned")
+            return None
+            
     except Exception as err:
         logger.error(f"❌ [{task_id}] Pyrogram upload failed for part {part_num}: {err}")
         await notify_admin(f"❌ [{task_id}] Pyrogram upload failed for part {part_num}: {err}")
         return None
     finally:
         try:
-            await app.stop()
             os.remove(file_path)
         except Exception as e:
             logger.warning(f"[{task_id}] Fail in finally block, file path - {file_path}, error: {e}")
