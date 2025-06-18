@@ -1,6 +1,6 @@
 import json
 import logging
-import time
+from datetime import datetime, timezone
 from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePart
 from backend.video_redirector.db.session import get_db
 from backend.video_redirector.hdrezka.extract_to_download_from_hdrezka import extract_to_download_from_hdrezka
@@ -45,7 +45,7 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
                 dub=dub,
                 quality=result["quality"],
                 tg_bot_token_file_owner=tg_bot_token_file_owner,
-                created_at=time.time()
+                created_at=datetime.now(timezone.utc)
             )
             session.add(db_entry)
             await session.flush()  # Get db_entry.id
