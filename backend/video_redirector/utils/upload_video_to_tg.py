@@ -6,14 +6,14 @@ from dotenv import load_dotenv
 import math
 import subprocess
 import asyncio
-from pyrogram.client import Client
-from typing import cast
+from pyrogram import Client
 
 from backend.video_redirector.utils.notify_admin import notify_admin
 
 logger = logging.getLogger(__name__)
 load_dotenv()
 
+# Get environment variables
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 SESSION_NAME = os.getenv("SESSION_NAME")
@@ -33,12 +33,17 @@ bot_tokens = [t.strip() for t in bot_tokens if t.strip()]
 
 MAX_MB = 1900
 PARTS_DIR = "downloads/parts"
-SESSION_DIR = "session_files"
+SESSION_DIR = "session_files"  # Use relative path like your working example
 TG_USER_ID_TO_UPLOAD = 7841848291
 
+# Create necessary directories
 os.makedirs(PARTS_DIR, exist_ok=True)
 os.makedirs(SESSION_DIR, exist_ok=True)
 
+logger.info(f"📁 Session directory: {SESSION_DIR}")
+logger.info(f"📁 Parts directory: {PARTS_DIR}")
+
+# Global client instance to avoid multiple connections
 _client_instance = None
 _client_lock = asyncio.Lock()
 
@@ -49,13 +54,20 @@ async def get_client():
     async with _client_lock:
         if _client_instance is None:
             session_path = os.path.join(SESSION_DIR, SESSION_NAME)
-            _client_instance = Client(
-                session_path, 
-                api_id=API_ID, 
-                api_hash=API_HASH
-            )
-            await _client_instance.start()
-            logger.info(f"💬 Created new Pyrogram client with session: {session_path}")
+            logger.info(f"🔧 Creating Pyrogram client with session path: {session_path}")
+            
+            try:
+                _client_instance = Client(
+                    session_path, 
+                    api_id=API_ID, 
+                    api_hash=API_HASH
+                )
+                await _client_instance.start()
+                logger.info(f"✅ Pyrogram client started successfully")
+            except Exception as e:
+                logger.error(f"❌ Failed to create Pyrogram client: {e}")
+                
+                raise e
         
         return _client_instance
 
