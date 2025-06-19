@@ -7,12 +7,45 @@ from bot.utils.notify_admin import notify_admin
 
 logger = Logger().get_logger()
 
+# Mapping of status to animation URLs and caption templates
+STATUS_ANIMATIONS = {
+    "queued": {
+        "animation": "https://giphy.com/gifs/studio-ghibli-spirited-away-F99PZtJC8Hxm0",
+        "caption": "⏳ Still waiting in queue...\nYour position: {position}"
+    },
+    "extracting": {
+        "animation": "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
+        "caption": "🔍 Extracting movie data..."
+    },
+    "merging": {
+        "animation": "https://media.giphy.com/media/26ufnwz3wDUli7GU0/giphy.gif",
+        "caption": "⚙️ Download started, converting video...\n{progress_bar} {percent}%"
+    },
+    "uploading": {
+        "animation": "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
+        "caption": "📤 Your video is ready and being uploaded to Telegram..."
+    },
+    "default": {
+        "animation": "https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
+        "caption": "⏳ Processing... (Status: {status})"
+    }
+}
+
+def make_progress_bar(percent, length=10):
+    filled = int(percent / 100 * length)
+    return "█" * filled + "-" * (length - filled)
 
 async def poll_download_until_ready(user_id: int, task_id: str, status_url: str, loading_msg: types.Message,
-                                    query: types.CallbackQuery):
+                                    query: types.CallbackQuery, bot):
+    """
+    Polls the backend for download status and updates the user with animation and caption.
+    If query.message is None, uses the provided bot instance to send animations.
+    """
     max_attempts = 120  # 60 minutes if 30s interval
     interval = 30
-    last_caption = None  # Track last caption to avoid duplicate edits
+    last_status = None
+    last_animation_msg = loading_msg
+    last_caption = None
 
     async with ClientSession() as session:
         for attempt in range(max_attempts):
@@ -26,48 +59,88 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                     data = await resp.json()
                     status = data.get("status")
                     new_caption = None
+                    animation_url = None
+
+                    # Determine which animation/caption to use
+                    status_info = STATUS_ANIMATIONS.get(status, STATUS_ANIMATIONS["default"])
+                    animation_url = status_info["animation"]
+                    caption_template = status_info["caption"]
 
                     if status == "queued":
-                        position = data.get("queue_position")
-                        new_caption = f"⏳ Still waiting in queue...\nYour position: {position or '...'}"
-
+                        position = data.get("queue_position") or '...'
+                        new_caption = caption_template.format(position=position)
                     elif status == "extracting":
-                        new_caption = "🔍 Extracting movie data..."
-
+                        new_caption = caption_template
                     elif status == "merging":
-                        new_caption = "⚙️ Download started, converting video..."
-
+                        # Fetch progress from merge_progress endpoint
+                        try:
+                            async with session.get(f"https://moviebot.click/hd/status/merge_progress/{task_id}") as merge_resp:
+                                if merge_resp.status == 200:
+                                    merge_data = await merge_resp.json()
+                                    percent = int(merge_data.get("progress", 0))
+                                    progress_bar = make_progress_bar(percent)
+                                    new_caption = caption_template.format(progress_bar=progress_bar, percent=percent)
+                                else:
+                                    new_caption = caption_template.format(progress_bar=make_progress_bar(0), percent=0)
+                        except Exception as e:
+                            logger.error(f"[User {user_id}] Could not fetch merge progress: {e}")
+                            new_caption = caption_template.format(progress_bar=make_progress_bar(0), percent=0)
                     elif status == "uploading":
-                        new_caption = "📤 Your video is ready and being uploaded to Telegram..."
-
+                        new_caption = caption_template
                     elif status == "done":
                         result = data.get("result")
                         if result:
+                            try:
+                                await last_animation_msg.delete()
+                            except Exception as err:
+                                logger.error(f"[User {user_id}] Could not delete last animation message: {err}")
                             return result  # contains {file_id, bot_token}
                         else:
                             logger.warning(f"[User {user_id}] status=done but no result found.")
                             break
-
                     elif status == "error":
                         error_text = data.get("error", "Unknown error")
-                        await loading_msg.delete()
+                        try:
+                            await last_animation_msg.delete()
+                        except Exception as err:
+                            logger.error(f"[User {user_id}] Could not delete last animation message: {err}")
                         await query.message.answer(f"❌ Download failed: {error_text}",
                                                    reply_markup=get_main_menu_keyboard())
                         return None
-
                     else:
-                        logger.warning(f"[User {user_id}] Unexpected status '{status}'")
-                        await notify_admin(f"[User {user_id}] Unexpected status '{status}'")
-                        new_caption = f"⏳ Processing... (Status: {status})"
+                        new_caption = STATUS_ANIMATIONS["default"]["caption"].format(status=status)
+                        animation_url = STATUS_ANIMATIONS["default"]["animation"]
 
-                    # Only edit if caption changed
-                    if new_caption and new_caption != last_caption:
+                    # If status changed, delete old animation and send new one
+                    if status != last_status:
                         try:
-                            await loading_msg.edit_caption(new_caption)
+                            await last_animation_msg.delete()
+                        except Exception as err:
+                            logger.error(f"[User {user_id}] Could not delete last animation message: {err}")
+                        if query.message is not None:
+                            last_animation_msg = await query.message.answer_animation(
+                                animation=animation_url,
+                                caption=new_caption
+                            )
+                        elif bot is not None:
+                            last_animation_msg = await bot.send_animation(
+                                chat_id=query.from_user.id,
+                                animation=animation_url,
+                                caption=new_caption
+                            )
+                        else:
+                            logger.error(f"[User {user_id}] Cannot send animation: both query.message and bot are None.")
+                            raise RuntimeError("Cannot send animation: both query.message and bot are None.")
+                        last_status = status
+                        last_caption = new_caption
+                    # If status is merging, update caption for progress (even if status didn't change)
+                    elif status == "merging" and new_caption != last_caption:
+                        try:
+                            await last_animation_msg.edit_caption(new_caption)
                             last_caption = new_caption
                         except Exception as edit_error:
                             if "message is not modified" in str(edit_error):
-                                # Ignore this error - it means content is the same
+                                logger.error(f"[User {user_id}] tried to edit caption while merging but it was not modified")
                                 pass
                             else:
                                 logger.error(f"[User {user_id}] Failed to edit caption: {edit_error}")
@@ -75,11 +148,10 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
             except Exception as e:
                 error_str = str(e)
                 if "message is not modified" in error_str:
-                    # Ignore this error - it's expected when content doesn't change
+                    logger.error(f"[User {user_id}] tried to edit caption while polling but it was not modified")
                     pass
                 elif "query is too old" in error_str:
                     logger.warning(f"[User {user_id}] Callback query expired, continuing without query context")
-                    # Continue polling but without using the query object
                     pass
                 else:
                     logger.error(f"[User {user_id}] Exception during polling: {e}")
@@ -89,15 +161,13 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
 
     # Timed out
     try:
-        await loading_msg.delete()
+        await last_animation_msg.delete()
     except Exception as e:
         logger.warning(f"[User {user_id}] Could not delete loading message: {e}")
-    
     try:
         await query.message.answer("⚠️ Sorry, this is taking too long. Please try again later.",
                                    reply_markup=get_main_menu_keyboard())
     except Exception as e:
         logger.error(f"[User {user_id}] Could not send timeout message: {e}")
-    
     await notify_admin(f"[User {user_id}] Waited in queue longer than 60 min and did not get a result!")
     return None
