@@ -10,7 +10,7 @@ logger = Logger().get_logger()
 # Mapping of status to animation URLs and caption templates
 STATUS_ANIMATIONS = {
     "queued": {
-        "animation": "https://giphy.com/gifs/studio-ghibli-spirited-away-F99PZtJC8Hxm0",
+        "animation": "https://media.giphy.com/media/F99PZtJC8Hxm0/giphy.gif",
         "caption": "⏳ Still waiting in queue...\nYour position: {position}"
     },
     "extracting": {
@@ -19,7 +19,7 @@ STATUS_ANIMATIONS = {
     },
     "merging": {
         "animation": "https://media.giphy.com/media/26ufnwz3wDUli7GU0/giphy.gif",
-        "caption": "⚙️ Download started, converting video...\n{progress_bar} {percent}%"
+        "caption": "⚙️ Download started, converting video...\n{progress_bar} {percent}% {spinner}"
     },
     "uploading": {
         "animation": "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
@@ -30,6 +30,8 @@ STATUS_ANIMATIONS = {
         "caption": "⏳ Processing... (Status: {status})"
     }
 }
+
+SPINNER_FRAMES = ['|', '/', '-', '\\']
 
 def make_progress_bar(percent, length=10):
     filled = int(percent / 100 * length)
@@ -66,6 +68,8 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                     animation_url = status_info["animation"]
                     caption_template = status_info["caption"]
 
+                    spinner = SPINNER_FRAMES[attempt % len(SPINNER_FRAMES)]
+
                     if status == "queued":
                         position = data.get("queue_position") or '...'
                         new_caption = caption_template.format(position=position)
@@ -79,12 +83,12 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                                     merge_data = await merge_resp.json()
                                     percent = int(merge_data.get("progress", 0))
                                     progress_bar = make_progress_bar(percent)
-                                    new_caption = caption_template.format(progress_bar=progress_bar, percent=percent)
+                                    new_caption = caption_template.format(progress_bar=progress_bar, percent=percent, spinner=spinner)
                                 else:
-                                    new_caption = caption_template.format(progress_bar=make_progress_bar(0), percent=0)
+                                    new_caption = caption_template.format(progress_bar=make_progress_bar(0), percent=0, spinner=spinner)
                         except Exception as e:
                             logger.error(f"[User {user_id}] Could not fetch merge progress: {e}")
-                            new_caption = caption_template.format(progress_bar=make_progress_bar(0), percent=0)
+                            new_caption = caption_template.format(progress_bar=make_progress_bar(0), percent=0, spinner=spinner)
                     elif status == "uploading":
                         new_caption = caption_template
                     elif status == "done":
