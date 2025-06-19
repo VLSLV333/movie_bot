@@ -62,6 +62,11 @@ def verify_task_id(signed: str, secret: str) -> str | None:
     except Exception:
         return None
 
+@dp.message()
+async def catch_all(message: Message):
+    logger.info(f"CATCH-ALL: Received message: {message.text} from user {getattr(message.from_user, 'id', None)}")
+    await message.answer("I received your message, but it didn't match any command.")
+
 # === Handlers ===
 @dp.message(CommandStart(deep_link=True))
 async def handle_start(message: Message):
