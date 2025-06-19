@@ -67,15 +67,22 @@ def verify_task_id(signed: str, secret: str) -> str | None:
 @dp.message(CommandStart(deep_link=True))
 async def handle_start(message: Message):
     try:
-        logger.info(f"Received /start from user_id={getattr(message.from_user, 'id', None)}, text='{getattr(message, 'text', None)}', args='{getattr(message, 'get_args', lambda: None)()}'")
+        logger.info(f"Received /start from user_id={getattr(message.from_user, 'id', None)}, text='{message.text}'")
+        # Manually parse args from message.text
+        text = getattr(message, 'text', None)
+        if not text:
+            logger.error("Message has no text!")
+            await message.answer("❌ Internal error: no message text. Pls start download from beginning:(")
+            return
+        parts = text.split(maxsplit=1)
+        args = parts[1] if len(parts) > 1 else None
+        logger.info(f"/start args: {args}")
         user_id = getattr(message.from_user, 'id', None)
         if user_id is None:
             logger.error("Message has no from_user.id!")
             await message.answer("❌ Internal error: no user ID found.")
             return
 
-        args = getattr(message, 'get_args', lambda: None)()
-        logger.info(f"/start args: {args}")
         if not args or "_" not in args:
             await message.answer("❌ Malformed or missing start link.")
             logger.error(f"❌ Malformed or missing start link for user {user_id}, args: {args}")
