@@ -467,8 +467,8 @@ async def watch_downloaded_handler(query: types.CallbackQuery):
     user_id = query.from_user.id
     token = query.data.split("watch_downloaded:")[1]  # type: ignore
 
-    signed = f"{token}:{hmac.new(os.getenv('BACKEND_DOWNLOAD_SECRET').encode(), token.encode(), hashlib.sha256).hexdigest()[:10]}"  # type: ignore
-    delivery_bot_link = f"https://t.me/deliv3ry_bot?start=2:{signed}"
+    signed = f"{token}_{hmac.new(os.getenv('BACKEND_DOWNLOAD_SECRET').encode(), token.encode(), hashlib.sha256).hexdigest()[:10]}"  # type: ignore
+    delivery_bot_link = f"https://t.me/deliv3ry_bot?start=2_{signed}"
 
     await query.message.answer(
         "🎬 Your content is ready to watch!",
@@ -605,8 +605,8 @@ async def select_dub_handler(query: types.CallbackQuery):
         )
 
         if result:
-            signed_task_id = f"{task_id}:{hmac.new(os.getenv('BACKEND_DOWNLOAD_SECRET').encode(), task_id.encode(), hashlib.sha256).hexdigest()[:10]}"  # type: ignore
-            delivery_bot_link = f"https://t.me/deliv3ry_bot?start=1:{signed_task_id}"
+            signed_task_id = f"{task_id}_{hmac.new(os.getenv('BACKEND_DOWNLOAD_SECRET').encode(), task_id.encode(), hashlib.sha256).hexdigest()[:10]}"  # type: ignore
+            delivery_bot_link = f"https://t.me/deliv3ry_bot?start=1_{signed_task_id}"
             if query.message is not None:
                 await query.message.answer(
                     "🎬 Your content is ready!\n\n📦 To receive it, start delivery bot👇",

@@ -80,12 +80,12 @@ async def handle_start(message: Message):
 
         args = getattr(message, 'get_args', lambda: None)()
         logger.info(f"/start args: {args}")
-        if not args or ":" not in args:
+        if not args or "_" not in args:
             await message.answer("❌ Malformed or missing start link.")
             logger.error(f"❌ Malformed or missing start link for user {user_id}, args: {args}")
             return
 
-        flow_type, signed_payload = args.split(":", 1)
+        flow_type, signed_payload = args.split("_", 1)
         logger.info(f"Parsed flow_type={flow_type}, signed_payload={signed_payload} for user {user_id}")
 
         if flow_type == "1":
@@ -175,7 +175,7 @@ async def handle_start(message: Message):
                 await message.answer("❌ Internal error: missing secret. Pls start download from beginning:(")
                 return
             try:
-                watch_token, sig = signed_payload.split(":")
+                watch_token, sig = signed_payload.split("_")
                 expected_sig = hmac.new(TASK_ID_SECRET.encode(), watch_token.encode(), hashlib.sha256).hexdigest()[:10]
             except Exception as e:
                 logger.error(f"Malformed watch token or signature for user {user_id}: {signed_payload}", exc_info=e)
