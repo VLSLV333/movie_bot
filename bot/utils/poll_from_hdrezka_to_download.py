@@ -47,7 +47,8 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
     interval = 30
     last_status = None
     last_animation_msg = loading_msg
-    last_caption = None
+    last_text_msg = None
+    last_text = None
 
     async with ClientSession() as session:
         for attempt in range(max_attempts):
@@ -60,7 +61,7 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
 
                     data = await resp.json()
                     status = data.get("status")
-                    new_caption = None
+                    new_text = None
                     animation_url = None
 
                     # Determine which animation/caption to use
@@ -68,13 +69,11 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                     animation_url = status_info["animation"]
                     caption_template = status_info["caption"]
 
-                    spinner = SPINNER_FRAMES[attempt % len(SPINNER_FRAMES)]
-
                     if status == "queued":
                         position = data.get("queue_position") or '...'
-                        new_caption = caption_template.format(position=position)
+                        new_text = caption_template.format(position=position)
                     elif status == "extracting":
-                        new_caption = caption_template
+                        new_text = caption_template
                     elif status == "merging":
                         # Fetch progress from merge_progress endpoint
                         try:
@@ -83,14 +82,14 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                                     merge_data = await merge_resp.json()
                                     percent = int(merge_data.get("progress", 0))
                                     progress_bar = make_progress_bar(percent)
-                                    new_caption = caption_template.format(progress_bar=progress_bar, percent=percent, spinner=spinner)
+                                    new_text = f"⚙️ Download started, converting video...\n{progress_bar} {percent}%"
                                 else:
-                                    new_caption = caption_template.format(progress_bar=make_progress_bar(0), percent=0, spinner=spinner)
+                                    new_text = f"⚙️ Download started, converting video...\n{make_progress_bar(0)} 0%"
                         except Exception as e:
                             logger.error(f"[User {user_id}] Could not fetch merge progress: {e}")
-                            new_caption = caption_template.format(progress_bar=make_progress_bar(0), percent=0, spinner=spinner)
+                            new_text = f"⚙️ Download started, converting video...\n{make_progress_bar(0)} 0%"
                     elif status == "uploading":
-                        new_caption = caption_template
+                        new_text = caption_template
                     elif status == "done":
                         result = data.get("result")
                         if result:
@@ -98,6 +97,11 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                                 await last_animation_msg.delete()
                             except Exception as err:
                                 logger.error(f"[User {user_id}] Could not delete last animation message: {err}")
+                            if last_text_msg:
+                                try:
+                                    await last_text_msg.delete()
+                                except Exception as err:
+                                    logger.error(f"[User {user_id}] Could not delete last text message: {err}")
                             return result  # contains {file_id, bot_token}
                         else:
                             logger.warning(f"[User {user_id}] status=done but no result found.")
@@ -108,14 +112,19 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                             await last_animation_msg.delete()
                         except Exception as err:
                             logger.error(f"[User {user_id}] Could not delete last animation message: {err}")
+                        if last_text_msg:
+                            try:
+                                await last_text_msg.delete()
+                            except Exception as err:
+                                logger.error(f"[User {user_id}] Could not delete last text message: {err}")
                         await query.message.answer(f"❌ Download failed: {error_text}",
                                                    reply_markup=get_main_menu_keyboard())
                         return None
                     else:
-                        new_caption = STATUS_ANIMATIONS["default"]["caption"].format(status=status)
+                        new_text = STATUS_ANIMATIONS["default"]["caption"].format(status=status)
                         animation_url = STATUS_ANIMATIONS["default"]["animation"]
 
-                    # If status changed, delete old animation and send new one
+                    # If status changed, delete old animation and send new one, and update text message
                     if status != last_status:
                         try:
                             await last_animation_msg.delete()
@@ -124,36 +133,53 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                         if query.message is not None:
                             last_animation_msg = await query.message.answer_animation(
                                 animation=animation_url,
-                                caption=new_caption
+                                caption=None
                             )
                         elif bot is not None:
                             last_animation_msg = await bot.send_animation(
                                 chat_id=query.from_user.id,
                                 animation=animation_url,
-                                caption=new_caption
+                                caption=None
                             )
                         else:
                             logger.error(f"[User {user_id}] Cannot send animation: both query.message and bot are None.")
                             raise RuntimeError("Cannot send animation: both query.message and bot are None.")
+                        # Delete previous text message if exists
+                        if last_text_msg:
+                            try:
+                                await last_text_msg.delete()
+                            except Exception as err:
+                                logger.error(f"[User {user_id}] Could not delete last text message: {err}")
+                        # Send new text message
+                        if query.message is not None:
+                            last_text_msg = await query.message.answer(new_text)
+                        elif bot is not None:
+                            last_text_msg = await bot.send_message(
+                                chat_id=query.from_user.id,
+                                text=new_text
+                            )
+                        else:
+                            logger.error(f"[User {user_id}] Cannot send text message: both query.message and bot are None.")
+                            raise RuntimeError("Cannot send text message: both query.message and bot are None.")
                         last_status = status
-                        last_caption = new_caption
-                    # If status is merging, update caption for progress (even if status didn't change)
-                    elif status == "merging" and new_caption != last_caption:
-                        logger.info(f"[User {user_id}] merging: new_caption='{new_caption}' last_caption='{last_caption}' percent={percent if 'percent' in locals() else 'N/A'} spinner='{spinner}'")
-                        try:
-                            await last_animation_msg.edit_caption(new_caption)
-                        except Exception as edit_error:
-                            if "message is not modified" in str(edit_error):
-                                logger.error(f"[User {user_id}] tried to edit caption while merging but it was not modified")
-                            else:
-                                logger.error(f"[User {user_id}] Failed to edit caption: {edit_error}")
-                        finally:
-                            last_caption = new_caption
+                        last_text = new_text
+                    # If status is merging, update text message for progress (even if status didn't change)
+                    elif status == "merging" and new_text != last_text:
+                        logger.info(f"[User {user_id}] merging: new_text='{new_text}' last_text='{last_text}' percent={percent if 'percent' in locals() else 'N/A'}")
+                        if last_text_msg:
+                            try:
+                                await last_text_msg.edit_text(new_text)
+                            except Exception as edit_error:
+                                if "message is not modified" in str(edit_error):
+                                    logger.error(f"[User {user_id}] tried to edit text while merging but it was not modified")
+                                else:
+                                    logger.error(f"[User {user_id}] Failed to edit text: {edit_error}")
+                        last_text = new_text
 
             except Exception as e:
                 error_str = str(e)
                 if "message is not modified" in error_str:
-                    logger.error(f"[User {user_id}] tried to edit caption while polling but it was not modified")
+                    logger.error(f"[User {user_id}] tried to edit text while polling but it was not modified")
                     pass
                 elif "query is too old" in error_str:
                     logger.warning(f"[User {user_id}] Callback query expired, continuing without query context")
