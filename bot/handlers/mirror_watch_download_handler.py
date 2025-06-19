@@ -236,7 +236,7 @@ async def download_mirror_handler(query: types.CallbackQuery):
             display_dub = translate_dub_to_ua(dub) if USER_LANG == 'ua' else dub
             kb.append([
                 types.InlineKeyboardButton(
-                    text=f"▶️ Watch via Delivery Bot with {emoji} {display_dub} dub",
+                    text=f"{emoji} {display_dub} dub",
                     callback_data=f"watch_downloaded:{token}"
                 )
             ])
@@ -435,7 +435,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
             display_dub = translate_dub_to_ua(dub) if USER_LANG == 'ua' else dub
             kb.append([
                 types.InlineKeyboardButton(
-                    text=f"▶️ Watch via Delivery Bot with {emoji} {display_dub} dub",
+                    text=f"{emoji} {display_dub} dub",
                     callback_data=f"watch_downloaded:{token}"
                 )
             ])

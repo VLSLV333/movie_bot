@@ -139,6 +139,7 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                         last_caption = new_caption
                     # If status is merging, update caption for progress (even if status didn't change)
                     elif status == "merging" and new_caption != last_caption:
+                        logger.info(f"[User {user_id}] merging: new_caption='{new_caption}' last_caption='{last_caption}' percent={percent if 'percent' in locals() else 'N/A'} spinner='{spinner}'")
                         try:
                             await last_animation_msg.edit_caption(new_caption)
                             last_caption = new_caption
