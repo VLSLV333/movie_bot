@@ -142,13 +142,13 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                         logger.info(f"[User {user_id}] merging: new_caption='{new_caption}' last_caption='{last_caption}' percent={percent if 'percent' in locals() else 'N/A'} spinner='{spinner}'")
                         try:
                             await last_animation_msg.edit_caption(new_caption)
-                            last_caption = new_caption
                         except Exception as edit_error:
                             if "message is not modified" in str(edit_error):
                                 logger.error(f"[User {user_id}] tried to edit caption while merging but it was not modified")
-                                pass
                             else:
                                 logger.error(f"[User {user_id}] Failed to edit caption: {edit_error}")
+                        finally:
+                            last_caption = new_caption
 
             except Exception as e:
                 error_str = str(e)
