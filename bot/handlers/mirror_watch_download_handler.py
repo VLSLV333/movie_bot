@@ -485,6 +485,7 @@ async def select_dub_handler(query: types.CallbackQuery):
     if query is None or query.data is None:
         logger.error("CallbackQuery or its data is None in select_dub_handler")
         return
+    await query.answer()
     user_id = query.from_user.id
     token = query.data.split("select_dub:")[1]
     redis = RedisClient.get_client()
@@ -629,11 +630,12 @@ async def select_dub_handler(query: types.CallbackQuery):
                 else:
                     logger.error("query or query.bot is None, cannot send message to user.")
 
-        await query.answer()
-
     except Exception as e:
         logger.error(f"[User {user_id}] Failed during download flow: {e}")
-        await loading_msg.delete()
+        try:
+            await loading_msg.delete()
+        except Exception as e:
+            logger.error(f"[User {user_id}] Failed to delete loading message at the end of download flow: {e}")
         if query.message is not None:
             await query.message.answer("⚠️ Unexpected error during download. Try again later.",
                                        reply_markup=get_main_menu_keyboard())

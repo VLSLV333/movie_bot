@@ -11,7 +11,7 @@ logger = Logger().get_logger()
 STATUS_ANIMATIONS = {
     "queued": {
         "animation": "https://media.giphy.com/media/F99PZtJC8Hxm0/giphy.gif",
-        "caption": "⏳ Still waiting in queue...\nYour position: {position}"
+        "caption": "⏳ You are in queue for download...\nYour position: {position}"
     },
     "extracting": {
         "animation": "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
