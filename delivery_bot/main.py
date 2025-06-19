@@ -36,6 +36,8 @@ dp = Dispatcher()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("delivery_bot")
 
+#TODO: add some logic for when user is trying to type in bot or interact with it in any way
+
 async def notify_admin(message: str):
     if not PING_BOT_TOKEN:
         logger.warning("⚠️ Cannot notify admin: PING_BOT_TOKEN not set")
@@ -53,7 +55,6 @@ async def notify_admin(message: str):
     except Exception as e:
         logger.warning(f"⚠️ Failed to notify admin: {e}")
 
-
 def verify_task_id(signed: str, secret: str) -> str | None:
     try:
         task_id, sig = signed.split(":")
@@ -61,11 +62,6 @@ def verify_task_id(signed: str, secret: str) -> str | None:
         return task_id if sig == expected_sig else None
     except Exception:
         return None
-
-@dp.message()
-async def catch_all(message: Message):
-    logger.info(f"CATCH-ALL: Received message: {message.text} from user {getattr(message.from_user, 'id', None)}")
-    await message.answer("I received your message, but it didn't match any command.")
 
 # === Handlers ===
 @dp.message(CommandStart(deep_link=True))
@@ -241,6 +237,10 @@ async def handle_start(message: Message):
         logger.error(f"Exception in handle_start for user {getattr(message.from_user, 'id', None)}: {e}", exc_info=e)
         await message.answer("❌ Internal error in delivery bot. Please try again later.")
 
+@dp.message()
+async def catch_all(message: Message):
+    logger.info(f"CATCH-ALL: Received message: {message.text} from user {getattr(message.from_user, 'id', None)}")
+    await message.answer("I received your message, but it didn't match any command.")
 
 # === Run the bot ===
 if __name__ == "__main__":
