@@ -57,7 +57,7 @@ async def notify_admin(message: str):
 
 def verify_task_id(signed: str, secret: str) -> str | None:
     try:
-        task_id, sig = signed.split(":")
+        task_id, sig = signed.split("_")
         expected_sig = hmac.new(secret.encode(), task_id.encode(), hashlib.sha256).hexdigest()[:10]
         return task_id if sig == expected_sig else None
     except Exception:
