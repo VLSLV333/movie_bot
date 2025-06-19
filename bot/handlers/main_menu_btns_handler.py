@@ -59,8 +59,17 @@ async def search_movie_handler(query: types.CallbackQuery):
 
 @router.callback_query(F.data == "suggest_movie")
 async def suggest_movie_handler(query: types.CallbackQuery):
-    logger.info(f"[User {query.from_user.id}] Clicked 'Recommend Me' button")
-    await query.answer("💯 Smart suggestions coming soon!", show_alert=True)
+    # logger.info(f"[User {query.from_user.id}] Clicked 'Recommend Me' button")
+    # await query.answer("💯 Smart suggestions coming soon!", show_alert=True)
+    delivery_bot_link = f"https://t.me/deliv3ry_bot?start=1"
+    await query.message.answer(
+        "🎬 Your content is ready!\n\n📦 To receive it, start delivery bot👇",
+        reply_markup=types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [types.InlineKeyboardButton(text="🎁 Open Delivery Bot", url=delivery_bot_link)]
+            ]
+    ))
+
 
 
 @router.callback_query(F.data == "watch_history")
