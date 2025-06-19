@@ -23,7 +23,7 @@ STATUS_ANIMATIONS = {
     },
     "uploading": {
         "animation": "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
-        "caption": "📤 Your video is ready and being uploaded to Telegram..."
+        "caption": "📤 Almost there:) Your video is ready and being uploaded to Telegram..."
     },
     "default": {
         "animation": "https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
