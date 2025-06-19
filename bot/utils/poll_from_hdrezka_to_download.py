@@ -19,7 +19,7 @@ STATUS_ANIMATIONS = {
     },
     "merging": {
         "animation": "https://media.giphy.com/media/26ufnwz3wDUli7GU0/giphy.gif",
-        "caption": "⚙️ Download started, converting video...\n{progress_bar} {percent}% {spinner}"
+        "caption": "⚙️ Download started, converting video\n{progress_bar} {percent}% {spinner}"
     },
     "uploading": {
         "animation": "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
@@ -165,7 +165,6 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                         last_text = new_text
                     # If status is merging, update text message for progress (even if status didn't change)
                     elif status == "merging" and new_text != last_text:
-                        logger.info(f"[User {user_id}] merging: new_text='{new_text}' last_text='{last_text}' percent={percent if 'percent' in locals() else 'N/A'}")
                         if last_text_msg:
                             try:
                                 await last_text_msg.edit_text(new_text)
