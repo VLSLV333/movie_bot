@@ -109,7 +109,7 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
         f"[User {user_id}] Current pagination index: {session.current_result_index} → showing results {start}:{end}")
     logger.debug(f"[User {user_id}] Titles in current batch: {[r.get('title') for r in current_batch]}")
 
-    cards = await render_mirror_card_batch(current_batch)
+    cards = await render_mirror_card_batch(current_batch, tmdb_id=session.movie_id)
     updated_ids = []
     navigation_deleted = False
 

@@ -23,7 +23,7 @@ STATUS_ANIMATIONS = {
     },
     "uploading": {
         "animation": "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
-        "caption": "📤 Almost there:) Your video is ready and being uploaded to Telegram..."
+        "caption": " Almost there🥰 Your content is ready and being uploaded to Telegram 📤"
     },
     "default": {
         "animation": "https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
@@ -82,12 +82,12 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                                     merge_data = await merge_resp.json()
                                     percent = int(merge_data.get("progress", 0))
                                     progress_bar = make_progress_bar(percent)
-                                    new_text = f"⚙️ Download started, converting video...\n{progress_bar} {percent}%"
+                                    new_text = f"⚙️ Download started, converting video\n{progress_bar} {percent}%"
                                 else:
-                                    new_text = f"⚙️ Download started, converting video...\n{make_progress_bar(0)} 0%"
+                                    new_text = f"⚙️ Download started, converting video\n{make_progress_bar(0)} 0%"
                         except Exception as e:
                             logger.error(f"[User {user_id}] Could not fetch merge progress: {e}")
-                            new_text = f"⚙️ Download started, converting video...\n{make_progress_bar(0)} 0%"
+                            new_text = f"⚙️ Download started, converting video\n{make_progress_bar(0)} 0%"
                     elif status == "uploading":
                         new_text = caption_template
                     elif status == "done":
