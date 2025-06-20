@@ -52,7 +52,7 @@ async def get_matching_dubs(page, user_lang: str):
         html = await li.inner_html()
         text = await li.text_content()
 
-        if user_lang == "ua" and "Украинский" in html:
+        if user_lang == "ua" and ("Украинский" in html or "Оригинал" in html or "Original" in html):
             matching.append((text.strip(), li))
 
         elif user_lang == "en" and ("Оригинал" in html or "Original" in html):
@@ -61,6 +61,8 @@ async def get_matching_dubs(page, user_lang: str):
         elif user_lang == "ru":
             if "Украинский" in html:
                 continue
+            if "Оригинал" in html or "Original" in html:
+                matching.append((text.strip(), li))
             if "HDrezka" in html or "Дубляж" in html:
                 matching.append((text.strip(), li))
             elif any(x in html.lower() for x in ["лостфильм", "колдфильм", "tvshows"]):

@@ -36,8 +36,6 @@ dp = Dispatcher()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("delivery_bot")
 
-#TODO: add some logic for when user is trying to type in bot or interact with it in any way
-
 async def notify_admin(message: str):
     if not PING_BOT_TOKEN:
         logger.warning("⚠️ Cannot notify admin: PING_BOT_TOKEN not set")
@@ -144,7 +142,7 @@ async def handle_start(message: Message):
                 logger.info(f"Parsed result for user {user_id}: {result}")
 
                 if "telegram_file_id" in result:
-                    await message.answer("📦 Here is your video! Enjoy 🎬")
+                    await message.answer("Enjoy your content❤️")
                     await bot.send_video(chat_id=user_id, video=result["telegram_file_id"])
                 elif "db_id_to_get_parts" in result:
                     db_id = result["db_id_to_get_parts"]
@@ -159,7 +157,7 @@ async def handle_start(message: Message):
                     logger.info(f"Sending {len(parts)} parts to user {user_id}")
                     for part in parts:
                         await bot.send_video(chat_id=user_id, video=part["telegram_file_id"])
-                    await message.answer("📦Video is too long to fit into TG, so was divided into parts🎬")
+                    await message.answer("Enjoy your content❤️")
                 else:
                     logger.error(f"Invalid result format for user {user_id}: {result}")
                     raise ValueError("Invalid result format")
@@ -230,7 +228,7 @@ async def handle_start(message: Message):
                 logger.info(f"Sending {len(parts)} parts to user {user_id}")
                 for part in parts:
                     await bot.send_video(chat_id=user_id, video=part["telegram_file_id"])
-                await message.answer("🎬 Enjoy your content!")
+                await message.answer("Enjoy your content❤️")
 
             except Exception as e:
                 logger.error(f"Failed to handle watch_downloaded flow for user {user_id}: {e}", exc_info=e)
@@ -244,10 +242,11 @@ async def handle_start(message: Message):
         logger.error(f"Exception in handle_start for user {getattr(message.from_user, 'id', None)}: {e}", exc_info=e)
         await message.answer("❌ Internal error in delivery bot. Please try again later.")
 
+#TODO: add some logic for when user is trying to type in bot or interact with it in any way
 @dp.message()
 async def catch_all(message: Message):
     logger.info(f"CATCH-ALL: Received message: {message.text} from user {getattr(message.from_user, 'id', None)}")
-    await message.answer("I received your message, but it didn't match any command.")
+    await message.answer("I am just a delivery bot😁 Hope you enjoy!")
 
 # === Run the bot ===
 if __name__ == "__main__":

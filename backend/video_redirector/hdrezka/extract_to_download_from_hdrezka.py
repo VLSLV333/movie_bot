@@ -1,5 +1,7 @@
 import asyncio
 import json
+import re
+import logging
 from camoufox.async_api import AsyncCamoufox
 
 f2id_to_quality = {
@@ -7,26 +9,42 @@ f2id_to_quality = {
     "4": "1080p",
 }
 
+logger = logging.getLogger(__name__)
+
+def normalize(text: str) -> str:
+    return re.sub(r"[^\w\s]", "", text).strip().lower()
+
 async def extract_to_download_from_hdrezka(url: str, selected_dub: str) -> dict:
-    async with AsyncCamoufox(window=(1280, 720), humanize=True, headless=True) as browser:
+    async with AsyncCamoufox(window=(1280, 720), humanize=True, headless=False) as browser:
         page = await browser.new_page()
         await page.goto(url, wait_until="domcontentloaded")
         await asyncio.sleep(1)
 
         extracted = {"all_m3u8": []}
 
-        li_items = await page.query_selector_all("#translators-list a")
+        li_items = await page.query_selector_all("#translators-list li")
         selected_element = None
+
+        if not li_items:
+            li_items = await page.query_selector_all("#translators-list a")
 
         if not li_items:
             await extract_best_quality_variant(page, extracted)
 
-        for li in li_items:
-            html = await li.inner_html()
-            text = (await li.text_content()).strip()
-            if text == selected_dub:
+        normalized_selected = normalize(selected_dub)
+        normalized_li_texts = [(li, normalize(await li.text_content())) for li in li_items]
+
+        for li, text in normalized_li_texts:
+            if text == normalized_selected:
                 selected_element = li
                 break
+
+        if not selected_element:
+            for li, text in normalized_li_texts:
+                if normalized_selected in text:
+                    logger.info(f"⚠️ Fallback dub match triggered for: {normalized_selected}")
+                    selected_element = li
+                    break
 
         if selected_element:
             await page.evaluate("""
@@ -43,7 +61,7 @@ async def extract_to_download_from_hdrezka(url: str, selected_dub: str) -> dict:
 
 
 async def extract_best_quality_variant(page, extracted):
-    print("🔍 Extracting best quality variant (retry up to 5x for 1080p)...")
+    logger.info("🔍 Extracting best quality variant (retry up to 5x for 1080p)...")
     attempts = 0
     max_attempts = 5
 
@@ -104,7 +122,7 @@ async def try_click_and_capture_m3u8(page, extracted, f2id, quality_label, attem
                 "url": response.url,
                 "headers": headers
             })
-            print(f"✅ Found {quality_label}: {response.url}")
+            logger.info(f"✅ Found {quality_label}: {response.url}")
             quality_event.set()
 
     if f2id == '4' or attempts >= 5:

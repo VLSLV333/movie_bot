@@ -117,7 +117,9 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                                 await last_text_msg.delete()
                             except Exception as err:
                                 logger.error(f"[User {user_id}] Could not delete last text message: {err}")
-                        await query.message.answer(f"❌ Download failed: {error_text}",
+
+                        logger.error(f"[User {user_id}].❌ Download failed: {error_text}")
+                        await query.message.answer(f"❌ Download failed:( Pls start from begining",
                                                    reply_markup=get_main_menu_keyboard())
                         return None
                     else:
