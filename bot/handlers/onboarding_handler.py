@@ -3,11 +3,11 @@ from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import CommandStart
+from aiogram.types import Message
 from bot.utils.logger import Logger
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.keyboards.onboarding_keyboard import get_name_selection_keyboard, get_language_selection_keyboard
 from bot.utils.notify_admin import notify_admin
-from bot.utils.user_service import UserService
 from typing import Optional
 
 router = Router()
@@ -18,6 +18,7 @@ BACKEND_API_URL = "https://moviebot.click"
 
 class OnboardingStates(StatesGroup):
     waiting_for_custom_name = State()
+    waiting_for_language = State()
 
 # Welcome GIF URL - replace with your actual GIF
 WELCOME_GIF_URL = "https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif"
@@ -140,12 +141,16 @@ async def skip_onboarding_handler(query: types.CallbackQuery):
     user_id = query.from_user.id
     logger.info(f"[User {user_id}] Skipped onboarding")
     
-    if query.message:
-        await query.message.edit_text("✅ Got it! You can always change your preferences later in the settings.")
+    # Handle message editing safely
+    if query.message and isinstance(query.message, Message):
+        try:
+            await query.message.edit_text("✅ Got it! You can always change your preferences later in the settings.")
+        except Exception:
+            pass
     await query.answer()
 
 @router.callback_query(F.data.startswith("select_name:"))
-async def select_name_handler(query: types.CallbackQuery):
+async def select_name_handler(query: types.CallbackQuery, state: FSMContext):
     """Handle name selection"""
     if not query.from_user or not query.data:
         return
@@ -155,8 +160,11 @@ async def select_name_handler(query: types.CallbackQuery):
     
     logger.info(f"[User {user_id}] Selected name: {selected_name}")
     
+    # Store the selected name in state
+    await state.update_data(custom_name=selected_name)
+    
     # Show language selection
-    if query.message:
+    if query.message and isinstance(query.message, Message):
         await show_language_selection(query.message, selected_name)
     await query.answer()
 
@@ -170,8 +178,11 @@ async def custom_name_handler(query: types.CallbackQuery, state: FSMContext):
     logger.info(f"[User {user_id}] Requested custom name input")
     
     await state.set_state(OnboardingStates.waiting_for_custom_name)
-    if query.message:
-        await query.message.edit_text("Please type your preferred name:")
+    if query.message and isinstance(query.message, Message):
+        try:
+            await query.message.edit_text("Please type your preferred name:")
+        except Exception:
+            pass
     await query.answer()
 
 @router.message(OnboardingStates.waiting_for_custom_name)
@@ -187,10 +198,14 @@ async def handle_custom_name_input(message: types.Message, state: FSMContext):
         await message.answer("Name is too long. Please use a shorter name (max 50 characters).")
         return
     
+    if not custom_name:
+        await message.answer("Please provide a valid name.")
+        return
+    
     logger.info(f"[User {user_id}] Entered custom name: {custom_name}")
     
-    # Clear state
-    await state.clear()
+    # Store the custom name in state
+    await state.update_data(custom_name=custom_name)
     
     # Show language selection
     await show_language_selection(message, custom_name)
@@ -211,7 +226,7 @@ async def show_language_selection(message: types.Message, user_name: str):
     )
 
 @router.callback_query(F.data.startswith("select_lang:"))
-async def select_language_handler(query: types.CallbackQuery):
+async def select_language_handler(query: types.CallbackQuery, state: FSMContext):
     """Handle language selection"""
     if not query.from_user or not query.data:
         return
@@ -219,24 +234,41 @@ async def select_language_handler(query: types.CallbackQuery):
     user_id = query.from_user.id
     selected_language = query.data.split(":", 1)[1]
     
-    logger.info(f"[User {user_id}] Selected language: {selected_language}")
+    # Get the custom name from state
+    state_data = await state.get_data()
+    custom_name = state_data.get("custom_name")
     
-    # Update user onboarding in backend
+    logger.info(f"[User {user_id}] Selected language: {selected_language}, custom_name: {custom_name}")
+    
+    # Update user onboarding in backend with both custom name and language
+    # custom_name can be None if user didn't provide one, which is fine
     user_data = await update_user_onboarding_backend(
         telegram_id=user_id,
+        custom_name=custom_name,  # This can be None, backend handles it
         preferred_language=selected_language
     )
     
-    if user_data and query.message:
-        await query.message.edit_text(
-            f"✅ Perfect! Your preferences have been saved.\n\n"
-            f"🎬 You're all set to start finding amazing movies!"
-        )
-    elif query.message:
-        await query.message.edit_text(
-            "❌ Sorry, there was an issue saving your preferences. You can try again later in settings."
-        )
+    # Clear the state
+    await state.clear()
     
+    # Handle message editing safely
+    if query.message and isinstance(query.message, Message):
+        try:
+            keyboard = get_main_menu_keyboard()
+            if user_data:
+                await query.message.edit_text(
+                    f"✅ Perfect! Your preferences have been saved.\n\n"
+                    f"🎬 You're all set to start finding amazing movies!",
+                    reply_markup=keyboard
+                )
+            else:
+                await query.message.edit_text(
+                    "❌ Sorry, there was an issue saving your preferences. You can try again later in settings.",
+                    reply_markup=keyboard
+                )
+        except Exception as err:
+            logger.error(f'unexpected error while saving user lang+name: {err}')
+
     await query.answer()
 
 # @router.callback_query(F.data == "other_lang")

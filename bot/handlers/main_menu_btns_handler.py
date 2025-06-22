@@ -36,7 +36,9 @@ async def search_movie_handler(query: types.CallbackQuery):
     logger.info(f"[User {query.from_user.id}] Clicked 'Search Movie' button")
 
     keyboard = get_search_type_keyboard()
-    await query.message.edit_text(
+    
+    # Use answer() instead of edit_text() to avoid editing media messages
+    await query.message.answer(
         "🎯 How would you like to search for a movie?",
         reply_markup=keyboard
     )
