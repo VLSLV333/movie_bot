@@ -7,7 +7,7 @@ from bot.utils.session_manager import SessionManager
 from bot.search.mirror_search_session import MirrorSearchSession
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.keyboards.mirror_navigation_keyboard import get_mirror_navigation_keyboard
-from bot.helpers.render_mirror_card import render_mirror_card_batch
+from bot.helpers.render_mirror_card import render_mirror_card_batch, store_message_id_in_redis
 from bot.utils.logger import Logger
 from bot.utils.redis_client import RedisClient
 from bot.utils.user_service import UserService
@@ -133,11 +133,15 @@ async def handle_mirror_search(query: types.CallbackQuery):
     cards = await render_mirror_card_batch(results[:1], tmdb_id=tmdb_id, user_lang=user_lang)
     card_message_ids = []
 
-    for msg_text, msg_kb, msg_img in cards:
+    for msg_text, msg_kb, msg_img, stream_id in cards:
         if msg_img:
             msg = await query.message.answer_photo(photo=msg_img, caption=msg_text, reply_markup=msg_kb, parse_mode="HTML")
         else:
             msg = await query.message.answer(text=msg_text, reply_markup=msg_kb, parse_mode="HTML")
+        
+        # Store message ID in Redis for later retrieval when updating the card
+        await store_message_id_in_redis(stream_id, msg.message_id, user_id)
+
         card_message_ids.append(msg.message_id)
 
     bottom_nav_text, bottom_nav_keyboard = get_mirror_navigation_keyboard(mirror_session, position="bottom", click_source="bottom")

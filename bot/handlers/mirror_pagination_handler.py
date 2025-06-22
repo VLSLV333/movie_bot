@@ -5,7 +5,7 @@ from aiohttp import ClientSession
 from bot.utils.session_manager import SessionManager
 from bot.search.mirror_search_session import MirrorSearchSession
 from bot.keyboards.mirror_navigation_keyboard import get_mirror_navigation_keyboard
-from bot.helpers.render_mirror_card import render_mirror_card_batch
+from bot.helpers.render_mirror_card import render_mirror_card_batch, store_message_id_in_redis
 from bot.utils.logger import Logger
 from bot.handlers.mirror_search_handler import fetch_next_mirror_results
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
@@ -116,7 +116,7 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
     updated_ids = []
     navigation_deleted = False
 
-    for i, (text, kb, poster) in enumerate(cards):
+    for i, (text, kb, poster, stream_id) in enumerate(cards):
         try:
             if i < len(session.card_message_ids):
                 message_id = session.card_message_ids[i]
@@ -143,6 +143,9 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
                                                            parse_mode="HTML")
                 else:
                     msg = await query.message.answer(text=text, reply_markup=kb, parse_mode="HTML")
+                
+                # Store message ID in Redis for later retrieval
+                await store_message_id_in_redis(stream_id, msg.message_id, user_id)
                 updated_ids.append(msg.message_id)
         except TelegramBadRequest:
             # On failure, resend instead
@@ -150,6 +153,9 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
                 msg = await query.message.answer_photo(photo=poster, caption=text, reply_markup=kb, parse_mode="HTML")
             else:
                 msg = await query.message.answer(text=text, reply_markup=kb, parse_mode="HTML")
+            
+            # Store message ID in Redis for later retrieval
+            await store_message_id_in_redis(stream_id, msg.message_id, user_id)
             updated_ids.append(msg.message_id)
 
         # 🔥 Delete unneeded old cards

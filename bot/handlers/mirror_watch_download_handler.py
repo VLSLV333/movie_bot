@@ -96,7 +96,6 @@ async def watch_mirror_handler(query: types.CallbackQuery):
             )
         else:
             logger.error("query or query.bot is None, cannot send animation to user.")
-    await query.answer("🔍 Extracting movie link...", show_alert=True)
 
     async with ClientSession() as session:
         async with session.post(EXTRACT_API_URL, json={"url": movie_url, "lang": user_lang}) as resp:
@@ -442,7 +441,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
                 "tg_user_id": user_id
             }), ex=3600)
 
-            emoji = "🇺��" if user_lang == 'uk' else "🎙"
+            emoji = "🇺🇦" if user_lang == 'uk' else "🎙"
             display_dub = translate_dub_to_ua(dub) if user_lang == 'uk' else dub
             kb.append([
                 types.InlineKeyboardButton(
@@ -454,7 +453,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
     if available_dubs_can_be_downloaded:
         kb.append([types.InlineKeyboardButton(text="📥 Available to download:", callback_data="noop")])
         for dub in available_dubs_can_be_downloaded:
-            emoji = "🇺��" if user_lang == 'uk' else "🎙"
+            emoji = "🇺🇦" if user_lang == 'uk' else "🎙"
             text = emoji +  f" {translate_dub_to_ua(dub)}" if user_lang == 'uk' else f" {dub}"
             token = generate_token(tmdb_id, user_lang, dub)
             logger.info(f"Generated token {token} for TMDB_ID={tmdb_id}, dub={dub}, lang={download_task_lang}")
