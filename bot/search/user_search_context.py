@@ -16,7 +16,7 @@ class UserSearchContext:
     def __init__(
             self,
             strategy: SearchStrategy,
-            language: str = "en-US",
+            language: str,
             current_page: int = 0,
             current_result_idx: int = 0,
             current_results: Optional[List[Dict]] = None,
@@ -152,7 +152,7 @@ class UserSearchContext:
         return cls(
             strategy=strategy,
             current_page=data.get("current_page", 0),
-            language=data.get("language", "en-US"),
+            language=data["language"],
             current_result_idx=data.get("current_result_idx", 0),
             current_results=data.get("current_results", []),
             total_results=data.get("total_results", 0),

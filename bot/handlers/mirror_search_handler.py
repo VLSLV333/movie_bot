@@ -10,6 +10,7 @@ from bot.keyboards.mirror_navigation_keyboard import get_mirror_navigation_keybo
 from bot.helpers.render_mirror_card import render_mirror_card_batch
 from bot.utils.logger import Logger
 from bot.utils.redis_client import RedisClient
+from bot.utils.user_service import UserService
 
 router = Router()
 logger = Logger().get_logger()
@@ -65,16 +66,16 @@ async def handle_mirror_search(query: types.CallbackQuery):
         await query.answer()
         return
 
+    # Get user's preferred language from backend
+    user_lang = await UserService.get_user_preferred_language(user_id)
 
     try:
         async with ClientSession() as session:
             logger.debug(
-                f"[User {user_id}] Sending mirror search POST to {MIRROR_SEARCH_API_URL} with payload: {{'query': '{movie.get('title')}', 'lang': 'ua'}}")
+                f"[User {user_id}] Sending mirror search POST to {MIRROR_SEARCH_API_URL} with payload: {{'query': '{movie.get('title')}', 'lang': '{user_lang}'}}")
             async with session.post(MIRROR_SEARCH_API_URL, json={
                 "query": movie.get('title'),
-    #TODO: lang needs to be dynamic. We should take user lang from TG and save in cur session or db with user info
-    #TODO: update lang if user changes it using "wrong language" btn later
-                "lang": "ua"
+                "lang": user_lang
             }) as resp:
                 if resp.status != 200:
                     #TODO: provide main menu keyboard, so user doesn't get stuck
@@ -119,7 +120,8 @@ async def handle_mirror_search(query: types.CallbackQuery):
             }
         },
         current_mirror_index=DEFAULT_MIRROR_INDEX,
-        current_result_index=0
+        current_result_index=0,
+        preferred_language=user_lang
     )
     await SessionManager.update_data(user_id, {"mirror_session": mirror_session.to_dict()})
 
@@ -128,8 +130,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
     top_panel = await query.message.answer(top_nav_text, reply_markup=top_nav_keyboard)
     top_nav_message_id = top_panel.message_id
 
-    # Show first 5 results
-    cards = await render_mirror_card_batch(results[:5], tmdb_id=tmdb_id)
+    cards = await render_mirror_card_batch(results[:1], tmdb_id=tmdb_id, user_lang=user_lang)
     card_message_ids = []
 
     for msg_text, msg_kb, msg_img in cards:

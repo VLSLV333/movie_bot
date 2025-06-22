@@ -14,6 +14,7 @@ from bot.utils.redis_client import RedisClient
 from hashlib import md5
 from bot.utils.signed_token_manager import SignedTokenManager
 from bot.utils.translate_dub_to_ua import translate_dub_to_ua
+from bot.utils.user_service import UserService
 
 router = Router()
 logger = Logger().get_logger()
@@ -23,8 +24,6 @@ STATUS_API_URL = "https://moviebot.click/hd/status/watch"
 SCRAP_ALL_DUBS = "https://moviebot.click/hd/alldubs"
 
 ALL_DUBS_FOR_TMDB_ID = "https://moviebot.click/all_db_dubs"
-
-USER_LANG = "ua"  # TODO: Replace with dynamic language from session/user db
 
 def generate_token(tmdb_id: int, lang: str, dub: str) -> str:
     base = f"{tmdb_id}:{lang}:{dub}"
@@ -36,6 +35,10 @@ async def watch_mirror_handler(query: types.CallbackQuery):
         logger.error("CallbackQuery or its data is None in watch_mirror_handler")
         return
     user_id = query.from_user.id
+    
+    # Get user's preferred language
+    user_lang = await UserService.get_user_preferred_language(user_id)
+    
     stream_id = query.data.split("watch_mirror:")[1]
 
     redis = RedisClient.get_client()
@@ -96,7 +99,7 @@ async def watch_mirror_handler(query: types.CallbackQuery):
     await query.answer("🔍 Extracting movie link...", show_alert=True)
 
     async with ClientSession() as session:
-        async with session.post(EXTRACT_API_URL, json={"url": movie_url, "lang": USER_LANG}) as resp:
+        async with session.post(EXTRACT_API_URL, json={"url": movie_url, "lang": user_lang}) as resp:
             data = await resp.json()
             task_id = data.get("task_id")
 
@@ -164,6 +167,10 @@ async def download_mirror_handler(query: types.CallbackQuery):
         logger.error("CallbackQuery or its data is None in download_mirror_handler")
         return
     user_id = query.from_user.id
+    
+    # Get user's preferred language
+    user_lang = await UserService.get_user_preferred_language(user_id)
+    
     stream_id = query.data.split("download_mirror:")[1]
 
     redis = RedisClient.get_client()
@@ -208,12 +215,12 @@ async def download_mirror_handler(query: types.CallbackQuery):
 
     # Step 1: Check existing downloads
     async with ClientSession() as session:
-        async with session.get(ALL_DUBS_FOR_TMDB_ID, params={"tmdb_id": tmdb_id, "lang": USER_LANG}) as resp:
+        async with session.get(ALL_DUBS_FOR_TMDB_ID, params={"tmdb_id": tmdb_id, "lang": user_lang}) as resp:
             list_of_available_dubs_for_tmdb_id_and_lang = await resp.json()
 
             await redis.set(f"ready_to_download_dubs_list:{stream_id}", json.dumps({
                 "dubs_list": list_of_available_dubs_for_tmdb_id_and_lang,
-                "lang": USER_LANG,
+                "lang": user_lang,
             }), ex=3600)
 
     if list_of_available_dubs_for_tmdb_id_and_lang:
@@ -222,18 +229,18 @@ async def download_mirror_handler(query: types.CallbackQuery):
 
         for file in list_of_available_dubs_for_tmdb_id_and_lang:
             dub = file['dub']
-            token = generate_token(tmdb_id, USER_LANG, dub)
-            logger.info(f"Generated token {token} for TMDB_ID={tmdb_id}, dub={dub}, lang={USER_LANG}")
+            token = generate_token(tmdb_id, user_lang, dub)
+            logger.info(f"Generated token {token} for TMDB_ID={tmdb_id}, dub={dub}, lang={user_lang}")
 
             await redis.set(f"downloaded_dub_info:{token}", json.dumps({
                 "tmdb_id": tmdb_id,
-                "lang": USER_LANG,
+                "lang": user_lang,
                 "dub": dub,
                 "tg_user_id": user_id
             }), ex=3600)
 
-            emoji = "🇺🇦" if USER_LANG == 'ua' else "🎙"
-            display_dub = translate_dub_to_ua(dub) if USER_LANG == 'ua' else dub
+            emoji = "🇺🇦" if user_lang == 'uk' else "🎙"
+            display_dub = translate_dub_to_ua(dub) if user_lang == 'uk' else dub
             kb.append([
                 types.InlineKeyboardButton(
                     text=f"{emoji} {display_dub} dub",
@@ -298,6 +305,10 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
     )
 
     user_id = query.from_user.id
+    
+    # Get user's preferred language
+    user_lang = await UserService.get_user_preferred_language(user_id)
+    
     stream_id = query.data.split("fetch_dubs:")[1]
 
     redis = RedisClient.get_client()
@@ -394,7 +405,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
 
 
     if dubs_scrapper_result['dubs'] == ['default_ru']:
-        token = generate_token(tmdb_id, USER_LANG, 'default_ru')
+        token = generate_token(tmdb_id, user_lang, 'default_ru')
         logger.info(f"Generated token {token} for TMDB_ID={tmdb_id}, dub=default_ru, lang={download_task_lang}")
         await redis.set(f"selected_dub_info:{token}", json.dumps({
             "tmdb_id": tmdb_id,
@@ -421,7 +432,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
         kb.append([types.InlineKeyboardButton(text="📁 Already available dubs:", callback_data="noop")])
         for dub_dict in ready_dubs_list:
             dub = dub_dict['dub']
-            token = generate_token(tmdb_id, USER_LANG, dub)
+            token = generate_token(tmdb_id, user_lang, dub)
             logger.info(f"Generated token {token} for TMDB_ID={tmdb_id}, dub={dub}, lang={download_task_lang}")
 
             await redis.set(f"downloaded_dub_info:{token}", json.dumps({
@@ -431,8 +442,8 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
                 "tg_user_id": user_id
             }), ex=3600)
 
-            emoji = "🇺🇦" if USER_LANG == 'ua' else "🎙"
-            display_dub = translate_dub_to_ua(dub) if USER_LANG == 'ua' else dub
+            emoji = "🇺��" if user_lang == 'uk' else "🎙"
+            display_dub = translate_dub_to_ua(dub) if user_lang == 'uk' else dub
             kb.append([
                 types.InlineKeyboardButton(
                     text=f"{emoji} {display_dub} dub",
@@ -443,9 +454,9 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
     if available_dubs_can_be_downloaded:
         kb.append([types.InlineKeyboardButton(text="📥 Available to download:", callback_data="noop")])
         for dub in available_dubs_can_be_downloaded:
-            emoji = "🇺🇦" if USER_LANG == 'ua' else "🎙"
-            text = emoji +  f" {translate_dub_to_ua(dub)}" if USER_LANG == 'ua' else f" {dub}"
-            token = generate_token(tmdb_id, USER_LANG, dub)
+            emoji = "🇺��" if user_lang == 'uk' else "🎙"
+            text = emoji +  f" {translate_dub_to_ua(dub)}" if user_lang == 'uk' else f" {dub}"
+            token = generate_token(tmdb_id, user_lang, dub)
             logger.info(f"Generated token {token} for TMDB_ID={tmdb_id}, dub={dub}, lang={download_task_lang}")
             await redis.set(f"selected_dub_info:{token}", json.dumps({
                 "tmdb_id": tmdb_id,

@@ -4,6 +4,7 @@ from bot.utils.redis_client import RedisClient
 import asyncio
 from aiogram import Bot, Dispatcher
 from bot.config import BOT_TOKEN
+from bot.handlers.onboarding_handler import router as onboarding_router
 from bot.handlers.main_menu_btns_handler import router as main_menu_router
 from bot.handlers.fallback_input_handler import router as fallback_input_handler_router
 from bot.handlers.back_btn_handler import router as back_btn_handler_router
@@ -22,6 +23,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 def setup_routers(disp: Dispatcher):
+    disp.include_router(onboarding_router)
     disp.include_router(main_menu_router)
     disp.include_router(search_by_name_router)
     disp.include_router(search_by_genre_handler_router)

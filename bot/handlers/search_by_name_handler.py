@@ -10,6 +10,7 @@ from bot.helpers.render_movie_card import render_movie_card
 from bot.helpers.render_navigation_panel import render_navigation_panel
 from bot.helpers.back_to_main_menu_btn import add_back_to_main_menu_button
 from aiogram.exceptions import TelegramBadRequest
+from bot.utils.user_service import UserService
 
 router = Router()
 logger = Logger().get_logger()
@@ -48,10 +49,13 @@ async def handle_user_search_text_input(message: types.Message):
     query = message.text.strip()
     logger.info(f"[User {user_id}] Text input received: '{query}' (state: search_by_name:waiting)")
 
-    strategy = SearchByNameStrategy(query=query)
-    context = UserSearchContext(strategy=strategy)
+    # Get user's preferred language dynamically
+    user_lang = await UserService.get_user_preferred_language(user_id)
 
-    await process_search(context,message)
+    strategy = SearchByNameStrategy(query=query, language=user_lang)
+    context = UserSearchContext(strategy=strategy, language=user_lang)
+
+    await process_search(context, message)
 
 async def process_search(context: UserSearchContext, message: types.Message):
     context = context

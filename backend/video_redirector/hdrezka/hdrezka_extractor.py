@@ -12,7 +12,7 @@ f2id_to_quality = {
     "5": "1080pUltra"
 }
 
-async def extract_from_hdrezka(url: str, user_lang: str = "ua", task_id: str = None) -> Dict:
+async def extract_from_hdrezka(url: str, user_lang: str, task_id: str = None) -> Dict:
     final_result = {user_lang: {}}
 
     async with AsyncCamoufox(window=(1280, 720), humanize=True, headless=True) as browser:
@@ -52,7 +52,7 @@ async def get_matching_dubs(page, user_lang: str):
         html = await li.inner_html()
         text = await li.text_content()
 
-        if user_lang == "ua" and ("Украинский" in html or "Оригинал" in html or "Original" in html):
+        if user_lang == "uk" and ("Украинский" in html or "Оригинал" in html or "Original" in html):
             matching.append((text.strip(), li))
 
         elif user_lang == "en" and ("Оригинал" in html or "Original" in html):
@@ -82,7 +82,7 @@ async def select_preferred_dub(page, user_lang: str):
 
     for li in li_items:
         html = await li.inner_html()
-        if user_lang == "ua" and "Украинский" in html:
+        if user_lang == "uk" and "Украинский" in html:
             await li.click()
             return
         elif user_lang == "en" and "Оригинал" in html:

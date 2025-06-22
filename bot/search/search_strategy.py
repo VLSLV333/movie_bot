@@ -39,7 +39,7 @@ class SearchStrategy(ABC):
 
 
 class SearchByNameStrategy(SearchStrategy):
-    def __init__(self, query: str, language: str = "en-US"):
+    def __init__(self, query: str, language: str):
         self.query = query
         self.language = language
 
@@ -57,18 +57,18 @@ class SearchByNameStrategy(SearchStrategy):
         }
 
     def get_context_text(self) -> str:
-        return f'🔍 You are looking for: “{self.query}”'
+        return f'🔍 You are looking for: "{self.query}"'
 
     @staticmethod
     def from_dict(data: dict) -> 'SearchByNameStrategy':
         return SearchByNameStrategy(
             query=data["query"],
-            language=data.get("language", "en-US")
+            language=data["language"]
         )
 
 
 class SearchByGenreStrategy(SearchStrategy):
-    def __init__(self, genres: List[int], years: List[int], language: str = "en-US"):
+    def __init__(self, genres: List[int], years: List[int], language: str):
         self.genres = genres
         self.years = years
         self.language = language
@@ -105,10 +105,12 @@ class SearchByGenreStrategy(SearchStrategy):
         return SearchByGenreStrategy(
             genres=data["genres"],
             years=data["years"],
-            language=data.get("language", "en-US")
+            language=data["language"]
         )
 
+
 def strategy_from_dict(data: dict) -> SearchStrategy | None:
+    """Factory function to create strategy instances from serialized data."""
     if not data or "type" not in data:
         return None
 
@@ -120,6 +122,3 @@ def strategy_from_dict(data: dict) -> SearchStrategy | None:
         # Add future strategies here
         case _:
             return None
-
-# Patch base class to use this:
-SearchStrategy.from_dict = staticmethod(strategy_from_dict)

@@ -22,7 +22,7 @@ logger.setLevel(logging.INFO)
 
 class MovieInput(BaseModel):
     url: str
-    lang: str = "ua"
+    lang: str
 
 router = APIRouter(prefix="/hd", tags=["HDRezka watch+download video"])
 

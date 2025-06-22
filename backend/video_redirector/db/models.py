@@ -12,6 +12,20 @@ class MirrorType(str, Enum):
     iframe = "iframe"
     direct = "direct"
 
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("telegram_id", name="uq_user_telegram_id"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    telegram_id = Column(Integer, nullable=False, unique=True)
+    first_name = Column(String(100))
+    last_name = Column(String(100))
+    custom_name = Column(String(100))
+    preferred_language = Column(String(10))
+    is_onboarded = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
 class Mirror(Base):
     __tablename__ = "mirrors"
     __table_args__ = (UniqueConstraint("url", name="uq_mirror_url"),)

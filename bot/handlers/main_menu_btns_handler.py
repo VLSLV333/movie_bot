@@ -1,5 +1,4 @@
 from aiogram import Router, types, F
-from aiogram.filters import CommandStart
 from bot.utils.logger import Logger
 from bot.utils.session_manager import SessionManager
 from bot.keyboards.search_type_keyboard import get_search_type_keyboard
@@ -28,20 +27,6 @@ def get_main_menu_keyboard() -> types.InlineKeyboardMarkup:
         ]
     ]
     return types.InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-
-# --- Start Command Handler ---
-@router.message(CommandStart())
-async def start_handler(message: types.Message):
-    logger.info(f"[User {message.from_user.id}] Triggered /start")
-
-    keyboard = get_main_menu_keyboard()
-
-    await message.answer(
-        "👋 Welcome! I'm your Movie Assistant.\n\n"
-        "Use the menu below to explore:",
-        reply_markup=keyboard
-    )
 
 
 # --- Callback Queries for Main Menu (placeholders) ---

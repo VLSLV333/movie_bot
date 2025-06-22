@@ -11,6 +11,7 @@ from bot.keyboards.search_type_keyboard import get_search_type_keyboard
 from bot.utils.logger import Logger
 from bot.search.user_search_context import UserSearchContext
 from bot.search.search_strategy import SearchByGenreStrategy
+from bot.utils.user_service import UserService
 
 router = Router()
 logger = Logger().get_logger()
@@ -130,10 +131,13 @@ async def confirm_selected_years(query: types.CallbackQuery):
     logger.info(f"[User {user_id}] Confirmed years: {selected_years}")
     logger.info(f"[User {user_id}] Ready to search with genres: {selected_genres} and years: {selected_years}")
 
+    # Get user's preferred language dynamically
+    user_lang = await UserService.get_user_preferred_language(user_id)
+
     strategy = SearchByGenreStrategy(
         genres=selected_genres,
         years=selected_years,
-        language="en-US"  # optional: add lang selection later
+        language=user_lang
     )
 
     #TODO: what I do not like about this place and this
@@ -156,6 +160,7 @@ async def confirm_selected_years(query: types.CallbackQuery):
     # TODO: what I do not like about this place and this
     context = UserSearchContext(
         strategy=strategy,
+        language=user_lang,
         current_results=first_page.get("results", []),
         total_results=first_page.get("total_results", 0),
         current_result_idx=5,

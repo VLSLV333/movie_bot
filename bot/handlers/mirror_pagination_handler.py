@@ -1,5 +1,6 @@
 from aiogram import Router, types, F
 from aiogram.exceptions import TelegramBadRequest
+from aiohttp import ClientSession
 
 from bot.utils.session_manager import SessionManager
 from bot.search.mirror_search_session import MirrorSearchSession
@@ -8,11 +9,12 @@ from bot.helpers.render_mirror_card import render_mirror_card_batch
 from bot.utils.logger import Logger
 from bot.handlers.mirror_search_handler import fetch_next_mirror_results
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
+from bot.utils.user_service import UserService
 
 router = Router()
 logger = Logger().get_logger()
 
-BATCH_SIZE = 5
+BATCH_SIZE = 1
 
 async def delete_unneeded_cards(query: types.CallbackQuery, existing_ids: list[int], used_ids: list[int]):
     for msg_id in existing_ids:
@@ -60,9 +62,10 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
 
     if start >= len(results):
         searched = [v["mirror"] for v in session.mirrors_search_results.values() if "mirror" in v]
+        user_lang = await UserService.get_user_preferred_language(user_id)
         next_mirror = await fetch_next_mirror_results(
             query=session.original_query,
-            lang=session.preferred_language or "ua",
+            lang=user_lang,
             excluded_mirrors=searched
         )
         if next_mirror and next_mirror.get("results"):
@@ -109,7 +112,7 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
         f"[User {user_id}] Current pagination index: {session.current_result_index} → showing results {start}:{end}")
     logger.debug(f"[User {user_id}] Titles in current batch: {[r.get('title') for r in current_batch]}")
 
-    cards = await render_mirror_card_batch(current_batch, tmdb_id=session.movie_id)
+    cards = await render_mirror_card_batch(current_batch, tmdb_id=session.movie_id, user_lang=await UserService.get_user_preferred_language(user_id))
     updated_ids = []
     navigation_deleted = False
 

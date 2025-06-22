@@ -15,7 +15,7 @@ async def scrape_dubs_for_movie(movie_url: str, lang: str) -> Dict[str, Union[Li
     """
     Extracts dub names based on user language rules.
     - html: raw HTML from the movie page
-    - lang: 'ua', 'ru', or 'en'
+    - lang: 'uk', 'ru', or 'en'
     Returns: list of filtered dub names "['Украинский одноголосый', 'Украинский (Sweet)', 'Цікава Ідея', 'Sunnysiders', 'Колодій Трейлерів', 'Оригинал (+субтитры)']"
     """
     async with aiohttp.ClientSession(headers=headers) as session:
@@ -27,7 +27,7 @@ async def scrape_dubs_for_movie(movie_url: str, lang: str) -> Dict[str, Union[Li
 
     # Note: 'default_ru' is used when no dub list is found. It refers to the single default voiceover (typically RU).
     if not dub_elements:
-        if lang in ("ua", "ru"):
+        if lang in ("uk", "ru"):
             return {
                 "dubs": ["default_ru"],
                 "fallback": True,
@@ -48,7 +48,7 @@ async def scrape_dubs_for_movie(movie_url: str, lang: str) -> Dict[str, Union[Li
         is_ukrainian = "Украинский" in dub_html
         is_original = bool(re.search(r"Оригинал|Original", dub_html, re.IGNORECASE))
 
-        if lang == "ua":
+        if lang == "uk":
             if is_ukrainian or is_original:
                 dubs.append(dub_text)
         elif lang == "ru":
@@ -61,8 +61,8 @@ async def scrape_dubs_for_movie(movie_url: str, lang: str) -> Dict[str, Union[Li
     # Remove duplicates
     dubs = list(dict.fromkeys(dubs))
 
-    # Fallback: if lang=ua but no Ukrainian dubs found, include RU + Original + a flag
-    if lang == "ua" and not any("Украинский" in dub for dub in dubs):
+    # Fallback: if lang=uk but no Ukrainian dubs found, include RU + Original + a flag
+    if lang == "uk" and not any("Украинский" in dub for dub in dubs):
         fallback_dubs = []
         for el in dub_elements:
             dub_text = el.get_text(strip=True)
@@ -75,7 +75,7 @@ async def scrape_dubs_for_movie(movie_url: str, lang: str) -> Dict[str, Union[Li
             "message": "🎙️ Sorry, no Ukrainian dubs available for this movie."
         }
 
-    # Normal UA case
+    # Normal UK case
     return {
         "dubs": dubs,
         "fallback": False,
