@@ -11,6 +11,7 @@ from bot.helpers.render_navigation_panel import render_navigation_panel
 from bot.helpers.back_to_main_menu_btn import add_back_to_main_menu_button
 from aiogram.exceptions import TelegramBadRequest
 from bot.utils.user_service import UserService
+from bot.utils.message_utils import smart_edit_or_send
 
 router = Router()
 logger = Logger().get_logger()
@@ -33,9 +34,10 @@ async def search_by_name_handler(query: types.CallbackQuery):
 
     keyboard = get_back_button_keyboard("search")
 
-    await query.message.edit_text(
-        "🎬 I'm ready! Just type the name of the movie you're looking for 👇\n\n"
-        "Or press Back",
+    # Use smart edit or send utility
+    await smart_edit_or_send(
+        message=query,
+        text="🎬 I'm ready! Just type the name of the movie you're looking for 👇\n\nOr press Back",
         reply_markup=keyboard
     )
 

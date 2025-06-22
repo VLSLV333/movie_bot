@@ -8,6 +8,7 @@ from bot.utils.logger import Logger
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.keyboards.onboarding_keyboard import get_name_selection_keyboard, get_language_selection_keyboard
 from bot.utils.notify_admin import notify_admin
+from bot.utils.message_utils import smart_edit_or_send
 from typing import Optional
 
 router = Router()
@@ -141,12 +142,11 @@ async def skip_onboarding_handler(query: types.CallbackQuery):
     user_id = query.from_user.id
     logger.info(f"[User {user_id}] Skipped onboarding")
     
-    # Handle message editing safely
-    if query.message and isinstance(query.message, Message):
-        try:
-            await query.message.edit_text("✅ Got it! You can always change your preferences later in the settings.")
-        except Exception:
-            pass
+    # Use smart edit or send utility
+    await smart_edit_or_send(
+        message=query,
+        text="✅ Got it! You can always change your preferences later in the settings."
+    )
     await query.answer()
 
 @router.callback_query(F.data.startswith("select_name:"))
@@ -178,11 +178,12 @@ async def custom_name_handler(query: types.CallbackQuery, state: FSMContext):
     logger.info(f"[User {user_id}] Requested custom name input")
     
     await state.set_state(OnboardingStates.waiting_for_custom_name)
-    if query.message and isinstance(query.message, Message):
-        try:
-            await query.message.edit_text("Please type your preferred name:")
-        except Exception:
-            pass
+    
+    # Use smart edit or send utility
+    await smart_edit_or_send(
+        message=query,
+        text="Please type your preferred name:"
+    )
     await query.answer()
 
 @router.message(OnboardingStates.waiting_for_custom_name)
@@ -251,23 +252,20 @@ async def select_language_handler(query: types.CallbackQuery, state: FSMContext)
     # Clear the state
     await state.clear()
     
-    # Handle message editing safely
-    if query.message and isinstance(query.message, Message):
-        try:
-            keyboard = get_main_menu_keyboard()
-            if user_data:
-                await query.message.edit_text(
-                    f"✅ Perfect! Your preferences have been saved.\n\n"
-                    f"🎬 You're all set to start finding amazing movies!",
-                    reply_markup=keyboard
-                )
-            else:
-                await query.message.edit_text(
-                    "❌ Sorry, there was an issue saving your preferences. You can try again later in settings.",
-                    reply_markup=keyboard
-                )
-        except Exception as err:
-            logger.error(f'unexpected error while saving user lang+name: {err}')
+    # Use smart edit or send utility with main menu keyboard
+    keyboard = get_main_menu_keyboard()
+    if user_data:
+        await smart_edit_or_send(
+            message=query,
+            text=f"✅ Perfect! Your preferences have been saved.\n\n🎬 You're all set to start finding amazing movies!",
+            reply_markup=keyboard
+        )
+    else:
+        await smart_edit_or_send(
+            message=query,
+            text="❌ Sorry, there was an issue saving your preferences. You can try again later in settings.",
+            reply_markup=keyboard
+        )
 
     await query.answer()
 

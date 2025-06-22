@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict
 from bot.services.tmdb_service import TMDBService
-from bot.search.search_strategy import SearchStrategy
+from bot.search.search_strategy import SearchStrategy, strategy_from_dict
 from bot.config import BATCH_SIZE
 import asyncio
 from bot.utils.logger import Logger
@@ -146,9 +146,25 @@ class UserSearchContext:
 
     @classmethod
     def from_dict(cls, data: dict):
-        strategy = SearchStrategy.from_dict(data.get("strategy"))
+        # Add better error handling and logging
+        if not data:
+            raise ValueError("No session data provided")
+        
+        strategy_data = data.get("strategy")
+        if not strategy_data:
+            logger.error(f"No strategy data found in session: {data.keys()}")
+            raise ValueError("No strategy data found in session context")
+        
+        logger.debug(f"Attempting to deserialize strategy: {strategy_data}")
+        
+        # Use the factory function to create the strategy
+        strategy = strategy_from_dict(strategy_data)
         if not strategy:
+            logger.error(f"Failed to deserialize strategy from data: {strategy_data}")
             raise ValueError("No valid strategy found in session context")
+        
+        logger.debug(f"Successfully deserialized strategy: {strategy.get_search_id()}")
+        
         return cls(
             strategy=strategy,
             current_page=data.get("current_page", 0),

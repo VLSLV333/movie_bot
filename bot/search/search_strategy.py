@@ -2,6 +2,9 @@ from typing import List
 from bot.services.tmdb_service import TMDBService
 from abc import ABC, abstractmethod
 from bot.keyboards.select_movie_genre_keyboard import GENRES
+import logging
+
+logger = logging.getLogger(__name__)
 
 GENRE_ID_TO_NAME = {genre["id"]: genre["name"].split(" ", 1)[-1] for genre in GENRES}
 
@@ -31,11 +34,8 @@ class SearchStrategy(ABC):
         """Returns a short string that describes the user's search intent."""
         return "🔎 You're exploring movies..."
 
-    @staticmethod
-    @abstractmethod
-    def from_dict(data: dict) -> 'SearchStrategy':
-        """Deserialize from Redis payload back to a strategy object."""
-        pass
+    # Note: from_dict is implemented as a static method in each concrete strategy class
+    # Use strategy_from_dict() factory function to deserialize strategies
 
 
 class SearchByNameStrategy(SearchStrategy):
@@ -111,14 +111,30 @@ class SearchByGenreStrategy(SearchStrategy):
 
 def strategy_from_dict(data: dict) -> SearchStrategy | None:
     """Factory function to create strategy instances from serialized data."""
-    if not data or "type" not in data:
+    if not data:
+        logger.warning("strategy_from_dict called with None or empty data")
+        return None
+    
+    if "type" not in data:
+        logger.warning(f"strategy_from_dict called with data missing 'type' field: {data}")
         return None
 
-    match data["type"]:
-        case "search_by_name":
-            return SearchByNameStrategy.from_dict(data)
-        case "search_by_genre":
-            return SearchByGenreStrategy.from_dict(data)
-        # Add future strategies here
-        case _:
-            return None
+    try:
+        match data["type"]:
+            case "search_by_name":
+                if "query" not in data or "language" not in data:
+                    logger.error(f"SearchByNameStrategy missing required fields: {data}")
+                    return None
+                return SearchByNameStrategy.from_dict(data)
+            case "search_by_genre":
+                if "genres" not in data or "years" not in data or "language" not in data:
+                    logger.error(f"SearchByGenreStrategy missing required fields: {data}")
+                    return None
+                return SearchByGenreStrategy.from_dict(data)
+            # Add future strategies here
+            case _:
+                logger.warning(f"Unknown strategy type: {data['type']}")
+                return None
+    except Exception as e:
+        logger.error(f"Error deserializing strategy {data.get('type', 'unknown')}: {e}")
+        return None

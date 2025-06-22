@@ -1,6 +1,7 @@
 from aiogram import Router, types, F
 from bot.utils.logger import Logger
 from bot.utils.session_manager import SessionManager
+from bot.utils.message_utils import smart_edit_or_send
 from bot.keyboards.search_type_keyboard import get_search_type_keyboard
 
 router = Router()
@@ -23,7 +24,7 @@ def get_main_menu_keyboard() -> types.InlineKeyboardMarkup:
         ],
         [
             types.InlineKeyboardButton(text="⚙️ Options", callback_data="options"),
-            # types.InlineKeyboardButton(text="🚫 Ban List", callback_data="ban_list")
+            # types.InlineKeyboardButton(text="❌ Ban List", callback_data="ban_list")
         ]
     ]
     return types.InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -37,9 +38,10 @@ async def search_movie_handler(query: types.CallbackQuery):
 
     keyboard = get_search_type_keyboard()
     
-    # Use answer() instead of edit_text() to avoid editing media messages
-    await query.message.answer(
-        "🎯 How would you like to search for a movie?",
+    # Use smart edit or send utility
+    await smart_edit_or_send(
+        message=query,
+        text="🎯 How would you like to search for a movie?",
         reply_markup=keyboard
     )
     await query.answer()
