@@ -110,7 +110,7 @@ def render_mirror_card(result: dict, user_lang: str) -> Tuple[str, types.InlineK
     """
     title = result.get("title", "Awesome title 🫡").strip()
     poster = result.get("poster") or DEFAULT_POSTER_FILE_ID
-    stream_id = result.get("id") or result.get("url") or "unknown"
+    stream_id = result.get("id")
 
     # Strip any <b> tags from the title
     clean_title = re.sub(r"</?b>", "", title)

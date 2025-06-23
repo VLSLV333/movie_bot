@@ -1,3 +1,4 @@
+import hashlib
 import traceback
 import json
 
@@ -81,7 +82,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
                         "title": file.get("movie_title") or movie.get("title"),
                         "poster": file.get("movie_poster"),
                         "url": file.get("movie_url"),
-                        "id": file.get("movie_url") or str(tmdb_id)
+                        "id": hashlib.sha256(file.get("movie_url").encode()).hexdigest()[:16]
                     }
                     cards = await render_mirror_card_batch([card_data], tmdb_id=tmdb_id, user_lang=user_lang)
                     for msg_text, msg_kb, msg_img, stream_id in cards:
