@@ -71,12 +71,15 @@ async def render_movie_card(movie: dict, is_expanded: bool = False) -> Tuple[str
             types.InlineKeyboardButton(text="🎭 Cast", callback_data=f"movie_cast_card:{movie['id']}")
         ])
         buttons.append([
-            # later we can add in Favorites btn like "share my Favorite movies"
+            #TODO: later we can add in Favorites btn like "share my Favorite movies"
             types.InlineKeyboardButton(text="⭐ Favorite", callback_data=f"add_favorite_card:{movie['id']}"),
             types.InlineKeyboardButton(text="👍 Rate", callback_data=f"rate_movie_card:{movie['id']}"),
         ])
         buttons.append([
             types.InlineKeyboardButton(text="🧩 Related", callback_data=f"related_movies_card:{movie['id']}"),
+            types.InlineKeyboardButton(text="❌ Can not watch", callback_data=f"can_not_watch:{movie['id']}")
+        ])
+        buttons.append([
             types.InlineKeyboardButton(text="🔼 Collapse card", callback_data=f"collapse_card:{movie['id']}")
         ])
     else:

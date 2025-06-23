@@ -1,10 +1,8 @@
-import json
 from aiogram import Router, types, F
 from aiohttp import ClientSession
 from bot.utils.logger import Logger
 from bot.helpers.render_mirror_card import get_mirror_language_selection_keyboard, get_language_display_name, render_mirror_card, get_message_id_from_redis
 from bot.utils.redis_client import RedisClient
-from bot.utils.message_utils import smart_edit_or_send
 
 router = Router()
 logger = Logger().get_logger()
@@ -77,73 +75,13 @@ async def mirror_select_language_handler(query: types.CallbackQuery):
                 if resp.status == 200:
                     user_data = await resp.json()
                     logger.info(f"[User {user_id}] Successfully updated language to: {selected_language}")
-                    
+
                     # Get the language display name
                     language_display = get_language_display_name(selected_language)
-                    
-                    # Try to find and update the original mirror card using Redis
-                    try:
-                        redis = RedisClient.get_client()
-                        
-                        # Get the stream_id that was stored when the language change was requested
-                        stream_id = await redis.get(f"lang_change_stream:{user_id}")
-                        
-                        if stream_id:
-                            # Get the message ID from Redis using stream_id and user_id
-                            message_id = await get_message_id_from_redis(stream_id, user_id)
-                            
-                            if message_id and query.bot is not None:
-                                # Get the current message to extract the title
-                                try:
-                                    # current_message = await query.bot.get_message(
-                                    #     chat_id=query.from_user.id,
-                                    #     message_id=message_id
-                                    # )
-                                    
-                                    # if current_message and current_message.caption:
-                                        # Extract the lines from the current caption
-                                    # caption_lines = current_message.caption.split('\n')
-                                    # Find and replace the language line, or append if not found
-                                    language_line = f"Preferred language to watch: {language_display}"
-                                    # replaced = False
-                                    # for idx, line in enumerate(caption_lines):
-                                    #     if line.strip().startswith("Preferred language to watch:"):
-                                    #         caption_lines[idx] = language_line
-                                    #         replaced = True
-                                    #         break
-                                    # if not replaced:
-                                    #     # Append the language line if not found
-                                    #     caption_lines.append("")  # Ensure a blank line before
-                                    #     caption_lines.append(language_line)
-                                    # new_caption = '\n'.join(caption_lines)
 
-                                    # Update only the caption
-                                    await query.bot.edit_message_caption(
-                                        chat_id=query.from_user.id,
-                                        message_id=message_id,
-                                        caption=language_line,
-                                        parse_mode="HTML"
-                                    )
+                    await query.answer(f"✅ Language updated to: {language_display}\n\nPress 'Watch' or 'Download' - language will be as you just selected")
+                    return
 
-                                    logger.info(f"[User {user_id}] Successfully updated language display to: {selected_language}")
-                                    await query.answer(f"✅ Language updated to: {language_display}")
-                                    return
-                                        
-                                except Exception as e:
-                                    logger.warning(f"[User {user_id}] Failed to get or update message: {e}")
-                                    # Fallback to success message
-                                    await query.message.answer(f"✅ Language updated to: {language_display}")
-                            else:
-                                logger.warning(f"[User {user_id}] No message ID found in Redis for stream_id: {stream_id}")
-                                await query.message.answer(f"✅ Language updated to: {language_display}")
-                        else:
-                            logger.warning(f"[User {user_id}] No stream_id found in Redis for language change")
-                            await query.message.answer(f"✅ Language updated to: {language_display}")
-                            
-                    except Exception as e:
-                        logger.error(f"[User {user_id}] Exception during Redis lookup: {e}")
-                        await query.message.answer(f"✅ Language updated to: {language_display}")
-                    
                 else:
                     logger.error(f"[User {user_id}] Failed to update language: {resp.status}")
                     # Send error message
