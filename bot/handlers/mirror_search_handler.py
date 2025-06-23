@@ -84,6 +84,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
                         "url": file.get("movie_url"),
                         "id": hashlib.sha256(file.get("movie_url").encode()).hexdigest()[:16]
                     }
+                    logger.info(f'[User {user_id}]\n title: {file.get("movie_title")}\n"poster": {file.get("movie_poster")}\n"url": {file.get("movie_url")}\n"id": {hashlib.sha256(file.get("movie_url").encode()).hexdigest()[:16]}')
                     cards = await render_mirror_card_batch([card_data], tmdb_id=tmdb_id, user_lang=user_lang)
                     for msg_text, msg_kb, msg_img, stream_id in cards:
                         if msg_img:
