@@ -143,7 +143,8 @@ async def render_mirror_card_batch(results: list[dict], tmdb_id, user_lang: str)
                 await redis.set(f"mirror_url:{stream_id}", json.dumps({
                     "url": result["url"],
                     "tmdb_id": tmdb_id,  # <-- pass this in from higher context
-                    "title": result.get("title", "Awesome title 🫡").strip()
+                    "title": result.get("title", "Awesome title 🫡").strip(),
+                    "poster": result.get("poster")
                 }), ex=3600) # 1 hour TTL
             except Exception as e:
                 logger.warning(f"[MirrorCard] Failed to cache URL for {stream_id}: {e}")
