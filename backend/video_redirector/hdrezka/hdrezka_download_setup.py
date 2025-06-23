@@ -19,6 +19,8 @@ async def download_setup(data: str, sig: str, background_tasks: BackgroundTasks)
     dub = payload["dub"]
     tg_user_id = payload["tg_user_id"]
     movie_url= payload["movie_url"]
+    movie_title = payload.get("movie_title")
+    movie_poster = payload.get("movie_poster")
     task_id = str(uuid4())
 
     redis = RedisClient.get_client()
@@ -36,6 +38,8 @@ async def download_setup(data: str, sig: str, background_tasks: BackgroundTasks)
         "lang": lang,
         "dub": dub,
         "tg_user_id": tg_user_id,
+        "movie_title": movie_title,
+        "movie_poster": movie_poster,
     }
 
     # Enqueue the task

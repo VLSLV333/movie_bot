@@ -194,6 +194,8 @@ async def download_mirror_handler(query: types.CallbackQuery):
         movie_data = json.loads(movie_data_raw)
         movie_url = movie_data.get("url")
         tmdb_id = movie_data.get("tmdb_id")
+        movie_title = movie_data.get("title")
+        movie_poster = movie_data.get("poster")
     except Exception as e:
         logger.error(f"[User {user_id}] Failed to parse cached mirror data: {e}")
         if query.message is not None:
@@ -235,7 +237,10 @@ async def download_mirror_handler(query: types.CallbackQuery):
                 "tmdb_id": tmdb_id,
                 "lang": user_lang,
                 "dub": dub,
-                "tg_user_id": user_id
+                "tg_user_id": user_id,
+                "movie_title": movie_title,
+                "movie_poster": movie_poster,
+                "movie_url": movie_url
             }), ex=3600)
 
             emoji = "🇺🇦" if user_lang == 'uk' else "🎙"
@@ -333,6 +338,8 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
         movie_data = json.loads(movie_data_raw)
         movie_url = movie_data.get("url")
         tmdb_id = movie_data.get("tmdb_id")
+        movie_title = movie_data.get("title")
+        movie_poster = movie_data.get("poster")
         download_task_data = json.loads(download_task)
         ready_dubs_list = download_task_data['dubs_list']
         download_task_lang = download_task_data['lang']
@@ -408,9 +415,11 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
         logger.info(f"Generated token {token} for TMDB_ID={tmdb_id}, dub=default_ru, lang={download_task_lang}")
         await redis.set(f"selected_dub_info:{token}", json.dumps({
             "tmdb_id": tmdb_id,
-            "lang": download_task_lang,
+            "lang": "ru",
             "dub": 'default_ru',
-            "movie_url": movie_url
+            "movie_url": movie_url,
+            "movie_title": movie_title,
+            "movie_poster": movie_poster
         }), ex=3600)
 
         kb = [[types.InlineKeyboardButton(
@@ -438,7 +447,10 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
                 "tmdb_id": tmdb_id,
                 "lang": download_task_lang,
                 "dub": dub,
-                "tg_user_id": user_id
+                "tg_user_id": user_id,
+                "movie_title": movie_title,
+                "movie_poster": movie_poster,
+                "movie_url": movie_url
             }), ex=3600)
 
             emoji = "🇺🇦" if user_lang == 'uk' else "🎙"
@@ -461,7 +473,9 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
                 "tmdb_id": tmdb_id,
                 "lang": download_task_lang,
                 "dub": dub,
-                "movie_url": movie_url
+                "movie_url": movie_url,
+                "movie_title": movie_title,
+                "movie_poster": movie_poster
             }), ex=3600)
 
             kb.append([types.InlineKeyboardButton(text=text, callback_data=f"select_dub:{token}")])
@@ -522,6 +536,8 @@ async def select_dub_handler(query: types.CallbackQuery):
         lang = selected_data["lang"]
         dub = selected_data["dub"]
         movie_url = selected_data["movie_url"]
+        movie_title = selected_data.get("movie_title")
+        movie_poster = selected_data.get("movie_poster")
     except Exception as e:
         logger.error(f"[User {user_id}] Failed to parse selected dub token: {e}")
         if query.message is not None:
@@ -544,7 +560,9 @@ async def select_dub_handler(query: types.CallbackQuery):
         "dub": dub,
         "exp": int(time.time()) + 600,
         "tg_user_id": user_id,
-        "movie_url": movie_url
+        "movie_url": movie_url,
+        "movie_title": movie_title,
+        "movie_poster": movie_poster
     }
 
     data_b64, sig = SignedTokenManager.generate_token(payload)

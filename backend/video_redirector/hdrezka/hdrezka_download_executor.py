@@ -13,7 +13,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang: str, dub: str):
+async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang: str, dub: str, movie_title: str, movie_poster: str):
     redis = RedisClient.get_client()
     await redis.set(f"download:{task_id}:status", "extracting", ex=3600)
 
@@ -45,7 +45,10 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
                 dub=dub,
                 quality=result["quality"],
                 tg_bot_token_file_owner=tg_bot_token_file_owner,
-                created_at=datetime.now(timezone.utc)
+                created_at=datetime.now(timezone.utc),
+                movie_title=movie_title,
+                movie_poster=movie_poster,
+                movie_url=movie_url
             )
             session.add(db_entry)
             await session.flush()  # Get db_entry.id

@@ -7,6 +7,8 @@ from backend.video_redirector.services.mirror_search_service import search_for_m
 from backend.video_redirector.db.session import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends
+from backend.video_redirector.db.models import DownloadedFile
+from sqlalchemy.future import select
 
 import logging
 logger = logging.getLogger(__name__)
@@ -41,3 +43,22 @@ async def mirror_search(req: MirrorSearchRequest, db: AsyncSession = Depends(get
         traceback.print_exc()  # <-- ADD THIS LINE
         logger.exception(f"[MirrorSearch] Failed with exception: {e}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+@router.get("/downloaded_files/by_tmdb_id")
+async def get_downloaded_file_by_tmdb_id(tmdb_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(DownloadedFile).where(DownloadedFile.tmdb_id == tmdb_id))
+    file = result.scalars().first()
+    if not file:
+        raise HTTPException(status_code=404, detail="Downloaded file not found")
+    return {
+        "tmdb_id": file.tmdb_id,
+        "lang": file.lang,
+        "dub": file.dub,
+        "quality": file.quality,
+        "tg_bot_token_file_owner": file.tg_bot_token_file_owner,
+        "created_at": file.created_at.isoformat() if file.created_at else None,
+        "movie_title": file.movie_title,
+        "movie_poster": file.movie_poster,
+        "movie_url": file.movie_url,
+        "checked_by_admin": file.checked_by_admin
+    }

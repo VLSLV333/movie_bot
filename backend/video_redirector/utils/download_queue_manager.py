@@ -72,7 +72,9 @@ class DownloadQueueManager:
                 movie_url=task["movie_url"],
                 tmdb_id=task["tmdb_id"],
                 lang=task["lang"],
-                dub=task["dub"]
+                dub=task["dub"],
+                movie_title=task.get("movie_title"),
+                movie_poster=task.get("movie_poster")
             )
         except RetryableDownloadError as e:
             retries = int(await redis.get(f"download:{task_id}:retries") or 0)

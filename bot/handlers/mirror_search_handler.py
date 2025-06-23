@@ -69,6 +69,32 @@ async def handle_mirror_search(query: types.CallbackQuery):
     # Get user's preferred language from backend
     user_lang = await UserService.get_user_preferred_language(user_id)
 
+    # NEW: Check if already downloaded
+    try:
+        async with ClientSession() as session:
+            async with session.get(f"https://moviebot.click/downloaded_files/by_tmdb_id", params={"tmdb_id": tmdb_id}) as resp:
+                if resp.status == 200:
+                    file = await resp.json()
+                    logger.info(f"[User {user_id}] Found downloaded file for tmdb_id={tmdb_id}, using cached info.")
+                    # Render the card using saved info
+                    card_data = {
+                        "title": file.get("movie_title") or movie.get("title"),
+                        "poster": file.get("movie_poster"),
+                        "url": file.get("movie_url"),
+                        "id": file.get("movie_url") or str(tmdb_id)
+                    }
+                    cards = await render_mirror_card_batch([card_data], tmdb_id=tmdb_id, user_lang=user_lang)
+                    for msg_text, msg_kb, msg_img, stream_id in cards:
+                        if msg_img:
+                            msg = await query.message.answer_photo(photo=msg_img, caption=msg_text, reply_markup=msg_kb, parse_mode="HTML")
+                        else:
+                            msg = await query.message.answer(text=msg_text, reply_markup=msg_kb, parse_mode="HTML")
+                        await store_message_id_in_redis(stream_id, msg.message_id, user_id)
+                    return  # Skip mirror search
+    except Exception as e:
+        logger.warning(f"[User {user_id}] Exception while checking downloaded files: {e}")
+
+    # If not found, proceed as before
     try:
         async with ClientSession() as session:
             logger.debug(

@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 async def search_hdrezka(query: str) -> list[dict]:
     """
-    Search HDRezka and return top 10 results with title, poster, and detail page url.
+    Search HDRezka and return top 20 results with title, poster, and detail page url.
     """
     encoded_query = quote(query)
     url = f"https://hdrezka.ag/search/?do=search&subaction=search&q={encoded_query}"
@@ -24,7 +24,7 @@ async def search_hdrezka(query: str) -> list[dict]:
 
     results = []
 
-    for item in sel.css("div.b-content__inline_item")[:10]:
+    for item in sel.css("div.b-content__inline_item")[:20]:
         title = item.css("div.b-content__inline_item-link a::text").get(default='').strip()
         url = item.css("div.b-content__inline_item-link a::attr(href)").get(default='').strip()
         poster = item.css("div.b-content__inline_item-cover img::attr(src)").get(default='').strip()

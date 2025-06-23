@@ -50,7 +50,10 @@ class DownloadedFile(Base):
     quality = Column(String, nullable=True)  # optional field if we track resolution
     tg_bot_token_file_owner = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-
+    movie_title = Column(String, nullable=True)
+    movie_poster = Column(String, nullable=True)
+    movie_url = Column(String, nullable=True)
+    checked_by_admin = Column(Boolean, default=False)
 
 class DownloadedFilePart(Base):
     __tablename__ = "downloaded_file_parts"

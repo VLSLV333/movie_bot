@@ -182,7 +182,7 @@ async def custom_name_handler(query: types.CallbackQuery, state: FSMContext):
     # Use smart edit or send utility
     await smart_edit_or_send(
         message=query,
-        text="Please type your preferred name:"
+        text="Please type and send me your preferred name:"
     )
     await query.answer()
 
@@ -222,7 +222,7 @@ async def show_language_selection(message: types.Message, user_name: str):
     keyboard = get_language_selection_keyboard(user_lang)
     
     await message.answer(
-        f"Great {user_name}! Do you prefer to watch movies in this language?",
+        f"Great {user_name}! In what language do you watch movies?",
         reply_markup=keyboard
     )
 
