@@ -45,86 +45,97 @@ async def fetch_next_mirror_results(query: str, lang: str, excluded_mirrors: lis
 async def handle_mirror_search(query: types.CallbackQuery):
     redis = RedisClient.get_client()
 
-    user_id = query.from_user.id
-    movie_id = query.data.split(":", 1)[1]
+    main_menu_keyboard = get_main_menu_keyboard()
+    if not query.data:
+        await query.answer("Something went wrong😔 Please try again from the main menu.", reply_markup=main_menu_keyboard)
+        return
+    parts = query.data.split(":")
+    # select_movie_card:{movie_id} or select_movie_card:{movie_id}:{flag}
+    movie_id = parts[1]
+    skip_db_lookup = len(parts) > 2 and parts[2] == "y"
 
     movie_json = await redis.get(f"movie_info:{movie_id}")
+    if not movie_json:
+        await query.answer("Something went wrong😔 Please try again from the main menu.", reply_markup=main_menu_keyboard)
+        return
     movie = json.loads(movie_json)
 
     tmdb_id = int(movie_id)
 
-    await query.answer("⏳ Searching mirrors...")
-    logger.info(f"[User {user_id}] Initiating mirror search for: '{movie.get('title')}'")
+    await query.answer("⏳ Searching...")
+    logger.info(f"[User {query.from_user.id}] Initiating mirror search for: '{movie.get('title')}' (skip_db_lookup={skip_db_lookup})")
 
     # Retrieve movie title from stored session (you may pass it directly in a real scenario)
-    session = await SessionManager.get_user_session(user_id)
+    session = await SessionManager.get_user_session(query.from_user.id)
     if not session:
-        keyboard = get_main_menu_keyboard()
-        await query.message.answer(
-            "😅 I already forgot what we were searching! Pls start a new search 👇",
-            reply_markup=keyboard
-        )
+        if query.message:
+            await query.message.answer(
+                "😅 I already forgot what we were searching! Pls start a new search 👇",
+                reply_markup=main_menu_keyboard
+            )
         await query.answer()
         return
 
     # Get user's preferred language from backend
-    user_lang = await UserService.get_user_preferred_language(user_id)
+    user_lang = await UserService.get_user_preferred_language(query.from_user.id)
 
-    # NEW: Check if already downloaded
-    try:
-        async with ClientSession() as session:
-            async with session.get(f"https://moviebot.click/downloaded_files/by_tmdb_id", params={"tmdb_id": tmdb_id}) as resp:
-                if resp.status == 200:
-                    file = await resp.json()
-                    logger.info(f"[User {user_id}] Found downloaded file for tmdb_id={tmdb_id}, using cached info.")
-                    # Render the card using saved info
-                    card_data = {
-                        "title": file.get("movie_title") or movie.get("title"),
-                        "poster": file.get("movie_poster"),
-                        "url": file.get("movie_url"),
-                        "id": hashlib.sha256(file.get("movie_url").encode()).hexdigest()[:16]
-                    }
-                    logger.info(f'[User {user_id}]\n title: {file.get("movie_title")}\n"poster": {file.get("movie_poster")}\n"url": {file.get("movie_url")}\n"id": {hashlib.sha256(file.get("movie_url").encode()).hexdigest()[:16]}')
-                    cards = await render_mirror_card_batch([card_data], tmdb_id=tmdb_id, user_lang=user_lang)
-                    for msg_text, msg_kb, msg_img, stream_id in cards:
-                        if msg_img:
-                            msg = await query.message.answer_photo(photo=msg_img, caption=msg_text, reply_markup=msg_kb, parse_mode="HTML")
-                        else:
-                            msg = await query.message.answer(text=msg_text, reply_markup=msg_kb, parse_mode="HTML")
-                        await store_message_id_in_redis(stream_id, msg.message_id, user_id)
-                    return  # Skip mirror search
-    except Exception as e:
-        logger.warning(f"[User {user_id}] Exception while checking downloaded files: {e}")
+    # Only do DB lookup if not skipping
+    if not skip_db_lookup:
+        try:
+            async with ClientSession() as session:
+                async with session.get(f"https://moviebot.click/downloaded_files/by_tmdb_id", params={"tmdb_id": tmdb_id}) as resp:
+                    if resp.status == 200:
+                        file = await resp.json()
+                        logger.info(f"[User {query.from_user.id}] Found downloaded file for tmdb_id={tmdb_id}, using cached info.")
+                        # Render the card using saved info
+                        card_data = {
+                            "title": file.get("movie_title") or movie.get("title"),
+                            "poster": file.get("movie_poster"),
+                            "url": file.get("movie_url"),
+                            "id": hashlib.sha256(file.get("movie_url").encode()).hexdigest()[:16]
+                        }
+                        logger.info(f'[User {query.from_user.id}]\n title: {file.get("movie_title")}\n"poster": {file.get("movie_poster")}\n"url": {file.get("movie_url")}\n"id": {hashlib.sha256(file.get("movie_url").encode()).hexdigest()[:16]}')
+                        add_wrong_movie_btn = not file.get("checked_by_admin", True)
+                        cards = await render_mirror_card_batch([card_data], tmdb_id=tmdb_id, user_lang=user_lang, add_wrong_movie_btn=add_wrong_movie_btn)
+                        for msg_text, msg_kb, msg_img, stream_id in cards:
+                            if query.message:
+                                if msg_img:
+                                    msg = await query.message.answer_photo(photo=msg_img, caption=msg_text, reply_markup=msg_kb, parse_mode="HTML")
+                                else:
+                                    msg = await query.message.answer(text=msg_text, reply_markup=msg_kb, parse_mode="HTML")
+                                await store_message_id_in_redis(stream_id, msg.message_id, query.from_user.id)
+                        return  # Skip mirror search
+        except Exception as e:
+            logger.warning(f"[User {query.from_user.id}] Exception while checking downloaded files: {e}")
 
-    # If not found, proceed as before
+    # If not found in DB or skipping DB lookup, proceed as before
     try:
         async with ClientSession() as session:
             logger.debug(
-                f"[User {user_id}] Sending mirror search POST to {MIRROR_SEARCH_API_URL} with payload: {{'query': '{movie.get('title')}', 'lang': '{user_lang}'}}")
+                f"[User {query.from_user.id}] Sending mirror search POST to {MIRROR_SEARCH_API_URL} with payload: {{'query': '{movie.get('title')}', 'lang': '{user_lang}'}}")
             async with session.post(MIRROR_SEARCH_API_URL, json={
                 "query": movie.get('title'),
                 "lang": user_lang
             }) as resp:
                 if resp.status != 200:
-                    #TODO: provide main menu keyboard, so user doesn't get stuck
-                    await query.message.answer("❌ Failed to search mirrors. Try again later.")
+                    if query.message:
+                        await query.message.answer("❌ Failed to search mirrors. Try again from beginning.", reply_markup=main_menu_keyboard)
                     logger.error(
-                        f"[User {user_id}] Mirror search failed with status: {resp.status}, body: {await resp.text()}")
+                        f"[User {query.from_user.id}] Mirror search failed with status: {resp.status}, body: {await resp.text()}")
                     return
                 mirror_results = await resp.json()
     except Exception as e:
-        #TODO: provide main menu keyboard, so user doesn't get stuck
-        logger.exception(f"[User {user_id}] Exception during mirror search: {e}\n{traceback.format_exc()}")
-        await query.message.answer("❌ Unexpected error during mirror search.")
-
+        logger.exception(f"[User {query.from_user.id}] Exception during mirror search: {e}\n{traceback.format_exc()}")
+        if query.message:
+            await query.message.answer("❌ Unexpected error during mirror search. Try again from beginning.", reply_markup=main_menu_keyboard)
         return
 
     if not mirror_results:
-        #TODO: provide main menu keyboard, so user doesn't get stuck
-        await query.message.answer("😔 No results found on mirror.")
+        if query.message:
+            await query.message.answer("😔 No results found on mirror. Try another movie please", reply_markup=main_menu_keyboard)
         return
 
-    logger.debug(f"[User {user_id}] Received mirror search results: {[r.get('title') for r in mirror_results]}")
+    logger.debug(f"[User {query.from_user.id}] Received mirror search results: {[r.get('title') for r in mirror_results]}")
 
     # Extract info from backend response
     first_mirror_info = mirror_results[0]
@@ -132,13 +143,13 @@ async def handle_mirror_search(query: types.CallbackQuery):
     geo_priority = first_mirror_info.get("geo_priority")
     results = first_mirror_info.get("results", [])
 
-    logger.debug(f"[User {user_id}] Full mirror results:\n{results}")
-    logger.info(f"[User {user_id}] Mirror '{mirror_name}' responded with {len(results)} results (geo={geo_priority})")
+    logger.debug(f"[User {query.from_user.id}] Full mirror results:\n{results}")
+    logger.info(f"[User {query.from_user.id}] Mirror '{mirror_name}' responded with {len(results)} results (geo={geo_priority})")
 
     # Store indexed mirror result in the new structure
     mirror_session = MirrorSearchSession(
-        user_id=user_id,
-        movie_id=movie_id,
+        user_id=query.from_user.id,
+        movie_id=movie_id,  # movie_id is str
         original_query=movie.get('title'),
         mirrors_search_results={
             DEFAULT_MIRROR_INDEX: {
@@ -151,33 +162,37 @@ async def handle_mirror_search(query: types.CallbackQuery):
         current_result_index=0,
         preferred_language=user_lang
     )
-    await SessionManager.update_data(user_id, {"mirror_session": mirror_session.to_dict()})
+    await SessionManager.update_data(query.from_user.id, {"mirror_session": mirror_session.to_dict()})
 
     # Show top nav first
     top_nav_text, top_nav_keyboard = get_mirror_navigation_keyboard(mirror_session, position="top", click_source="top")
-    top_panel = await query.message.answer(top_nav_text, reply_markup=top_nav_keyboard)
-    top_nav_message_id = top_panel.message_id
+    if query.message:
+        top_panel = await query.message.answer(top_nav_text, reply_markup=top_nav_keyboard)
+        top_nav_message_id = top_panel.message_id
+    else:
+        top_nav_message_id = None
 
     cards = await render_mirror_card_batch(results[:1], tmdb_id=tmdb_id, user_lang=user_lang)
     card_message_ids = []
 
     for msg_text, msg_kb, msg_img, stream_id in cards:
-        if msg_img:
-            msg = await query.message.answer_photo(photo=msg_img, caption=msg_text, reply_markup=msg_kb, parse_mode="HTML")
-        else:
-            msg = await query.message.answer(text=msg_text, reply_markup=msg_kb, parse_mode="HTML")
-        
-        # Store message ID in Redis for later retrieval when updating the card
-        await store_message_id_in_redis(stream_id, msg.message_id, user_id)
-
-        card_message_ids.append(msg.message_id)
+        if query.message:
+            if msg_img:
+                msg = await query.message.answer_photo(photo=msg_img, caption=msg_text, reply_markup=msg_kb, parse_mode="HTML")
+            else:
+                msg = await query.message.answer(text=msg_text, reply_markup=msg_kb, parse_mode="HTML")
+            await store_message_id_in_redis(stream_id, msg.message_id, query.from_user.id)
+            card_message_ids.append(msg.message_id)
 
     bottom_nav_text, bottom_nav_keyboard = get_mirror_navigation_keyboard(mirror_session, position="bottom", click_source="bottom")
-    bottom_panel = await query.message.answer(bottom_nav_text, reply_markup=bottom_nav_keyboard)
-    bottom_nav_message_id = bottom_panel.message_id
+    if query.message:
+        bottom_panel = await query.message.answer(bottom_nav_text, reply_markup=bottom_nav_keyboard)
+        bottom_nav_message_id = bottom_panel.message_id
+    else:
+        bottom_nav_message_id = None
 
     mirror_session.top_nav_message_id = top_nav_message_id
     mirror_session.bottom_nav_message_id = bottom_nav_message_id
     mirror_session.card_message_ids = card_message_ids
 
-    await SessionManager.update_data(user_id, {"mirror_session": mirror_session.to_dict()})
+    await SessionManager.update_data(query.from_user.id, {"mirror_session": mirror_session.to_dict()})

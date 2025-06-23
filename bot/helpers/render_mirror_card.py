@@ -99,7 +99,7 @@ async def get_message_id_from_redis(stream_id: str, user_id: int) -> Optional[in
         logger.warning(f"[User {user_id}] Failed to get message ID from Redis: {e}")
     return None
 
-def render_mirror_card(result: dict, user_lang: str) -> Tuple[str, types.InlineKeyboardMarkup, str, str]:
+def render_mirror_card(result: dict, user_lang: str, add_wrong_movie_btn: bool = False, tmdb_id: int = None) -> Tuple[str, types.InlineKeyboardMarkup, str, str]:
     """
     Renders a mirror movie result into a Telegram card.
     Expects structure: { "title": ..., "poster": ..., "url": ... }
@@ -107,6 +107,8 @@ def render_mirror_card(result: dict, user_lang: str) -> Tuple[str, types.InlineK
     Args:
         result: Movie data dictionary
         user_lang: User's preferred language
+        add_wrong_movie_btn: If True, add a 'Wrong movie' button
+        tmdb_id: TMDB movie id (required if add_wrong_movie_btn is True)
     """
     title = result.get("title", "Awesome title 🫡").strip()
     poster = result.get("poster") or DEFAULT_POSTER_FILE_ID
@@ -126,11 +128,13 @@ def render_mirror_card(result: dict, user_lang: str) -> Tuple[str, types.InlineK
         [types.InlineKeyboardButton(text="💾 Download", callback_data=f"download_mirror:{stream_id}")],
         [types.InlineKeyboardButton(text="🌍 Change language", callback_data=f"CLM:{stream_id}")]
     ]
+    if add_wrong_movie_btn and tmdb_id is not None:
+        buttons.append([types.InlineKeyboardButton(text="❌ Wrong movie", callback_data=f"select_movie_card:{tmdb_id}:y")])
 
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
     return text, keyboard, poster, stream_id
 
-async def render_mirror_card_batch(results: list[dict], tmdb_id, user_lang: str) -> list[Tuple[str, types.InlineKeyboardMarkup, str, str]]:
+async def render_mirror_card_batch(results: list[dict], tmdb_id, user_lang: str, add_wrong_movie_btn: bool = False) -> list[Tuple[str, types.InlineKeyboardMarkup, str, str]]:
     redis = RedisClient.get_client()
     rendered = []
 
@@ -149,6 +153,6 @@ async def render_mirror_card_batch(results: list[dict], tmdb_id, user_lang: str)
             except Exception as e:
                 logger.warning(f"[MirrorCard] Failed to cache URL for {stream_id}: {e}")
 
-        rendered.append(render_mirror_card(result, user_lang))
+        rendered.append(render_mirror_card(result, user_lang, add_wrong_movie_btn, tmdb_id))
 
     return rendered
