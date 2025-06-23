@@ -95,39 +95,39 @@ async def mirror_select_language_handler(query: types.CallbackQuery):
                             if message_id and query.bot is not None:
                                 # Get the current message to extract the title
                                 try:
-                                    current_message = await query.bot.get_message(
-                                        chat_id=query.from_user.id,
-                                        message_id=message_id
-                                    )
+                                    # current_message = await query.bot.get_message(
+                                    #     chat_id=query.from_user.id,
+                                    #     message_id=message_id
+                                    # )
                                     
-                                    if current_message and current_message.caption:
+                                    # if current_message and current_message.caption:
                                         # Extract the lines from the current caption
-                                        caption_lines = current_message.caption.split('\n')
-                                        # Find and replace the language line, or append if not found
-                                        language_line = f"Preferred language to watch: {language_display}"
-                                        replaced = False
-                                        for idx, line in enumerate(caption_lines):
-                                            if line.strip().startswith("Preferred language to watch:"):
-                                                caption_lines[idx] = language_line
-                                                replaced = True
-                                                break
-                                        if not replaced:
-                                            # Append the language line if not found
-                                            caption_lines.append("")  # Ensure a blank line before
-                                            caption_lines.append(language_line)
-                                        new_caption = '\n'.join(caption_lines)
-                                        
-                                        # Update only the caption
-                                        await query.bot.edit_message_caption(
-                                            chat_id=query.from_user.id,
-                                            message_id=message_id,
-                                            caption=new_caption,
-                                            parse_mode="HTML"
-                                        )
-                                        
-                                        logger.info(f"[User {user_id}] Successfully updated language display to: {selected_language}")
-                                        await query.answer(f"✅ Language updated to: {language_display}")
-                                        return
+                                    # caption_lines = current_message.caption.split('\n')
+                                    # Find and replace the language line, or append if not found
+                                    language_line = f"Preferred language to watch: {language_display}"
+                                    # replaced = False
+                                    # for idx, line in enumerate(caption_lines):
+                                    #     if line.strip().startswith("Preferred language to watch:"):
+                                    #         caption_lines[idx] = language_line
+                                    #         replaced = True
+                                    #         break
+                                    # if not replaced:
+                                    #     # Append the language line if not found
+                                    #     caption_lines.append("")  # Ensure a blank line before
+                                    #     caption_lines.append(language_line)
+                                    # new_caption = '\n'.join(caption_lines)
+
+                                    # Update only the caption
+                                    await query.bot.edit_message_caption(
+                                        chat_id=query.from_user.id,
+                                        message_id=message_id,
+                                        caption=language_line,
+                                        parse_mode="HTML"
+                                    )
+
+                                    logger.info(f"[User {user_id}] Successfully updated language display to: {selected_language}")
+                                    await query.answer(f"✅ Language updated to: {language_display}")
+                                    return
                                         
                                 except Exception as e:
                                     logger.warning(f"[User {user_id}] Failed to get or update message: {e}")
