@@ -35,6 +35,35 @@
             }
         }
     </style>
+    <style>
+      /* --- Fullscreen fixes for Video.js --- */
+      .video-js.vjs-fullscreen,
+      .vjs-fullscreen .video-js {
+        width: 100% !important;
+        height: 100% !important;
+        position: fixed !important;
+        top: 0; left: 0; right: 0; bottom: 0;
+        z-index: 10000;
+      }
+      .video-js.vjs-fullscreen .vjs-control-bar,
+      .video-js.vjs-fullscreen .vjs-text-track-display {
+        z-index: 10001;
+      }
+      .video-js.vjs-fullscreen {
+        cursor: default !important;
+      }
+      /* Prevent parent wrapper from clipping fullscreen */
+      .player-wrapper:fullscreen,
+      .player-wrapper:-webkit-full-screen,
+      .player-wrapper:-moz-full-screen,
+      .player-wrapper:-ms-fullscreen {
+        overflow: visible !important;
+        height: 100% !important;
+        width: 100% !important;
+        padding: 0 !important;
+        max-width: none !important;
+      }
+    </style>
 </head>
 <body>
     <h1>🎬 Loading your movie...</h1>
@@ -99,12 +128,31 @@
         type: 'application/x-mpegURL'
       });
 
+      // Remove all existing remote text tracks before adding new ones
+      while (player.remoteTextTracks().length > 0) {
+        player.removeRemoteTextTrack(player.remoteTextTracks()[0]);
+      }
+
+      // Map subtitle label to ISO code for srclang
+      function getSrclang(label) {
+        if (!label) return 'und';
+        const l = label.toLowerCase();
+        if (l.includes('english')) return 'en';
+        if (l.includes('рус')) return 'ru';
+        if (l.includes('укр')) return 'uk';
+        if (l.includes('spanish') || l.includes('español')) return 'es';
+        if (l.includes('deutsch') || l.includes('german')) return 'de';
+        if (l.includes('français') || l.includes('french')) return 'fr';
+        // Add more mappings as needed
+        return 'en';
+      }
+
       subtitles.forEach(sub => {
         player.addRemoteTextTrack({
           kind: 'subtitles',
           label: sub.lang || 'Unknown',
           src: sub.url,
-          srclang: 'uk'
+          srclang: getSrclang(sub.lang)
         }, false);
       });
 
