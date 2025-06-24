@@ -6,8 +6,8 @@
     <link href="https://unpkg.com/video.js@7.20.3/dist/video-js.min.css" rel="stylesheet">
     <style>
         body { background: #111; color: #fff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
-        .player-wrapper { position: relative; max-width: 960px; margin: 20px auto; height: 0; padding-top: 56.25%; overflow: hidden; }
-        .video-js {position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        .player-wrapper { position: relative; max-width: 960px; margin: 20px auto; height: 0; padding-top: 56.25%; /* overflow: hidden; */ }
+        .video-js { width: 100%; height: 100%; }
         .vjs-big-play-button {
           top: 50% !important;
           left: 50% !important;
@@ -37,13 +37,13 @@
     </style>
     <style>
       /* --- Fullscreen fixes for Video.js --- */
-      .video-js.vjs-fullscreen,
-      .vjs-fullscreen .video-js {
+      .video-js.vjs-fullscreen {
         width: 100% !important;
         height: 100% !important;
         position: fixed !important;
         top: 0; left: 0; right: 0; bottom: 0;
         z-index: 10000;
+        background: #111;
       }
       .video-js.vjs-fullscreen .vjs-control-bar,
       .video-js.vjs-fullscreen .vjs-text-track-display {
@@ -51,44 +51,6 @@
       }
       .video-js.vjs-fullscreen {
         cursor: default !important;
-      }
-      /* Prevent parent wrapper from clipping fullscreen */
-      .player-wrapper:fullscreen,
-      .player-wrapper:-webkit-full-screen,
-      .player-wrapper:-moz-full-screen,
-      .player-wrapper:-ms-fullscreen {
-        overflow: visible !important;
-        height: 100% !important;
-        width: 100% !important;
-        padding: 0 !important;
-        max-width: none !important;
-      }
-    </style>
-    <style>
-      /* --- Improved fullscreen fixes for Video.js --- */
-      /* Remove overflow and sizing restrictions in fullscreen */
-      .player-wrapper:fullscreen,
-      .player-wrapper:-webkit-full-screen,
-      .player-wrapper:-moz-full-screen,
-      .player-wrapper:-ms-fullscreen {
-        overflow: visible !important;
-        height: 100% !important;
-        width: 100% !important;
-        padding: 0 !important;
-        max-width: none !important;
-        position: fixed !important;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: #111;
-      }
-      /* Ensure .video-js fills the wrapper in fullscreen */
-      .player-wrapper:fullscreen .video-js,
-      .player-wrapper:-webkit-full-screen .video-js,
-      .player-wrapper:-moz-full-screen .video-js,
-      .player-wrapper:-ms-fullscreen .video-js {
-        width: 100% !important;
-        height: 100% !important;
-        position: absolute !important;
-        top: 0; left: 0;
       }
     </style>
 </head>
@@ -118,6 +80,8 @@
     videojs.Hls = videojs.Vhs;
 
     const player = videojs('player', {
+      fluid: true,
+      aspectRatio: '16:9',
       html5: {
         vhs: {
           overrideNative: true  // ✅ Force VHS usage
