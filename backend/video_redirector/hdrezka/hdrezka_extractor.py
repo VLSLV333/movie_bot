@@ -118,7 +118,7 @@ async def start_listening_for_vtt(page, extracted: Dict,task_id):
 
             # ✅ Save to Redis so fallback route can find it
             redis = RedisClient.get_client()
-            await redis.set(f"subs:{task_id}:fallback", url, ex=3600)
+            await redis.set(f"subs:{task_id}:fallback", url, ex=86400)
 
             extracted["subtitles"].append({
                 "url": proxy_url,
@@ -169,7 +169,7 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
 
             # Save to Redis
             redis = RedisClient.get_client()
-            await redis.set(f"subs:{task_id}:{quote(dub_name)}:{quote(lang_code)}", real_url, ex=3600)
+            await redis.set(f"subs:{task_id}:{quote(dub_name)}:{quote(lang_code)}", real_url, ex=86400)
 
             extracted["subtitles"].append({
                 "url": proxy_url,
@@ -206,6 +206,12 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
             print(f"🟢 Already active subtitle detected: {lang}")
             if extracted["subtitles"]:
                 extracted["subtitles"][0]["lang"] = lang
+                extracted["subtitles"][0]["url"] = f"/hd/subs/{task_id}/{quote(dub_name)}/{quote(lang)}.vtt"
+                redis = RedisClient.get_client()
+                fallback_url = await redis.get(f"subs:{task_id}:fallback")
+                if fallback_url:
+                    await redis.set(f"subs:{task_id}:{quote(dub_name)}:{quote(lang)}", fallback_url, ex=86400)
+                print(f"resaved first captured vtt with new key in redis")
             break
 
     # Step 5: Iterate through subtitle options (skip first & last)

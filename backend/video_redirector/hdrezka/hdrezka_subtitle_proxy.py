@@ -33,6 +33,7 @@ async def proxy_subtitle(task_id: str, dub_name: str, lang: str):
     except Exception as e:
         return Response(content=f"Subtitle proxy error: {e}", status_code=500)
 
+#Fallback not sure if needed but kept for now
 @router.get("/subs/{task_id}.vtt")
 async def fallback_subtitle_proxy(task_id: str):
     redis = RedisClient.get_client()
