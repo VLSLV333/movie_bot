@@ -27,6 +27,9 @@ async def extract_from_hdrezka(url: str, user_lang: str, task_id: str = None) ->
         for dub_name in dub_names:
             print(f"\n🎙️ Extracting for dub: {dub_name}")
 
+            dub_result = {"all_m3u8": [], "subtitles": []}
+
+            vtt_handler = await start_listening_for_vtt(page, dub_result, task_id)
             # Re-query the dub element by name each time
             li_element = await find_dub_element_by_name(page, dub_name)
             if li_element:
@@ -36,10 +39,9 @@ async def extract_from_hdrezka(url: str, user_lang: str, task_id: str = None) ->
                 except Exception as e:
                     print(f"⚠️ Failed to click dub '{dub_name}': {e}")
 
-            dub_result = {"all_m3u8": [], "subtitles": []}
-
-            await start_listening_for_vtt(page, dub_result, task_id)
             await extract_all_quality_variants(page, dub_result)
+            # Remove the VTT listener before extracting subtitles
+            page.remove_listener("response", vtt_handler)
             await extract_subtitles_if_available(page, dub_result, task_id=task_id, dub_name=dub_name)
 
             final_result[user_lang][dub_name] = dub_result
@@ -105,28 +107,39 @@ async def select_preferred_dub(page, user_lang: str):
     print("⚠️ No matching dub found for user_lang. Using default active.")
 
 
-async def start_listening_for_vtt(page, extracted: Dict,task_id):
-    vtt_captured = False
+async def start_listening_for_vtt(page, extracted: Dict, task_id):
+    largest_vtt = {"size": 0, "url": None}
+    
     async def handle_vtt_response(response):
-        nonlocal vtt_captured
-        if vtt_captured:
+        if not response.url.endswith(".vtt"):
             return
+        content_length = response.headers.get("content-length")
+        size = int(content_length) if content_length is not None else 0
         url = response.url
-        if url.endswith(".vtt"):
+        if size > largest_vtt["size"]:
+            largest_vtt["size"] = size
+            largest_vtt["url"] = url
             proxy_url = f"/hd/subs/{task_id}.vtt"
-            print(f"[🎯] Found subtitle VTT (initial): {url}")
+            print(f"[🎯] Found larger subtitle VTT (initial): {url} (size: {size})")
 
-            # ✅ Save to Redis so fallback route can find it
+            # Save to Redis so fallback route can find it
             redis = RedisClient.get_client()
             await redis.set(f"subs:{task_id}:fallback", url, ex=86400)
 
-            extracted["subtitles"].append({
-                "url": proxy_url,
-                "lang": "Unknown"
-            })
-            vtt_captured = True
+            # Replace or add the subtitle in extracted["subtitles"]
+            if extracted["subtitles"]:
+                extracted["subtitles"][0]["url"] = proxy_url
+                extracted["subtitles"][0]["lang"] = "Unknown"
+            else:
+                extracted["subtitles"].append({
+                    "url": proxy_url,
+                    "lang": "Unknown"
+                })
+        else:
+            print(f"[🎯] Skipped smaller subtitle VTT (size: {size})")
 
     page.on("response", handle_vtt_response)
+    return handle_vtt_response
 
 
 async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub_name: str):
