@@ -64,6 +64,33 @@
         max-width: none !important;
       }
     </style>
+    <style>
+      /* --- Improved fullscreen fixes for Video.js --- */
+      /* Remove overflow and sizing restrictions in fullscreen */
+      .player-wrapper:fullscreen,
+      .player-wrapper:-webkit-full-screen,
+      .player-wrapper:-moz-full-screen,
+      .player-wrapper:-ms-fullscreen {
+        overflow: visible !important;
+        height: 100% !important;
+        width: 100% !important;
+        padding: 0 !important;
+        max-width: none !important;
+        position: fixed !important;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: #111;
+      }
+      /* Ensure .video-js fills the wrapper in fullscreen */
+      .player-wrapper:fullscreen .video-js,
+      .player-wrapper:-webkit-full-screen .video-js,
+      .player-wrapper:-moz-full-screen .video-js,
+      .player-wrapper:-ms-fullscreen .video-js {
+        width: 100% !important;
+        height: 100% !important;
+        position: absolute !important;
+        top: 0; left: 0;
+      }
+    </style>
 </head>
 <body>
     <h1>🎬 Loading your movie...</h1>
@@ -250,3 +277,4 @@
   </script>
 </body>
 </html>
+
