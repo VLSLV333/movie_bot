@@ -42,7 +42,7 @@ async def scrape_dubs_for_movie(movie_url: str, lang: str) -> Dict[str, Union[Li
 
     dubs = []
     for el in dub_elements:
-        dub_text = el.get_text(strip=True)
+        dub_text = el.get_text()
         dub_html = str(el)
 
         is_ukrainian = "Украинский" in dub_html

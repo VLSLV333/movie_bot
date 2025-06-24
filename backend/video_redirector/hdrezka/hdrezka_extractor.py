@@ -378,16 +378,3 @@ async def find_dub_element_by_name(page, dub_name):
 
 
 import asyncio
-
-async def main():
-    url = "https://hdrezka.ag/series/drama/79959-voskreshenie-2025-latest.html"
-    lang = "uk"
-    task_id = "test-task"
-
-    result = await extract_from_hdrezka(url, lang, task_id)
-
-    from pprint import pprint
-    pprint(result)
-
-if __name__ == "__main__":
-    asyncio.run(main())
