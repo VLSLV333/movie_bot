@@ -22,18 +22,25 @@ async def extract_from_hdrezka(url: str, user_lang: str, task_id: str = None) ->
 
         # --- Step 1: Find matching dubs ---
         dub_elements = await get_matching_dubs(page, user_lang)
+        dub_names = [dub_name for dub_name, _ in dub_elements]
 
-        for dub_name, li_element in dub_elements:
+        for dub_name in dub_names:
             print(f"\n🎙️ Extracting for dub: {dub_name}")
+
+            # Re-query the dub element by name each time
+            li_element = await find_dub_element_by_name(page, dub_name)
             if li_element:
-                await li_element.click()
-                await asyncio.sleep(1)
+                try:
+                    await li_element.evaluate("(el) => el.click()")
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    print(f"⚠️ Failed to click dub '{dub_name}': {e}")
 
             dub_result = {"all_m3u8": [], "subtitles": []}
 
-            await start_listening_for_vtt(page, dub_result,task_id)
+            await start_listening_for_vtt(page, dub_result, task_id)
             await extract_all_quality_variants(page, dub_result)
-            await extract_subtitles_if_available(page, dub_result,task_id=task_id,dub_name=dub_name)
+            await extract_subtitles_if_available(page, dub_result, task_id=task_id, dub_name=dub_name)
 
             final_result[user_lang][dub_name] = dub_result
 
@@ -42,6 +49,9 @@ async def extract_from_hdrezka(url: str, user_lang: str, task_id: str = None) ->
 async def get_matching_dubs(page, user_lang: str):
     matching = []
     li_items = await page.query_selector_all("#translators-list li")
+
+    if not li_items:
+        li_items = await page.query_selector_all("#translators-list a")
 
     # ✅ Handle NO dubs present at all
     if not li_items:
@@ -83,13 +93,13 @@ async def select_preferred_dub(page, user_lang: str):
     for li in li_items:
         html = await li.inner_html()
         if user_lang == "uk" and "Украинский" in html:
-            await li.click()
+            await li.evaluate("(el) => el.click()")
             return
         elif user_lang == "en" and "Оригинал" in html:
-            await li.click()
+            await li.evaluate("(el) => el.click()")
             return
         elif user_lang == "ru" and "Дубляж" in html:
-            await li.click()
+            await li.evaluate("(el) => el.click()")
             return
 
     print("⚠️ No matching dub found for user_lang. Using default active.")
@@ -354,3 +364,30 @@ async def extract_all_quality_variants(page, extracted: Dict):
         print(f"❌ Failed to extract the following qualities after {MAX_RETRIES} retries: {sorted(missing_set)}")
 
     quality_state["current"] = None
+
+
+async def find_dub_element_by_name(page, dub_name):
+    li_items = await page.query_selector_all("#translators-list li")
+    if not li_items:
+        li_items = await page.query_selector_all("#translators-list a")
+    for li in li_items:
+        text = await li.text_content()
+        if text and text.strip() == dub_name:
+            return li
+    return None
+
+
+import asyncio
+
+async def main():
+    url = "https://hdrezka.ag/series/drama/79959-voskreshenie-2025-latest.html"
+    lang = "uk"
+    task_id = "test-task"
+
+    result = await extract_from_hdrezka(url, lang, task_id)
+
+    from pprint import pprint
+    pprint(result)
+
+if __name__ == "__main__":
+    asyncio.run(main())

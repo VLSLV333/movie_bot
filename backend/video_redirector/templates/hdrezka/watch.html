@@ -142,7 +142,7 @@
           }
         } catch (e) {
           console.error("🛑 Frontend error loading config:", e);
-          document.querySelector("h1").textContent = `❌ Failed to load movie. Please search and load movie from the beginning.`;
+          document.querySelector("h1").textContent = `❌ Failed to load movie. Please click "watch" movie again in bot`;
           return;
         }
 
@@ -160,7 +160,7 @@
         loadDub(initialDub, langData[initialDub]);
 
       } catch (e) {
-        document.querySelector("h1").textContent = `❌ Failed to load movie. Please report this case to admin and try finding movie from begining`;
+        document.querySelector("h1").textContent = `❌ Failed to load movie. Please report this case to admin and click "watch" movie again in bot`;
         console.error(e);
       }
     }

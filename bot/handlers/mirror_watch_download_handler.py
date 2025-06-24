@@ -63,6 +63,7 @@ async def watch_mirror_handler(query: types.CallbackQuery):
     try:
         movie_data = json.loads(movie_data_raw)
         movie_url = movie_data.get("url")
+        movie_title = movie_data.get("title")
     except Exception as e:
         logger.error(f"[User {user_id}] Failed to parse cached mirror data: {e}")
         if query.message is not None:
@@ -85,14 +86,14 @@ async def watch_mirror_handler(query: types.CallbackQuery):
     if query.message is not None:
         loading_gif_msg = await query.message.answer_animation(
             animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
-            caption="🎬 Preparing your movie... Hang tight!"
+            caption="🎬 Preparing all available dubs for selected movie... You will watch in a minute!"
         )
     else:
         if query is not None and getattr(query, 'bot', None) is not None:
             loading_gif_msg = await query.bot.send_animation(  # type: ignore
                 chat_id=query.from_user.id,
                 animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
-                caption="🎬 Preparing your movie... Hang tight!"
+                caption="🎬 Preparing all available dubs for selected movie... You will watch in a minute!"
             )
         else:
             logger.error("query or query.bot is None, cannot send animation to user.")
@@ -149,12 +150,12 @@ async def watch_mirror_handler(query: types.CallbackQuery):
         logger.error(f"Error while deleting gif: {e}")
 
     if query.message is not None:
-        await query.message.answer("🎬 Your content is ready:", reply_markup=markup)
+        await query.message.answer(f"🎬 Your {movie_title} is ready:", reply_markup=markup)
     else:
         if query is not None and getattr(query, 'bot', None) is not None:
             await query.bot.send_message(  # type: ignore
                 chat_id=query.from_user.id,
-                text="🎬 Your content is ready:",
+                text=f"🎬 Your {movie_title} is ready:",
                 reply_markup=markup
             )
         else:
@@ -491,14 +492,22 @@ async def watch_downloaded_handler(query: types.CallbackQuery):
     user_id = query.from_user.id
     token = query.data.split("watch_downloaded:")[1]  # type: ignore
 
+    redis = RedisClient.get_client()
+    selected_data_json = await redis.get(f"downloaded_dub_info:{token}")
+    if selected_data_json:
+        selected_data = json.loads(selected_data_json)
+        movie_title = selected_data.get("movie_title")
+    else:
+        movie_title = "movie"  # fallback
+
     signed = f"{token}_{hmac.new(os.getenv('BACKEND_DOWNLOAD_SECRET').encode(), token.encode(), hashlib.sha256).hexdigest()[:10]}"  # type: ignore
     delivery_bot_link = f"https://t.me/deliv3ry_bot?start=2_{signed}"
 
     await query.message.answer(
-        "🎬 Your content is ready to watch!",
+        f"🎬 Your {movie_title} is ready to watch!",
         reply_markup=types.InlineKeyboardMarkup(
             inline_keyboard=[
-                [types.InlineKeyboardButton(text="▶️ Get movie from Delivery Bot", url=delivery_bot_link)]
+                [types.InlineKeyboardButton(text="🎁 Get movie from Delivery Bot", url=delivery_bot_link)]
             ]
         )
     )  # type: ignore
@@ -637,7 +646,7 @@ async def select_dub_handler(query: types.CallbackQuery):
             delivery_bot_link = f"https://t.me/deliv3ry_bot?start=1_{signed_task_id}"
             if query.message is not None:
                 await query.message.answer(
-                    "🎬 Your content is ready!\n\n📦 To receive it, start delivery bot👇",
+                    f"🎬 Your {movie_title} is ready!\n\n📦 To receive it, start delivery bot👇",
                     reply_markup=types.InlineKeyboardMarkup(
                         inline_keyboard=[
                             [types.InlineKeyboardButton(text="🎁 Open Delivery Bot", url=delivery_bot_link)]
@@ -648,7 +657,7 @@ async def select_dub_handler(query: types.CallbackQuery):
                 if query is not None and getattr(query, 'bot', None) is not None:
                     await query.bot.send_message(  # type: ignore
                         chat_id=query.from_user.id,
-                        text="🎬 Your content is ready!\n\n📦 To receive it, start delivery bot👇",
+                        text=f"🎬 Your {movie_title} is ready!\n\n📦 To receive it, start delivery bot👇",
                         reply_markup=types.InlineKeyboardMarkup(
                             inline_keyboard=[
                                 [types.InlineKeyboardButton(text="🎁 Open Delivery Bot", url=delivery_bot_link)]
