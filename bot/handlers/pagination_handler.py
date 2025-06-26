@@ -120,7 +120,7 @@ async def handle_pagination(query: types.CallbackQuery, direction: str):
         # If fewer movies than message_ids, delete extra cards and use placeholders
         num_movies = len(movies)
         num_message_ids = len(message_ids)
-        placeholder_ids = [f"00{i+1}" for i in range(BATCH_SIZE)]
+        PLACEHOLDER_IDS = ['001', '002', '003', '004', '005']
         updated_message_ids = message_ids.copy()
         
         logger.info(f"[Pagination] Initial message_ids: {message_ids}")
@@ -137,13 +137,13 @@ async def handle_pagination(query: types.CallbackQuery, direction: str):
                 except Exception as e:
                     logger.error(f"[User {user_id}] Failed to delete extra movie card: {e}")
                 # Set placeholder for this slot
-                updated_message_ids[idx] = placeholder_ids[idx]
+                updated_message_ids[idx] = PLACEHOLDER_IDS[idx]
             logger.info(f"[Pagination] updated_message_ids after deletion/placeholders: {updated_message_ids}")
         
         # If we have fewer message_ids than movies, pad with placeholders
         if num_message_ids < num_movies:
-            logger.info(f"[Pagination] Padding updated_message_ids with placeholders: {placeholder_ids[num_message_ids:num_movies]}")
-            updated_message_ids += placeholder_ids[num_message_ids:num_movies]
+            logger.info(f"[Pagination] Padding updated_message_ids with placeholders: {PLACEHOLDER_IDS[num_message_ids:num_movies]}")
+            updated_message_ids += PLACEHOLDER_IDS[num_message_ids:num_movies]
             logger.info(f"[Pagination] updated_message_ids after padding: {updated_message_ids}")
         
         # Now, update or send cards as needed
@@ -151,6 +151,15 @@ async def handle_pagination(query: types.CallbackQuery, direction: str):
         logger.info(f"[Pagination] updated_message_ids before update loop: {updated_message_ids}")
         for i, (movie, message_id) in enumerate(zip(movies, updated_message_ids)):
             text, keyboard, poster_url = await render_movie_card(movie, is_expanded=False)
+            if str(message_id) in PLACEHOLDER_IDS:
+                logger.info(f"[Pagination] Placeholder detected for card {i} (message_id: {message_id}), sending new card.")
+                try:
+                    sent = await query.message.answer_photo(photo=poster_url, caption=text, reply_markup=keyboard, parse_mode="HTML")
+                    logger.info(f"[Pagination] Sent new card {i}, new message_id: {sent.message_id}")
+                    updated_message_ids[i] = sent.message_id
+                except Exception as ex:
+                    logger.error(f"[User {user_id}] Failed to resend movie card: {ex}")
+                continue  # Skip to next card
             try:
                 logger.info(f"[Pagination] Attempting to edit card {i} with message_id: {message_id}")
                 await query.bot.edit_message_media(
@@ -162,7 +171,7 @@ async def handle_pagination(query: types.CallbackQuery, direction: str):
                 logger.info(f"[Pagination] Successfully edited card {i} with message_id: {message_id}")
             except TelegramBadRequest as e:
                 logger.warning(f"[Pagination] Failed to edit card {i} with message_id: {message_id}, error: {e}")
-                if "message to edit not found" in str(e) or str(message_id).startswith("00"):
+                if "message to edit not found" in str(e):
                     # Send new card and update message_id
                     try:
                         sent = await query.message.answer_photo(photo=poster_url, caption=text, reply_markup=keyboard, parse_mode="HTML")
