@@ -76,11 +76,14 @@ def render_navigation_panel(
     else:
         pass
 
-    # "Next" button — always show, later we can disable if last page is reached
-    buttons.append(types.InlineKeyboardButton(
-        text=f"➡️ {batch_size} Next Movies",
-        callback_data="show_more_results"
-    ))
+    # "Next" button — only show if not at last batch
+    if context.current_result_idx < context.total_results:
+        buttons.append(types.InlineKeyboardButton(
+            text=f"➡️ {batch_size} Next Movies",
+            callback_data="show_more_results"
+        ))
+    else:
+        pass
 
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[buttons])
 
