@@ -100,5 +100,5 @@ async def render_movie_card(movie: dict, is_expanded: bool = False) -> Tuple[str
 
 async def save_movie_info_to_redis(movie):
     redis = RedisClient.get_client()
-    logger.info(f"movie {movie.get('title')} with id {movie['id']} saved to redis")
+    logger.info(f"movie {movie.get('original_title')} with id {movie['id']} saved to redis")
     await redis.set(f"movie_info:{movie['id']}", json.dumps(movie), ex=3600)

@@ -63,7 +63,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
     tmdb_id = int(movie_id)
 
     await query.answer("⏳ Searching...")
-    logger.info(f"[User {query.from_user.id}] Initiating mirror search for: '{movie.get('title')}' (skip_db_lookup={skip_db_lookup})")
+    logger.info(f"[User {query.from_user.id}] Initiating mirror search for: '{movie.get('original_title')}' (skip_db_lookup={skip_db_lookup})")
 
     # Retrieve movie title from stored session (you may pass it directly in a real scenario)
     session = await SessionManager.get_user_session(query.from_user.id)
@@ -112,9 +112,9 @@ async def handle_mirror_search(query: types.CallbackQuery):
     try:
         async with ClientSession() as session:
             logger.debug(
-                f"[User {query.from_user.id}] Sending mirror search POST to {MIRROR_SEARCH_API_URL} with payload: {{'query': '{movie.get('title')}', 'lang': '{user_lang}'}}")
+                f"[User {query.from_user.id}] Sending mirror search POST to {MIRROR_SEARCH_API_URL} with payload: {{'query': '{movie.get('original_title')}', 'lang': '{user_lang}'}}")
             async with session.post(MIRROR_SEARCH_API_URL, json={
-                "query": movie.get('title'),
+                "query": movie.get('original_title'),
                 "lang": user_lang
             }) as resp:
                 if resp.status != 200:
@@ -150,7 +150,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
     mirror_session = MirrorSearchSession(
         user_id=query.from_user.id,
         movie_id=movie_id,  # movie_id is str
-        original_query=movie.get('title'),
+        original_query=movie.get('original_title'),
         mirrors_search_results={
             DEFAULT_MIRROR_INDEX: {
                 "mirror": mirror_name,
