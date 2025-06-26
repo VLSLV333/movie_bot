@@ -90,7 +90,7 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
     logger.debug(f"[User {user_id}] Current batch titles: {[r.get('title') for r in results[start:end]]}")
 
     # 1. Update top panel
-    top_text, top_keyboard = get_mirror_navigation_keyboard(session, position="top", click_source=click_source)
+    top_text, top_keyboard = await get_mirror_navigation_keyboard(session, position="top", click_source=click_source)
     try:
         await query.bot.edit_message_text(
             chat_id=query.message.chat.id,
@@ -165,7 +165,7 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
     # 3. Update bottom panel
     await safely_delete_navigation(query, session.bottom_nav_message_id)
 
-    bottom_text, bottom_keyboard = get_mirror_navigation_keyboard(session, position="bottom", click_source=click_source)
+    bottom_text, bottom_keyboard = await get_mirror_navigation_keyboard(session, position="bottom", click_source=click_source)
     try:
         panel = await query.message.answer(bottom_text, reply_markup=bottom_keyboard)
         session.bottom_nav_message_id = panel.message_id

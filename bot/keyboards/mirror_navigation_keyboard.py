@@ -2,21 +2,39 @@ from aiogram import types
 from bot.search.mirror_search_session import MirrorSearchSession
 from typing import Tuple
 from bot.utils.logger import Logger
+from bot.utils.redis_client import RedisClient
+import json
 
 logger = Logger().get_logger()
 
-def get_mirror_navigation_keyboard(session: MirrorSearchSession, position: str = "bottom",click_source: str | None = None) -> Tuple[str, types.InlineKeyboardMarkup]:
+async def get_mirror_navigation_keyboard(session: MirrorSearchSession, position: str = "bottom",click_source: str | None = None) -> Tuple[str, types.InlineKeyboardMarkup]:
     """
     Create top/bottom navigation panel with message text and buttons.
     """
+    redis = RedisClient.get_client()
 
     current = session.current_result_index
     total = len(session.mirrors_search_results.get(session.current_mirror_index, {}).get("results", []))
-    end = min(current + 1, total)
 
-    hint = f"Click ➡ Next if you don't see '{session.original_query}'"
+    # Extract movie title with proper error handling
+    movie_title = "Movie"
+    try:
+        movie_id = session.movie_id
+        movie_json = await redis.get(f"movie_info:{movie_id}")
+        
+        if movie_json:
+            movie = json.loads(movie_json)
+            movie_title = movie.get('title') or movie.get('original_title') or "Movie"
+        else:
+            logger.warning(f"Movie info not found in Redis for ID: {movie_id}")
+    except (json.JSONDecodeError, TypeError, AttributeError) as e:
+        logger.error(f"Error parsing movie info from Redis: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error while getting movie title: {e}")
 
-    text = f"🎬 Select '{session.original_query}' and start watching"
+    hint = f"Click ➡ Next if you don't see '{movie_title}'"
+
+    text = f"🎬 Select '{movie_title}' and start watching"
     if hint:
         text += f"\n\n{hint}"
 
