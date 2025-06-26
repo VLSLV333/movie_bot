@@ -67,10 +67,19 @@ class DownloadQueueManager:
         task_id = task["task_id"]
 
         try:
+            # Convert tmdb_id to integer with error handling
+            try:
+                tmdb_id = int(task["tmdb_id"])
+            except (ValueError, TypeError) as e:
+                logger.error(f"❌ Invalid tmdb_id '{task['tmdb_id']}' for task {task_id}: {e}")
+                await redis.set(f"download:{task_id}:status", "error", ex=3600)
+                await redis.set(f"download:{task_id}:error", f"Invalid tmdb_id: {task['tmdb_id']}", ex=3600)
+                return
+
             await handle_download_task(
                 task_id=task["task_id"],
                 movie_url=task["movie_url"],
-                tmdb_id=task["tmdb_id"],
+                tmdb_id=tmdb_id,
                 lang=task["lang"],
                 dub=task["dub"],
                 movie_title=task.get("movie_title"),
