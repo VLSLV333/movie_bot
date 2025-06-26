@@ -69,6 +69,7 @@
     <script src="https://cdn.jsdelivr.net/npm/videojs-http-source-selector@1.1.6/dist/videojs-http-source-selector.min.js"></script>
 
     <script>
+    const SHOW_AD = false; // Set to true to enable ad
     const urlParams = new URLSearchParams(window.location.search);
 
     const segments = window.location.pathname.split("/").filter(Boolean);
@@ -204,25 +205,31 @@
       }
     }
 
-    // Load ad first
-    player.src({ src: adSource, type: 'video/mp4' });
-    player.ready(() => {
-      player.play();
-    });
+    // --- Ad logic toggle ---
+    if (SHOW_AD) {
+      // Load ad first
+      player.src({ src: adSource, type: 'video/mp4' });
+      player.ready(() => {
+        player.play();
+      });
 
-    player.on('ended', () => {
-      if (adPlaying) {
-        adPlaying = false;
-        initPlayer();
-      }
-    });
+      player.on('ended', () => {
+        if (adPlaying) {
+          adPlaying = false;
+          initPlayer();
+        }
+      });
 
-    setTimeout(() => {
-      if (adPlaying) {
-        adPlaying = false;
-        initPlayer();
-      }
-    }, 10000);
+      setTimeout(() => {
+        if (adPlaying) {
+          adPlaying = false;
+          initPlayer();
+        }
+      }, 10000);
+    } else {
+      // Skip ad, go straight to movie
+      initPlayer();
+    }
 
     window.addEventListener("error", function (event) {
       fetch("/log-client-error", {
