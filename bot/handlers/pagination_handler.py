@@ -31,12 +31,12 @@ def get_user_lock(user_id: int) -> asyncio.Lock:
 
 def detect_click_source(session_data: dict, clicked_message_id: int) -> str:
     if clicked_message_id == session_data.get("top_pagination_message_id"):
-        logger.debug("Detected click source: TOP panel")
+        logger.info("Detected click source: TOP panel")
         return "top"
     elif clicked_message_id == session_data.get("pagination_message_id"):
-        logger.debug("Detected click source: BOTTOM panel")
+        logger.info("Detected click source: BOTTOM panel")
         return "bottom"
-    logger.debug("Detected click source: UNKNOWN")
+    logger.info("Detected click source: UNKNOWN")
     return "unknown"
 
 async def safely_delete_navigation(query: types.CallbackQuery, pagination_message_id: int) -> bool:
@@ -123,61 +123,63 @@ async def handle_pagination(query: types.CallbackQuery, direction: str):
         placeholder_ids = [f"00{i+1}" for i in range(BATCH_SIZE)]
         updated_message_ids = message_ids.copy()
         
-        logger.debug(f"[Pagination] Initial message_ids: {message_ids}")
-        logger.debug(f"[Pagination] Initial updated_message_ids: {updated_message_ids}")
-        logger.debug(f"[Pagination] Number of movies: {num_movies}, Number of message_ids: {num_message_ids}")
+        logger.info(f"[Pagination] Initial message_ids: {message_ids}")
+        logger.info(f"[Pagination] Initial updated_message_ids: {updated_message_ids}")
+        logger.info(f"[Pagination] Number of movies: {num_movies}, Number of message_ids: {num_message_ids}")
         
         # If we have more message_ids than movies, delete the extras and set placeholders
         if num_message_ids > num_movies:
             for idx in range(num_movies, num_message_ids):
                 msg_id_to_delete = message_ids[idx]
-                logger.debug(f"[Pagination] Deleting extra card with message_id: {msg_id_to_delete}")
+                logger.info(f"[Pagination] Deleting extra card with message_id: {msg_id_to_delete}")
                 try:
                     await query.bot.delete_message(chat_id=query.message.chat.id, message_id=msg_id_to_delete)
                 except Exception as e:
                     logger.error(f"[User {user_id}] Failed to delete extra movie card: {e}")
                 # Set placeholder for this slot
                 updated_message_ids[idx] = placeholder_ids[idx]
-            logger.debug(f"[Pagination] updated_message_ids after deletion/placeholders: {updated_message_ids}")
+            logger.info(f"[Pagination] updated_message_ids after deletion/placeholders: {updated_message_ids}")
         
         # If we have fewer message_ids than movies, pad with placeholders
         if num_message_ids < num_movies:
-            logger.debug(f"[Pagination] Padding updated_message_ids with placeholders: {placeholder_ids[num_message_ids:num_movies]}")
+            logger.info(f"[Pagination] Padding updated_message_ids with placeholders: {placeholder_ids[num_message_ids:num_movies]}")
             updated_message_ids += placeholder_ids[num_message_ids:num_movies]
-            logger.debug(f"[Pagination] updated_message_ids after padding: {updated_message_ids}")
+            logger.info(f"[Pagination] updated_message_ids after padding: {updated_message_ids}")
         
         # Now, update or send cards as needed
+        logger.info(f"[Pagination] Length of movies: {len(movies)}; Length of updated_message_ids: {len(updated_message_ids)}")
+        logger.info(f"[Pagination] updated_message_ids before update loop: {updated_message_ids}")
         for i, (movie, message_id) in enumerate(zip(movies, updated_message_ids)):
             text, keyboard, poster_url = await render_movie_card(movie, is_expanded=False)
             try:
-                logger.debug(f"[Pagination] Attempting to edit card {i} with message_id: {message_id}")
+                logger.info(f"[Pagination] Attempting to edit card {i} with message_id: {message_id}")
                 await query.bot.edit_message_media(
                     chat_id=query.message.chat.id,
                     message_id=message_id,
                     media=types.InputMediaPhoto(media=poster_url, caption=text, parse_mode="HTML"),
                     reply_markup=keyboard
                 )
-                logger.debug(f"[Pagination] Successfully edited card {i} with message_id: {message_id}")
+                logger.info(f"[Pagination] Successfully edited card {i} with message_id: {message_id}")
             except TelegramBadRequest as e:
                 logger.warning(f"[Pagination] Failed to edit card {i} with message_id: {message_id}, error: {e}")
                 if "message to edit not found" in str(e) or str(message_id).startswith("00"):
                     # Send new card and update message_id
                     try:
                         sent = await query.message.answer_photo(photo=poster_url, caption=text, reply_markup=keyboard, parse_mode="HTML")
-                        logger.debug(f"[Pagination] Sent new card {i}, new message_id: {sent.message_id}")
+                        logger.info(f"[Pagination] Sent new card {i}, new message_id: {sent.message_id}")
                         updated_message_ids[i] = sent.message_id
                     except Exception as ex:
                         logger.error(f"[User {user_id}] Failed to resend movie card: {ex}")
                 elif "message is not modified" in str(e):
-                    logger.debug(f"Card {message_id} unchanged; skipping edit")
+                    logger.info(f"Card {message_id} unchanged; skipping edit")
                 elif "canceled by new editMessageMedia request" in str(e):
-                    logger.debug("Previous edit canceled by newer one; skipping")
+                    logger.info("Previous edit canceled by newer one; skipping")
                 else:
                     logger.error(f"[User {user_id}] Failed to edit movie card : {e}")
         # After all, trim updated_message_ids to match movies
-        logger.debug(f"[Pagination] updated_message_ids before trim: {updated_message_ids}")
+        logger.info(f"[Pagination] updated_message_ids before trim: {updated_message_ids}")
         updated_message_ids = updated_message_ids[:num_movies]
-        logger.debug(f"[Pagination] updated_message_ids after trim: {updated_message_ids}")
+        logger.info(f"[Pagination] updated_message_ids after trim: {updated_message_ids}")
 
         # Try to update top pagination
         try:
@@ -192,9 +194,9 @@ async def handle_pagination(query: types.CallbackQuery, direction: str):
                 )
         except TelegramBadRequest as e:
             if "message is not modified" in str(e):
-                logger.debug("Top panel unchanged; skipping edit")
+                logger.info("Top panel unchanged; skipping edit")
             elif "canceled by new editMessageMedia request" in str(e):
-                logger.debug("Previous edit canceled by newer one; skipping")
+                logger.info("Previous edit canceled by newer one; skipping")
             else:
                 top_pagination_message_id = None # Top navigation panel was probably deleted by user, set ID to None to skip future updates in current session
                 logger.error(
