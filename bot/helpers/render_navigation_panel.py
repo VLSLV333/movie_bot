@@ -68,7 +68,7 @@ def render_navigation_panel(
     buttons = []
 
     # "Previous" button — disable if at first batch
-    if global_start > batch_size:
+    if context.current_result_idx > batch_size:
         buttons.append(types.InlineKeyboardButton(
             text=f"⬅️ {batch_size} Previous Movies",
             callback_data="show_previous_results"
