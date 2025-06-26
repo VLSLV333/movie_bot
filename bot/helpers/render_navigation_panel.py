@@ -70,6 +70,7 @@ def render_navigation_panel(
     logger.info(f'\n\ncurrent_result_idx: {context.current_result_idx}')
     logger.info(f'\n\nbatch_size: {batch_size}')
     logger.info(f'\n\ncurrent page: {context.current_page}')
+    logger.info(f'\n\ntotal_results: {context.total_results}')
 
     # "Previous" button — disable if at first batch
     if context.current_result_idx > batch_size or context.current_page != 1:
@@ -80,8 +81,8 @@ def render_navigation_panel(
     else:
         pass
 
-    # "Next" button — only show if not at last batch
-    if context.current_result_idx < context.total_results:
+    # "Next" button — only show if not at last result of last tmdb page
+    if context.current_result_idx + 20 * (context.current_page - 1) < context.total_results:
         buttons.append(types.InlineKeyboardButton(
             text=f"➡️ {batch_size} Next Movies",
             callback_data="show_more_results"

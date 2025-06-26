@@ -31,7 +31,7 @@ async def render_movie_card(movie: dict, is_expanded: bool = False) -> Tuple[str
         year = ''
 
     title = movie.get("title") or "🤯 No Title"
-    overview = movie.get("overview") or "Good movie 🫡"
+    overview = movie.get("overview") or "This is a default overview for some movies. Probably good movie 🫡"
     title = title.strip()
     overview = overview.strip()
 
