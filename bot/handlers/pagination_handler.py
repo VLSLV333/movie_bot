@@ -10,6 +10,7 @@ from bot.helpers.render_navigation_panel import render_navigation_panel
 from bot.helpers.back_to_main_menu_btn import add_back_to_main_menu_button
 from bot.keyboards.search_type_keyboard import get_search_type_keyboard
 from bot.search.user_search_context import UserSearchContext
+from bot.config import BATCH_SIZE
 
 logger = Logger().get_logger()
 tmdb_service = TMDBService()
@@ -60,7 +61,7 @@ async def handle_pagination(query: types.CallbackQuery, direction: str):
     user_id = query.from_user.id
     lock = get_user_lock(user_id)
 
-    # 2) if it’s already locked, just ignore the extra tap
+    # 2) if it's already locked, just ignore the extra tap
     if lock.locked():
         return await query.answer("Wait pls, some cards are still updating", show_alert=False)
 
@@ -111,6 +112,55 @@ async def handle_pagination(query: types.CallbackQuery, direction: str):
             await query.answer()
             return
 
+        # --- Robust movie card update logic for dynamic batch sizes ---
+        # If fewer movies than message_ids, delete extra cards and use placeholders
+        num_movies = len(movies)
+        num_message_ids = len(message_ids)
+        placeholder_ids = [f"00{i+1}" for i in range(BATCH_SIZE)]
+        updated_message_ids = message_ids.copy()
+        
+        # If we have more message_ids than movies, delete the extras and set placeholders
+        if num_message_ids > num_movies:
+            for idx in range(num_movies, num_message_ids):
+                msg_id_to_delete = message_ids[idx]
+                try:
+                    await query.bot.delete_message(chat_id=query.message.chat.id, message_id=msg_id_to_delete)
+                except Exception as e:
+                    logger.error(f"[User {user_id}] Failed to delete extra movie card: {e}")
+                # Set placeholder for this slot
+                updated_message_ids[idx] = placeholder_ids[idx]
+        
+        # If we have fewer message_ids than movies, pad with placeholders
+        if num_message_ids < num_movies:
+            updated_message_ids += placeholder_ids[num_message_ids:num_movies]
+        
+        # Now, update or send cards as needed
+        for i, (movie, message_id) in enumerate(zip(movies, updated_message_ids)):
+            text, keyboard, poster_url = await render_movie_card(movie, is_expanded=False)
+            try:
+                await query.bot.edit_message_media(
+                    chat_id=query.message.chat.id,
+                    message_id=message_id,
+                    media=types.InputMediaPhoto(media=poster_url, caption=text, parse_mode="HTML"),
+                    reply_markup=keyboard
+                )
+            except TelegramBadRequest as e:
+                if "message to edit not found" in str(e) or str(message_id).startswith("00"):
+                    # Send new card and update message_id
+                    try:
+                        sent = await query.message.answer_photo(photo=poster_url, caption=text, reply_markup=keyboard, parse_mode="HTML")
+                        updated_message_ids[i] = sent.message_id
+                    except Exception as ex:
+                        logger.error(f"[User {user_id}] Failed to resend movie card: {ex}")
+                elif "message is not modified" in str(e):
+                    logger.debug(f"Card {message_id} unchanged; skipping edit")
+                elif "canceled by new editMessageMedia request" in str(e):
+                    logger.debug("Previous edit canceled by newer one; skipping")
+                else:
+                    logger.error(f"[User {user_id}] Failed to edit movie card : {e}")
+        # After all, trim updated_message_ids to match movies
+        updated_message_ids = updated_message_ids[:num_movies]
+
         # Try to update top pagination
         try:
             if top_pagination_message_id:
@@ -132,39 +182,6 @@ async def handle_pagination(query: types.CallbackQuery, direction: str):
                 logger.error(
                 f"[User {query.from_user.id}] probably deleted top pagination panel: {e}"
                 )
-
-        # Try to update movie cards
-        for movie, message_id in zip(movies, message_ids):
-            text, keyboard, poster_url = await render_movie_card(movie, is_expanded=False)
-            try:
-                await query.bot.edit_message_media(
-                    chat_id=query.message.chat.id,
-                    message_id=message_id,
-                    media=types.InputMediaPhoto(media=poster_url, caption=text, parse_mode="HTML"),
-                    reply_markup=keyboard
-                )
-            except TelegramBadRequest as e:
-                if "message to edit not found" in str(e):
-                    # user deleted one of movie cards
-                    logger.warning(
-                        f"[User {query.from_user.id}] Card message {message_id} not found, sending new card.")
-                    if not navigation_deleted: # check to only delete navigation once and not for each movie card left in loop
-                        navigation_deleted = await safely_delete_navigation(query, pagination_message_id)
-                    try:
-                        sent = await query.message.answer_photo(photo=poster_url, caption=text, reply_markup=keyboard, parse_mode="HTML")
-
-                        movie_card_index_to_update = updated_message_ids.index(message_id) # get deleted movie card id index
-                        updated_message_ids[movie_card_index_to_update] = sent.message_id #update to new movie card id
-
-                    except Exception as ex:
-                        logger.error(f"[User {user_id}] Failed to resend movie card: {ex}")
-                elif "message is not modified" in str(e):
-                    # nothing changed on this card → just carry on
-                    logger.debug(f"Card {message_id} unchanged; skipping edit")
-                elif "canceled by new editMessageMedia request" in str(e):
-                    logger.debug("Previous edit canceled by newer one; skipping")
-                else:
-                    logger.error(f"[User {user_id}] Failed to edit movie card : {e}")
 
         # Try to update bottom pagination
         try:
