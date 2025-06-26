@@ -141,7 +141,7 @@ async def watch_mirror_handler(query: types.CallbackQuery):
         selected_dub = list(config[lang].keys())[0]
 
     watch_url = f"https://moviebot.click/hd/watch/{task_id}?lang={lang}&dub={quote(selected_dub)}"
-    kb = [[types.InlineKeyboardButton(text="▶️ Watch", url=watch_url)]]
+    kb = [[types.InlineKeyboardButton(text="▶️Start watching", url=watch_url)]]
     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
 
     try:

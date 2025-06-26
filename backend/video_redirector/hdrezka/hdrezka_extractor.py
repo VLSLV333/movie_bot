@@ -58,7 +58,7 @@ async def get_matching_dubs(page, user_lang: str):
     # ✅ Handle NO dubs present at all
     if not li_items:
         print("⚠️ No dubs listed. Assuming single dub mode.")
-        return [("🎧 Default Dub (no selector)", None)]
+        return [("🎧 Default Dub", None)]
 
     for li in li_items:
         html = await li.inner_html()
@@ -81,11 +81,20 @@ async def get_matching_dubs(page, user_lang: str):
                 matching.append((text.strip(), li))
 
     # fallback: just first dub provided
-    if not matching :
+    if not matching:
         for li in li_items:
             html = await li.inner_html()
             text = await li.text_content()
             return [(text.strip(), li)]
+
+    # Additional logic for 'uk' users: if only 'Оригинал' or 'Original' is present, add fallbackAdd commentMore actions
+    if user_lang == "uk" and len(matching) == 1:
+        dub_name = matching[0][0].lower()
+        if "оригинал" in dub_name or "original" in dub_name:
+            # Add fallback: just first dub provided
+            html = await li_items[0].inner_html()
+            text = await li_items[0].text_content()
+            matching.append((text.strip(), li_items[0]))
 
     return matching
 

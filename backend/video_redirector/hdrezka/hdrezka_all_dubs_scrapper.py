@@ -31,13 +31,13 @@ async def scrape_dubs_for_movie(movie_url: str, lang: str) -> Dict[str, Union[Li
             return {
                 "dubs": ["default_ru"],
                 "fallback": True,
-                "message": "⚠️ No dub list found — using the default dub."
+                "message": "🥲 Only 1 dub found"
             }
         else:
             return {
                 "dubs": [],
                 "fallback": True,
-                "message": "⚠️ No available dubs found for this language."
+                "message": "🥲 No available dubs found for this language."
             }
 
     dubs = []
