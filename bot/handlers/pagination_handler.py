@@ -184,35 +184,20 @@ async def handle_pagination(query: types.CallbackQuery, direction: str):
                 )
 
         # Try to update bottom pagination
+        if pagination_message_id:
+            await query.bot.delete_message(chat_id=query.message.chat.id, message_id=pagination_message_id)
         try:
             nav_text, nav_keyboard = render_navigation_panel(context, position="bottom", click_source=click_source)
             nav_keyboard = add_back_to_main_menu_button(nav_keyboard)
-            if pagination_message_id:
-                await query.bot.edit_message_text(
-                    chat_id=query.message.chat.id,
-                    message_id=pagination_message_id,
-                    text=nav_text,
-                    reply_markup=nav_keyboard
-                )
+            panel = await query.message.answer(nav_text, reply_markup=nav_keyboard)
+            pagination_message_id = panel.message_id
         except TelegramBadRequest as e:
             if "message to edit not found" in str(e):
                 logger.warning(
                     f"[User {query.from_user.id}] Bot navigation {pagination_message_id} not found .")
-                try:
-                    nav_text, nav_keyboard = render_navigation_panel(context, position="bottom", click_source=click_source)
-                    nav_keyboard = add_back_to_main_menu_button(nav_keyboard)
-                    panel = await query.message.answer(nav_text, reply_markup=nav_keyboard)
-                    pagination_message_id = panel.message_id
-                except Exception as ex:
-                    logger.error(
-                        f"Failed to send fallback bot navigation:{ex}")
-            elif "message is not modified" in str(e):
-                logger.debug("Bottom panel unchanged; skipping edit")
-            elif "canceled by new editMessageMedia request" in str(e):
-                logger.debug("Previous edit canceled by newer one; skipping")
             else:
                 logger.error(
-                    f"[User {query.from_user.id}] Error editing pagination panel: {e}")
+                    f"[User {query.from_user.id}] Error sending pagination panel: {e}")
 
         try:
             await SessionManager.save_context(
