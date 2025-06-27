@@ -130,13 +130,10 @@ async def handle_mirror_search(query: types.CallbackQuery):
             await query.message.answer("❌ Unexpected error during mirror search. Try again from beginning.", reply_markup=main_menu_keyboard)
         return
 
-    logger.info(f'\n\n mirror_results: {mirror_results}')
-    for mirror in mirror_results:
-        logger.info(f'\n\n mirror: {mirror}')
-
-    if not mirror_results:
+    #check if any of mirrors with results returned have this movie
+    if not any(mirror['results'] for mirror in mirror_results):
         if query.message:
-            await query.message.answer("😔 No results found on mirror. Try another movie please", reply_markup=main_menu_keyboard)
+            await query.message.answer("😔 No results found. Try another movie please", reply_markup=main_menu_keyboard)
         return
 
     logger.debug(f"[User {query.from_user.id}] Received mirror search results: {[r.get('title') for r in mirror_results]}")
