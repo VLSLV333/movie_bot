@@ -550,7 +550,7 @@ async def select_dub_handler(query: types.CallbackQuery):
     except Exception as e:
         logger.error(f"[User {user_id}] Failed to parse selected dub token: {e}")
         if query.message is not None:
-            await query.message.answer("⚠️ Could not process dub info, sorry:( Please start again from the begining", reply_markup=get_main_menu_keyboard())
+            await query.message.answer("⚠️ Could not process dub info, sorry:( Please start again from the beginning", reply_markup=get_main_menu_keyboard())
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
@@ -596,6 +596,21 @@ async def select_dub_handler(query: types.CallbackQuery):
     try:
         async with ClientSession() as session:
             async with session.get(download_url) as resp:
+                if resp.status == 429:
+                    backend_response = await resp.json()
+                    await loading_msg.delete()
+                    error_msg = backend_response.get("error", f"😮 You have reached your download limit. You can only download {backend_response.get('user_limit')} movies at the same time. Please wait for your current download(s) to finish.")
+                    if query.message is not None:
+                        await query.message.answer(error_msg)
+                    else:
+                        if query is not None and getattr(query, 'bot', None) is not None:
+                            await query.bot.send_message(  # type: ignore
+                                chat_id=query.from_user.id,
+                                text=error_msg
+                            )
+                        else:
+                            logger.error("query or query.bot is None, cannot send message to user.")
+                    return
                 if resp.status != 200:
                     await loading_msg.delete()
                     if query.message is not None:

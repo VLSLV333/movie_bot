@@ -17,6 +17,8 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
     redis = RedisClient.get_client()
     await redis.set(f"download:{task_id}:status", "extracting", ex=3600)
 
+    # Remove from user's active downloads set when done (success or error)
+    tg_user_id = None
     try:
         result = await extract_to_download_from_hdrezka(url=movie_url, selected_dub=dub)
         if not result:
@@ -75,7 +77,6 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
             await redis.set(f"download:{task_id}:result", json.dumps({
                 "db_id_to_get_parts": db_id_to_get_parts,
             }), ex=86400)
-
     except RETRYABLE_EXCEPTIONS as e:
         logger.error(f"[Download Task {task_id}] Failed RETRYABLE_EXCEPTIONS: {e}")
         # Clean up client even on retryable errors
@@ -88,3 +89,10 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
         await redis.set(f"download:{task_id}:status", "error", ex=3600)
         await redis.set(f"download:{task_id}:error", str(e), ex=3600)
         await notify_admin(f"[Download Task {task_id}] Failed: {e}")
+    finally:
+        # Remove from user's active downloads set
+        if tg_user_id is None:
+            # Try to get from Redis
+            tg_user_id = await redis.get(f"download:{task_id}:user_id")
+        if tg_user_id:
+            await redis.srem(f"active_downloads:{tg_user_id}", task_id)

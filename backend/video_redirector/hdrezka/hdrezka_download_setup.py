@@ -7,6 +7,16 @@ from backend.video_redirector.utils.signed_token_manager import SignedTokenManag
 
 logger = logging.getLogger(__name__)
 
+# Configurable per-user download limit (could be loaded from config/db)
+DEFAULT_USER_DOWNLOAD_LIMIT = 1
+PREMIUM_USER_DOWNLOAD_LIMIT = 3  # Example, can be dynamic
+
+async def get_user_download_limit(tg_user_id):
+    # TODO: Replace with real premium check
+    # TODO: Add "premium" field in users table
+    # For now, everyone is regular
+    return DEFAULT_USER_DOWNLOAD_LIMIT
+
 async def download_setup(data: str, sig: str, background_tasks: BackgroundTasks):
     from backend.video_redirector.utils.download_queue_manager import DownloadQueueManager
     try:
@@ -24,6 +34,21 @@ async def download_setup(data: str, sig: str, background_tasks: BackgroundTasks)
     task_id = str(uuid4())
 
     redis = RedisClient.get_client()
+
+    # --- NEW: Check active downloads for this user ---
+    user_active_key = f"active_downloads:{tg_user_id}"
+    active_count = await redis.scard(user_active_key)
+    user_limit = await get_user_download_limit(tg_user_id)
+    if active_count >= user_limit:
+        return JSONResponse({
+            "error": f"You are already downloading the maximum allowed number of movies ({user_limit}). Please wait for your current download(s) to finish.",
+            "status": "limit_reached",
+            "user_limit": user_limit
+        }, status_code=429)
+
+    # Track this download as active for the user
+    await redis.sadd(user_active_key, task_id)
+    await redis.expire(user_active_key, 3600)  # Optional: auto-expire
 
     await redis.set(f"download:{task_id}:status", "queued", ex=3600)
     await redis.set(f"download:{task_id}:progress", 0, ex=3600)
