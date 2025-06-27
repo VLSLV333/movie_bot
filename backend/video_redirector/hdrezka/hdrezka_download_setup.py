@@ -5,17 +5,20 @@ from fastapi import HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from backend.video_redirector.utils.redis_client import RedisClient
 from backend.video_redirector.utils.signed_token_manager import SignedTokenManager
+from backend.video_redirector.db.session import get_db
+from backend.video_redirector.db.crud_users import get_user_by_telegram_id
+from backend.video_redirector.config import DEFAULT_USER_DOWNLOAD_LIMIT, PREMIUM_USER_DOWNLOAD_LIMIT
 
 logger = logging.getLogger(__name__)
 
-# Configurable per-user download limit (could be loaded from config/db)
-DEFAULT_USER_DOWNLOAD_LIMIT = 1
-PREMIUM_USER_DOWNLOAD_LIMIT = 3  # Example, can be dynamic
-
 async def get_user_download_limit(tg_user_id):
-    # TODO: Replace with real premium check
-    # TODO: Add "premium" field in users table
-    # For now, everyone is regular
+    # Check if user is premium in DB
+    async for session in get_db():
+        user = await get_user_by_telegram_id(session, tg_user_id)
+        if user and getattr(user, 'is_premium', False):
+            return PREMIUM_USER_DOWNLOAD_LIMIT
+        else:
+            return DEFAULT_USER_DOWNLOAD_LIMIT
     return DEFAULT_USER_DOWNLOAD_LIMIT
 
 async def check_duplicate_download(tg_user_id: str, tmdb_id: int, lang: str, dub: str) -> bool:

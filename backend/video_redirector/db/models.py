@@ -23,6 +23,7 @@ class User(Base):
     custom_name = Column(String(100))
     preferred_language = Column(String(10))
     is_onboarded = Column(Boolean, default=False)
+    is_premium = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

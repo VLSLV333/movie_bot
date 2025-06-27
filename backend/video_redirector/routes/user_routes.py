@@ -22,11 +22,13 @@ class UserCreateRequest(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     custom_name: Optional[str] = None
+    is_premium: Optional[bool] = False
 
 class UserOnboardingRequest(BaseModel):
     telegram_id: int
     preferred_language: str
     custom_name: Optional[str] = None
+    is_premium: Optional[bool] = None
 
 class UserLanguageRequest(BaseModel):
     telegram_id: int
@@ -48,6 +50,7 @@ async def get_user(telegram_id: int, db: AsyncSession = Depends(get_db)):
             "custom_name": user.custom_name,
             "preferred_language": user.preferred_language,
             "is_onboarded": user.is_onboarded,
+            "is_premium": user.is_premium,
             "created_at": user.created_at,
             "updated_at": user.updated_at
         }
@@ -67,7 +70,8 @@ async def create_new_user(req: UserCreateRequest, db: AsyncSession = Depends(get
             first_name=req.first_name,
             last_name=req.last_name,
             custom_name=req.custom_name,
-            preferred_language=req.preferred_language
+            preferred_language=req.preferred_language,
+            is_premium=req.is_premium or False
         )
         
         return {
@@ -78,6 +82,7 @@ async def create_new_user(req: UserCreateRequest, db: AsyncSession = Depends(get
             "custom_name": user.custom_name,
             "preferred_language": user.preferred_language,
             "is_onboarded": user.is_onboarded,
+            "is_premium": user.is_premium,
             "created_at": user.created_at,
             "updated_at": user.updated_at
         }
@@ -94,7 +99,8 @@ async def complete_onboarding(req: UserOnboardingRequest, db: AsyncSession = Dep
             telegram_id=req.telegram_id,
             custom_name=req.custom_name,
             preferred_language=req.preferred_language,
-            is_onboarded=True
+            is_onboarded=True,
+            is_premium=req.is_premium
         )
         
         if not user:
@@ -108,6 +114,7 @@ async def complete_onboarding(req: UserOnboardingRequest, db: AsyncSession = Dep
             "custom_name": user.custom_name,
             "preferred_language": user.preferred_language,
             "is_onboarded": user.is_onboarded,
+            "is_premium": user.is_premium,
             "updated_at": user.updated_at
         }
     except HTTPException:
@@ -150,7 +157,8 @@ async def get_or_create_new_user(req: UserCreateRequest, db: AsyncSession = Depe
             telegram_id=req.telegram_id,
             first_name=req.first_name,
             last_name=req.last_name,
-            preferred_language=req.preferred_language
+            preferred_language=req.preferred_language,
+            is_premium=req.is_premium or False
         )
         
         return {
@@ -161,6 +169,7 @@ async def get_or_create_new_user(req: UserCreateRequest, db: AsyncSession = Depe
             "custom_name": user.custom_name,
             "preferred_language": user.preferred_language,
             "is_onboarded": user.is_onboarded,
+            "is_premium": user.is_premium,
             "created_at": user.created_at,
             "updated_at": user.updated_at
         }

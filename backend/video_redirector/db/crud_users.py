@@ -11,7 +11,8 @@ async def create_user(
     first_name: Optional[str] = None,
     last_name: Optional[str] = None,
     custom_name: Optional[str] = None,
-    is_onboarded: bool = False
+    is_onboarded: bool = False,
+    is_premium: bool = False
 ) -> User:
     """Create a new user in the database"""
     user = User(
@@ -20,7 +21,8 @@ async def create_user(
         last_name=last_name,
         custom_name=custom_name,
         preferred_language=preferred_language,
-        is_onboarded=is_onboarded
+        is_onboarded=is_onboarded,
+        is_premium=is_premium
     )
     session.add(user)
     await session.commit()
@@ -39,7 +41,8 @@ async def update_user_onboarding(
     telegram_id: int,
     custom_name: Optional[str] = None,
     preferred_language: Optional[str] = None,
-    is_onboarded: bool = True
+    is_onboarded: bool = True,
+    is_premium: Optional[bool] = None
 ) -> Optional[User]:
     """Update user's onboarding information"""
     update_data = {
@@ -51,6 +54,8 @@ async def update_user_onboarding(
         update_data["custom_name"] = custom_name
     if preferred_language is not None:
         update_data["preferred_language"] = preferred_language
+    if is_premium is not None:
+        update_data["is_premium"] = is_premium
     
     result = await session.execute(
         update(User)
@@ -85,6 +90,7 @@ async def get_or_create_user(
     preferred_language: str,
     first_name: Optional[str] = None,
     last_name: Optional[str] = None,
+    is_premium: bool = False
 ) -> User:
     """Get existing user or create new one"""
     user = await get_user_by_telegram_id(session, telegram_id)
@@ -94,6 +100,7 @@ async def get_or_create_user(
             telegram_id=telegram_id,
             first_name=first_name,
             last_name=last_name,
-            preferred_language=preferred_language
+            preferred_language=preferred_language,
+            is_premium=is_premium
         )
     return user 

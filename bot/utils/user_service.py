@@ -34,6 +34,13 @@ class UserService:
             return None
     
     @staticmethod
+    async def get_user_is_premium(user_id: int) -> bool:
+        user_data = await UserService.get_user_info(user_id)
+        if user_data:
+            return user_data.get("is_premium", False)
+        return False
+    
+    @staticmethod
     async def get_user_preferred_language(user_id: int, default: str = "en") -> str:
         """
         Get user's preferred language
@@ -100,6 +107,7 @@ class UserService:
             "custom_name": None,
             "preferred_language": "en",
             "is_onboarded": False,
+            "is_premium": False,
             "created_at": None,
             "updated_at": None
         } 

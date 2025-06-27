@@ -52,16 +52,19 @@ async def get_or_create_user_backend(telegram_id: int, preferred_language: str, 
         "telegram_id": telegram_id,
         "first_name": first_name,
         "last_name": last_name,
-        "preferred_language": preferred_language
+        "preferred_language": preferred_language,
+        "is_premium": False
     }
     return await call_backend_api("/users/get-or-create", "POST", data)
 
 async def update_user_onboarding_backend(telegram_id: int, custom_name: Optional[str] = None, preferred_language: Optional[str] = None) -> Optional[dict]:
     """Update user onboarding in backend database"""
+    #TODO: when premium users will be available we can propose becoming premium here or here
     data = {
         "telegram_id": telegram_id,
         "custom_name": custom_name,
-        "preferred_language": preferred_language
+        "preferred_language": preferred_language,
+        "is_premium": False
     }
     return await call_backend_api("/users/onboarding", "POST", data)
 
@@ -111,6 +114,7 @@ async def start_handler(message: types.Message):
 @router.callback_query(F.data == "start_onboarding")
 async def start_onboarding_handler(query: types.CallbackQuery):
     """Start the onboarding process"""
+    #TODO: when premium users will be available we can propose becoming premium here or here
     if not query.from_user:
         return
         
@@ -268,24 +272,3 @@ async def select_language_handler(query: types.CallbackQuery, state: FSMContext)
         )
 
     await query.answer()
-
-# @router.callback_query(F.data == "other_lang")
-# async def other_language_handler(query: types.CallbackQuery):
-#     """Handle 'other language' selection"""
-#     user_id = query.from_user.id
-#     logger.info(f"[User {user_id}] Selected other language option")
-#
-#     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-#         [types.InlineKeyboardButton(text="🇺🇦 Ukrainian", callback_data="select_lang:uk")],
-#         [types.InlineKeyboardButton(text="🇺🇸 English", callback_data="select_lang:en")],
-#         [types.InlineKeyboardButton(text="🇷🇺 Russian", callback_data="select_lang:ru")],
-#         [types.InlineKeyboardButton(text="🇪🇸 Spanish", callback_data="select_lang:es")],
-#         [types.InlineKeyboardButton(text="🇫🇷 French", callback_data="select_lang:fr")],
-#         [types.InlineKeyboardButton(text="🇩🇪 German", callback_data="select_lang:de")]
-#     ])
-#
-#     await query.message.edit_text(
-#         "Choose your preferred language:",
-#         reply_markup=keyboard
-#     )
-#     await query.answer()
