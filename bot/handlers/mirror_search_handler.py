@@ -112,9 +112,10 @@ async def handle_mirror_search(query: types.CallbackQuery):
     try:
         async with ClientSession() as session:
             logger.debug(
-                f"[User {query.from_user.id}] Sending mirror search POST to {MIRROR_SEARCH_API_URL} with payload: {{'query': '{movie.get('original_title')}', 'lang': '{user_lang}'}}")
+                f"[User {query.from_user.id}] Sending mirror search POST to {MIRROR_SEARCH_API_URL} with payload: {{'query': '{movie.get('original_title', '')}', 'fallback_query': '{movie.get('title', '')}' 'lang': '{user_lang}'}}")
             async with session.post(MIRROR_SEARCH_API_URL, json={
-                "query": movie.get('original_title'),
+                "query": movie.get('original_title', ''),
+                "fallback_query": movie.get('title', ''),
                 "lang": user_lang
             }) as resp:
                 if resp.status != 200:

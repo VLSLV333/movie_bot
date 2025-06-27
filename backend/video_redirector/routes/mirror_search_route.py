@@ -17,7 +17,8 @@ router = APIRouter()
 
 class MirrorSearchRequest(BaseModel):
     query: str
-    lang: str  # not used for now, but can be helpful later
+    fallback_query: str
+    lang: str
 
 @router.post("/mirror/search")
 async def mirror_search(req: MirrorSearchRequest, db: AsyncSession = Depends(get_db)):
@@ -28,8 +29,8 @@ async def mirror_search(req: MirrorSearchRequest, db: AsyncSession = Depends(get
 
         first_mirror = mirrors[0]
 
-        logger.info(f"[MirrorSearch] Selected: {first_mirror.name} (geo={first_mirror.geo}) for query: '{req.query}'")
-        results = await search_for_movie_on_mirror(first_mirror.name, req.query)
+        logger.info(f"[MirrorSearch] Selected: {first_mirror.name} (geo={first_mirror.geo}) for query: '{req.query}', and fallback_query: '{req.fallback_query}'")
+        results = await search_for_movie_on_mirror(first_mirror.name, req.query, req.fallback_query)
 
         for result in results:
             result["id"] = hashlib.sha256(result["url"].encode()).hexdigest()[:16]
