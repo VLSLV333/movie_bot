@@ -1,4 +1,5 @@
 import logging
+import json
 from uuid import uuid4
 from fastapi import HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -16,6 +17,33 @@ async def get_user_download_limit(tg_user_id):
     # TODO: Add "premium" field in users table
     # For now, everyone is regular
     return DEFAULT_USER_DOWNLOAD_LIMIT
+
+async def check_duplicate_download(tg_user_id: str, tmdb_id: int, lang: str, dub: str) -> bool:
+    """
+    Check if user is already downloading the same movie (same tmdb_id, lang, dub)
+    Returns True if duplicate found, False otherwise
+    """
+    redis = RedisClient.get_client()
+    user_active_key = f"active_downloads:{tg_user_id}"
+    
+    # Get all active download task IDs for this user
+    active_task_ids = await redis.smembers(user_active_key) # type: ignore
+    
+    for task_id in active_task_ids:
+        # Check if this task is for the same movie
+        task_data = await redis.get(f"download:{task_id}:task_data")
+        if task_data:
+            try:
+                task = json.loads(task_data)
+                if (task.get("tmdb_id") == tmdb_id and 
+                    task.get("lang") == lang and 
+                    task.get("dub") == dub):
+                    return True
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Error parsing task data for {task_id}: {e}")
+                continue
+    
+    return False
 
 async def download_setup(data: str, sig: str, background_tasks: BackgroundTasks):
     from backend.video_redirector.utils.download_queue_manager import DownloadQueueManager
@@ -35,19 +63,28 @@ async def download_setup(data: str, sig: str, background_tasks: BackgroundTasks)
 
     redis = RedisClient.get_client()
 
-    # --- NEW: Check active downloads for this user ---
+    # --- Check for duplicate downloads ---
+    is_duplicate = await check_duplicate_download(tg_user_id, tmdb_id, lang, dub)
+    if is_duplicate:
+        return JSONResponse({
+            "error": f"🎬 You're already downloading this video in {dub} dub. Please wait for it to finish and you will enjoy content 🥰",
+            "status": "duplicate_download",
+            "movie_title": movie_title
+        }, status_code=409)
+
+    # --- Check active downloads for this user ---
     user_active_key = f"active_downloads:{tg_user_id}"
-    active_count = await redis.scard(user_active_key)
+    active_count = await redis.scard(user_active_key)  # type: ignore
     user_limit = await get_user_download_limit(tg_user_id)
     if active_count >= user_limit:
         return JSONResponse({
-            "error": f"You are already downloading the maximum allowed number of movies ({user_limit}). Please wait for your current download(s) to finish.",
+            "error": f"😮 You are already downloading the maximum number of videos allowed at once ({user_limit}). Please wait for your current download(s) to finish and then download another video 🥰",
             "status": "limit_reached",
             "user_limit": user_limit
         }, status_code=429)
 
     # Track this download as active for the user
-    await redis.sadd(user_active_key, task_id)
+    await redis.sadd(user_active_key, task_id)  # type: ignore
     await redis.expire(user_active_key, 3600)  # Optional: auto-expire
 
     await redis.set(f"download:{task_id}:status", "queued", ex=3600)
@@ -66,6 +103,9 @@ async def download_setup(data: str, sig: str, background_tasks: BackgroundTasks)
         "movie_title": movie_title,
         "movie_poster": movie_poster,
     }
+
+    # Store task data for duplicate checking
+    await redis.set(f"download:{task_id}:task_data", json.dumps(task), ex=3600)
 
     # Enqueue the task
     position = await DownloadQueueManager.enqueue(task)

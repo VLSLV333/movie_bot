@@ -95,4 +95,4 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
             # Try to get from Redis
             tg_user_id = await redis.get(f"download:{task_id}:user_id")
         if tg_user_id:
-            await redis.srem(f"active_downloads:{tg_user_id}", task_id)
+            await redis.srem(f"active_downloads:{tg_user_id}", task_id)  # type: ignore

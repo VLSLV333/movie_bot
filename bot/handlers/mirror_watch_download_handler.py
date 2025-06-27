@@ -598,8 +598,26 @@ async def select_dub_handler(query: types.CallbackQuery):
             async with session.get(download_url) as resp:
                 if resp.status == 429:
                     backend_response = await resp.json()
-                    await loading_msg.delete()
-                    error_msg = backend_response.get("error", f"😮 You have reached your download limit. You can only download {backend_response.get('user_limit')} movies at the same time. Please wait for your current download(s) to finish.")
+                    if loading_msg:
+                        await loading_msg.delete()
+                    #TODO: when premium users functionality is ready - we need to suggest here user to become premium and download more at once
+                    error_msg = backend_response.get("error", f"😮 You have reached your download limit. You can only download {backend_response.get('user_limit')} movies at once. Please wait for your current download(s) to finish and then download another movie 🥰")
+                    if query.message is not None:
+                        await query.message.answer(error_msg)
+                    else:
+                        if query is not None and getattr(query, 'bot', None) is not None:
+                            await query.bot.send_message(  # type: ignore
+                                chat_id=query.from_user.id,
+                                text=error_msg
+                            )
+                        else:
+                            logger.error("query or query.bot is None, cannot send message to user.")
+                    return
+                if resp.status == 409:
+                    backend_response = await resp.json()
+                    if loading_msg:
+                        await loading_msg.delete()
+                    error_msg = backend_response.get("error", "🎬 You're already downloading this video in this dub. Please wait for it to finish and you will enjoy your content 🥰")
                     if query.message is not None:
                         await query.message.answer(error_msg)
                     else:
@@ -612,7 +630,8 @@ async def select_dub_handler(query: types.CallbackQuery):
                             logger.error("query or query.bot is None, cannot send message to user.")
                     return
                 if resp.status != 200:
-                    await loading_msg.delete()
+                    if loading_msg:
+                        await loading_msg.delete()
                     if query.message is not None:
                         await query.message.answer(
                             "❌ Failed to trigger download, sorry:( Please start again from the begining",
@@ -631,7 +650,8 @@ async def select_dub_handler(query: types.CallbackQuery):
                 backend_response = await resp.json()
                 task_id = backend_response.get("task_id")
                 if not task_id:
-                    await loading_msg.delete()
+                    if loading_msg:
+                        await loading_msg.delete()
                     if query.message is not None:
                         await query.message.answer(
                             "❌ Failed to trigger download, sorry:( Please start again from the begining",
@@ -685,7 +705,8 @@ async def select_dub_handler(query: types.CallbackQuery):
     except Exception as e:
         logger.error(f"[User {user_id}] Failed during download flow: {e}")
         try:
-            await loading_msg.delete()
+            if loading_msg:
+                await loading_msg.delete()
         except Exception as e:
             logger.error(f"[User {user_id}] Failed to delete loading message at the end of download flow: {e}")
         if query.message is not None:
