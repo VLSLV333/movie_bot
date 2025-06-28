@@ -15,7 +15,7 @@ def normalize(text: str) -> str:
     return re.sub(r"[^\w\s]", "", text).strip().lower()
 
 async def extract_to_download_from_hdrezka(url: str, selected_dub: str, lang: str) -> dict:
-    async with AsyncCamoufox(window=(1280, 720), humanize=True, headless=False) as browser:
+    async with AsyncCamoufox(window=(1280, 720), humanize=True, headless=True) as browser:
         page = await browser.new_page()
         await page.goto(url, wait_until="domcontentloaded")
         await asyncio.sleep(1)
