@@ -3,6 +3,7 @@ from camoufox.async_api import AsyncCamoufox
 from typing import Dict
 from backend.video_redirector.utils.redis_client import RedisClient
 from urllib.parse import quote
+import logging
 
 f2id_to_quality = {
     "1": "360p",
@@ -11,6 +12,7 @@ f2id_to_quality = {
     "4": "1080p",
     "5": "1080pUltra"
 }
+logger = logging.getLogger(__name__)
 
 async def extract_from_hdrezka(url: str, user_lang: str, task_id: str = None) -> Dict:
     final_result = {user_lang: {}}
@@ -65,6 +67,7 @@ async def get_matching_dubs(page, user_lang: str):
         text = await li.text_content()
 
         if user_lang == "uk" and ("Украинский" in html or "Оригинал" in html or "Original" in html):
+            logger.info(li)
             matching.append((text.strip(), li))
 
         elif user_lang == "en" and ("Оригинал" in html or "Original" in html):
@@ -403,3 +406,20 @@ async def find_dub_element_by_name(page, dub_name):
         if text and text.strip() == dub_name:
             return li
     return None
+
+if __name__ == "__main__":
+    import sys
+
+    test_url = "https://hdrezka.ag/films/fantasy/78784-ochi-2025-latest.html"
+    test_lang = "uk"
+    test_task_id = "1"
+
+    print(f"\n🔍 Starting test for: {test_url}")
+    try:
+        result = asyncio.run(extract_from_hdrezka(test_url, test_lang, task_id=test_task_id))
+        print("\n✅ Extraction complete. Result preview:\n")
+        import json
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    except Exception as e:
+        print(f"\n⛔ Error during test run: {e}")
+        sys.exit(1)
