@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 def normalize(text: str) -> str:
     return re.sub(r"[^\w\s]", "", text).strip().lower()
 
-async def extract_to_download_from_hdrezka(url: str, selected_dub: str) -> dict:
-    async with AsyncCamoufox(window=(1280, 720), humanize=True, headless=True) as browser:
+async def extract_to_download_from_hdrezka(url: str, selected_dub: str, lang: str) -> dict:
+    async with AsyncCamoufox(window=(1280, 720), humanize=True, headless=False) as browser:
         page = await browser.new_page()
         await page.goto(url, wait_until="domcontentloaded")
         await asyncio.sleep(1)
@@ -28,11 +28,35 @@ async def extract_to_download_from_hdrezka(url: str, selected_dub: str) -> dict:
         if not li_items:
             li_items = await page.query_selector_all("#translators-list a")
 
+        # Filter li_items based on user language preference
+        if li_items and lang:
+            filtered_items = []
+            for item in li_items:
+                html_content = await item.inner_html() or ""
+                text_content = await item.text_content() or ""
+                
+                # For Ukrainian users: keep Ukrainian, Original, or Оригинал
+                if lang == "uk":
+                    if any(keyword in html_content or keyword in text_content 
+                           for keyword in ["Украинский", "Оригинал", "Original"]):
+                        filtered_items.append(item)
+                
+                # For Russian users: filter out Ukrainian
+                elif lang == "ru":
+                    if "Украинский" not in html_content and "Украинский" not in text_content:
+                        filtered_items.append(item)
+                
+                # For other languages: keep all items
+                else:
+                    filtered_items.append(item)
+            
+            li_items = filtered_items
+
         if not li_items:
             await extract_best_quality_variant(page, extracted)
 
         normalized_selected = normalize(selected_dub)
-        normalized_li_texts = [(li, normalize(await li.text_content())) for li in li_items]
+        normalized_li_texts = [(li, normalize(await li.text_content() or "")) for li in li_items]
 
         for li, text in normalized_li_texts:
             if text == normalized_selected:
@@ -55,7 +79,7 @@ async def extract_to_download_from_hdrezka(url: str, selected_dub: str) -> dict:
         await extract_best_quality_variant(page, extracted)
 
         if not extracted["all_m3u8"]:
-            return None
+            return {}  # Return empty dict instead of None
 
         return extracted["all_m3u8"][0]  # only best one extracted
 

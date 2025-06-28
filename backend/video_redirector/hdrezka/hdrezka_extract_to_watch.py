@@ -1,6 +1,6 @@
 import asyncio
 from camoufox.async_api import AsyncCamoufox
-from typing import Dict, List
+from typing import Dict
 from backend.video_redirector.utils.redis_client import RedisClient
 from urllib.parse import quote
 
@@ -403,6 +403,3 @@ async def find_dub_element_by_name(page, dub_name):
         if text and text.strip() == dub_name:
             return li
     return None
-
-
-import asyncio

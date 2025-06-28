@@ -77,7 +77,7 @@ async def render_movie_card(movie: dict, is_expanded: bool = False) -> Tuple[str
         ])
         buttons.append([
             types.InlineKeyboardButton(text="🧩 Related", callback_data=f"related_movies_card:{movie['id']}"),
-            types.InlineKeyboardButton(text="❌ Can not watch", callback_data=f"can_not_watch:{movie['id']}")
+            types.InlineKeyboardButton(text="❌ Can not find", callback_data=f"can_not_watch:{movie['id']}")
         ])
         buttons.append([
             types.InlineKeyboardButton(text="🔼 Collapse card", callback_data=f"collapse_card:{movie['id']}")
