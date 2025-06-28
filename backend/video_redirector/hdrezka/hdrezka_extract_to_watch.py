@@ -33,7 +33,7 @@ async def extract_from_hdrezka(url: str, user_lang: str, task_id: str = None) ->
 
             vtt_handler = await start_listening_for_vtt(page, dub_result, task_id)
             # Re-query the dub element by name each time
-            li_element = await find_dub_element_by_name(page, dub_name)
+            li_element = await find_dub_element_by_name(page, dub_name, user_lang)
             if li_element:
                 try:
                     await li_element.evaluate("(el) => el.click()")
@@ -397,29 +397,34 @@ async def extract_all_quality_variants(page, extracted: Dict):
     quality_state["current"] = None
 
 
-async def find_dub_element_by_name(page, dub_name):
+async def find_dub_element_by_name(page, dub_name, lang):
     li_items = await page.query_selector_all("#translators-list li")
     if not li_items:
         li_items = await page.query_selector_all("#translators-list a")
+    
+    # First, try to find exact match with language filtering
+    for li in li_items:
+        text = await li.text_content()
+        if text and text.strip() == dub_name:
+            html_content = await li.inner_html() or ""
+            text_content = await li.text_content() or ""
+
+            # For Ukrainian users: prefer Ukrainian, Original, or Оригинал
+            if lang == "uk":
+                if any(keyword in html_content or keyword in text_content
+                       for keyword in ["Украинский", "Оригинал", "Original"]):
+                    return li
+            # For Russian users: filter out Ukrainian
+            elif lang == "ru":
+                if "Украинский" not in html_content and "Украинский" not in text_content:
+                    return li
+            # For other languages: accept all items
+            else:
+                return li
+    
+    # If no exact match with language filtering, try to find any element with the same name
     for li in li_items:
         text = await li.text_content()
         if text and text.strip() == dub_name:
             return li
     return None
-
-if __name__ == "__main__":
-    import sys
-
-    test_url = "https://hdrezka.ag/films/fantasy/78784-ochi-2025-latest.html"
-    test_lang = "uk"
-    test_task_id = "1"
-
-    print(f"\n🔍 Starting test for: {test_url}")
-    try:
-        result = asyncio.run(extract_from_hdrezka(test_url, test_lang, task_id=test_task_id))
-        print("\n✅ Extraction complete. Result preview:\n")
-        import json
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-    except Exception as e:
-        print(f"\n⛔ Error during test run: {e}")
-        sys.exit(1)
