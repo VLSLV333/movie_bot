@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 import json
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException, Response
@@ -271,3 +272,30 @@ async def get_all_dubs(data: MovieInput):
     except Exception as e:
         logger.error(f"Failed to scrape dubs: {e}")
         return JSONResponse(status_code=500, content={"error": "Internal error while scraping dubs"})
+
+@router.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring proxy service"""
+    try:
+        redis = RedisClient.get_client()
+        # Test Redis connection
+        await redis.ping()
+        
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "services": {
+                "redis": "connected",
+                "proxy": "operational"
+            }
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "timestamp": datetime.now().isoformat(),
+                "error": str(e)
+            }
+        )

@@ -85,7 +85,10 @@
       aspectRatio: '16:9',
       html5: {
         vhs: {
-          overrideNative: true  // ✅ Force VHS usage
+          overrideNative: true,  // ✅ Force VHS usage
+          enableLowInitialPlaylist: true,
+          smoothQualityChange: true,
+          backBufferLength: 30
         },
         nativeAudioTracks: false,
         nativeVideoTracks: false
@@ -103,17 +106,183 @@
         ]
       }
     });
+    
     const playerElement = document.getElementById('player');
     const dubSelector = document.getElementById('dub-selector');
     const adSource = "/static/ad_dummy.mp4";
     let adPlaying = true;
+    let currentDubConfig = null;
+    let errorRetryCount = 0;
+    let loadingTimeout = null;
+    let isInitialLoad = true;
+    const MAX_RETRIES = 3;
 
-    async function loadDub(dubName, config) {
+    // Error handling and recovery
+    function setupErrorHandling() {
+      // Handle video errors (actual failures)
+      player.on('error', function() {
+        const error = player.error();
+        console.error('Video.js error:', error);
+        
+        // Log error to backend
+        fetch("/log-client-error", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: `Video.js error: ${error.code} - ${error.message}`,
+            url: window.location.href,
+            currentTime: player.currentTime(),
+            duration: player.duration()
+          })
+        });
+        
+        // Only retry on actual errors, not slow loading
+        if (errorRetryCount < MAX_RETRIES && currentDubConfig) {
+          errorRetryCount++;
+          console.log(`Attempting recovery (${errorRetryCount}/${MAX_RETRIES})...`);
+          
+          // Store current position before recovery
+          const currentTime = player.currentTime();
+          
+          setTimeout(() => {
+            loadDub(currentDubConfig.name, currentDubConfig.config, true, currentTime);
+          }, 2000 * errorRetryCount);
+        } else {
+          showErrorMessage("Video playback error. Please try switching to a different dub or reload the page.");
+        }
+      });
+
+      // Handle stalled playback (separate from errors)
+      let stallTimeout;
+      let userPaused = false;
+      let lastUserAction = 0;
+      let stallAttempts = 0;
+      let initialLoadTime = 0;
+      let isSlowConnection = false;
+
+      player.on('pause', function() {
+        userPaused = true;
+        lastUserAction = Date.now();
+        clearTimeout(stallTimeout);
+      });
+
+      player.on('play', function() {
+        userPaused = false;
+        lastUserAction = Date.now();
+        clearTimeout(stallTimeout);
+      });
+
+      player.on('seeking', function() {
+        lastUserAction = Date.now();
+        clearTimeout(stallTimeout);
+      });
+
+      player.on('waiting', function() {
+        clearTimeout(stallTimeout);
+        
+        // Determine timeout strategy based on connection speed
+        let timeoutDuration;
+        
+        if (isSlowConnection) {
+          // Slow connection: 15, 20, 25 seconds
+          const slowTimeouts = [15000, 20000, 25000];
+          timeoutDuration = slowTimeouts[Math.min(stallAttempts, slowTimeouts.length - 1)];
+        } else {
+          // Normal connection: 5, 10, 15 seconds
+          const normalTimeouts = [5000, 10000, 15000];
+          timeoutDuration = normalTimeouts[Math.min(stallAttempts, normalTimeouts.length - 1)];
+        }
+        
+        stallTimeout = setTimeout(() => {
+          const timeSinceUserAction = Date.now() - lastUserAction;
+          
+          // Only recover if user hasn't interacted recently AND didn't pause
+          if (player.paused() && !player.ended() && timeSinceUserAction > 10000 && !userPaused) {
+            stallAttempts++;
+            console.log(`Playback stalled (attempt ${stallAttempts}), attempting recovery...`);
+            
+            // Store current position before recovery
+            const currentTime = player.currentTime();
+            
+            player.play().catch(() => {
+              if (currentDubConfig) {
+                loadDub(currentDubConfig.name, currentDubConfig.config, true, currentTime);
+              }
+            });
+          }
+        }, timeoutDuration);
+      });
+
+      // Handle successful loading
+      player.on('loadstart', function() {
+        errorRetryCount = 0; // Reset retry count on successful load
+        isInitialLoad = false;
+        initialLoadTime = Date.now();
+        stallAttempts = 0; // Reset stall attempts on new load
+      });
+
+      player.on('canplay', function() {
+        // Video is ready to play
+        clearTimeout(loadingTimeout);
+        
+        // Determine if this is a slow connection based on initial load time
+        const loadDuration = Date.now() - initialLoadTime;
+        if (loadDuration > 15000) { // 15 seconds threshold
+          isSlowConnection = true;
+          console.log(`Slow connection detected: ${loadDuration}ms initial load time`);
+        } else {
+          isSlowConnection = false;
+          console.log(`Normal connection: ${loadDuration}ms initial load time`);
+        }
+        
+        showSuccessMessage(`Now Watching: ${currentDubConfig?.name || 'Movie'}`);
+      });
+
+      // Show loading message for slow connections
+      player.on('loadstart', function() {
+        showSuccessMessage("Loading video... Please wait for slow connections.");
+        
+        // Set a very long timeout for initial loading
+        loadingTimeout = setTimeout(() => {
+          if (isInitialLoad && player.paused()) {
+            showSuccessMessage("Still loading... This may take a while on slow connections.");
+          }
+        }, 30000); // 30 seconds for very slow connections
+      });
+
+      // Reset stall attempts when playback resumes successfully
+      player.on('playing', function() {
+        stallAttempts = 0;
+        clearTimeout(stallTimeout);
+      });
+    }
+
+    function showErrorMessage(message) {
+      const h1 = document.querySelector("h1");
+      h1.innerHTML = `❌ ${message}`;
+      h1.style.color = '#ff6b6b';
+    }
+
+    function showSuccessMessage(message) {
+      const h1 = document.querySelector("h1");
+      h1.innerHTML = `🎬 ${message}`;
+      h1.style.color = '#fff';
+    }
+
+    async function loadDub(dubName, config, isRetry = false, resumeTime = null) {
       const m3u8Url = config.m3u8;
       const subtitles = config.subtitles || [];
 
+      if (!isRetry) {
+        showSuccessMessage(`Loading: ${dubName}...`);
+        isInitialLoad = true;
+      }
+
       player.pause();
       player.reset();
+
+      // Store current config for error recovery
+      currentDubConfig = { name: dubName, config: config };
 
       player.src({
         src: m3u8Url,
@@ -150,14 +319,26 @@
 
       player.ready(() => {
         player.httpSourceSelector();
-        player.play();
+        
+        // Restore position if this is a recovery attempt
+        if (resumeTime && isRetry && resumeTime > 0) {
+          console.log(`Resuming from position: ${resumeTime} seconds`);
+          player.currentTime(resumeTime);
+        }
+        
+        player.play().catch(e => {
+          console.error('Failed to start playback:', e);
+          if (!isRetry) {
+            showErrorMessage(`Failed to start playback. Please reload the page.`);
+          }
+        });
       });
 
       document.querySelectorAll(".dub-buttons button").forEach(btn => btn.classList.remove("active"));
       const activeBtn = Array.from(document.querySelectorAll(".dub-buttons button")).find(btn => btn.textContent === dubName);
       if (activeBtn) activeBtn.classList.add("active");
 
-      document.querySelector("h1").textContent = `🎬 Now Watching: ${dubName}`;
+      showSuccessMessage(`🎬 Now Watching: ${dubName}`);
     }
 
     async function initPlayer() {
@@ -182,7 +363,7 @@
           }
         } catch (e) {
           console.error("🛑 Frontend error loading config:", e);
-          document.querySelector("h1").textContent = `❌ Failed to load movie. Please click "▶️ Watch" on movie card again`;
+          showErrorMessage("❌ Failed to load movie. Please click \"▶️ Watch\" on movie card again");
           return;
         }
 
@@ -200,10 +381,13 @@
         loadDub(initialDub, langData[initialDub]);
 
       } catch (e) {
-        document.querySelector("h1").textContent = `❌ Failed to load movie. Please report this case to admin and click "▶️ Watch" on movie card again`;
+        showErrorMessage("❌ Failed to load movie. Please report this case to admin and click \"▶️ Watch\" on movie card again");
         console.error(e);
       }
     }
+
+    // Setup error handling
+    setupErrorHandling();
 
     // --- Ad logic toggle ---
     if (SHOW_AD) {
