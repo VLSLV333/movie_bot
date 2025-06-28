@@ -1,7 +1,7 @@
 import asyncio
 from aiohttp import ClientSession
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from bot.helpers.back_button import add_back_button
+from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.utils.logger import Logger
 
 logger = Logger().get_logger()
@@ -30,9 +30,25 @@ async def poll_watch_until_ready(
             async with ClientSession() as session:
                 async with session.get(f"{status_url}/{task_id}") as resp:
                     status_data = await resp.json()
+                    logger.debug(f"[{user_id}] Poll response: {status_data}")
         except Exception as e:
             logger.warning(f"[{user_id}] Failed to poll status: {e}")
             continue
+
+        # Check for error responses that contain an "error" field
+        if "error" in status_data:
+            error_msg = status_data.get("error", "Unknown error.")
+            logger.error(f"[{user_id}] Extraction failed: {error_msg}")
+            logger.debug(f"[{user_id}] Full error response: {status_data}")
+
+            keyboard = get_main_menu_keyboard()
+
+            await loading_gif_msg.delete()
+            await query.message.answer(
+                f'😭 An error occurred. Pls click "▶️ Watch" again on movie card',
+                reply_markup=keyboard,
+            )
+            return None
 
         status = status_data.get("status")
 
@@ -51,16 +67,12 @@ async def poll_watch_until_ready(
             error_msg = status_data.get("error", "Unknown error.")
             logger.error(f"[{user_id}] Extraction failed: {error_msg}")
 
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔁 Try Again", callback_data="suggest_movie")]
-            ])
-            add_back_button(keyboard, source="main")
+            keyboard = get_main_menu_keyboard()
 
             await loading_gif_msg.delete()
             await query.message.answer(
-                f"⛔ An error occurred during extraction:\n\n`{error_msg}`",
+                f'😭 An error occurred. Pls click "▶️ Watch" again on movie card',
                 reply_markup=keyboard,
-                parse_mode="Markdown"
             )
             return None
 
@@ -69,14 +81,11 @@ async def poll_watch_until_ready(
             await query.message.answer("⏳ Bot is still working, everything is fine, sorry you are waiting... Just a bit more!")
 
     logger.error(f"[{user_id}] Timed out after {max_attempts * poll_interval:.0f}s – no success or failure.")
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔁 Try Again", callback_data="suggest_movie")]
-    ])
-    add_back_button(keyboard, source="main")
+    keyboard = get_main_menu_keyboard()
 
     await loading_gif_msg.delete()
     await query.message.answer(
-        "⏳ It's taking too long. Want to try again?",
+        '😭 It is taking too long. Pls click "▶️ Watch" again on movie card',
         reply_markup=keyboard
     )
     return None

@@ -34,11 +34,12 @@ async def extract_and_generate_master_m3u8(task_id: str, url: str, lang: str):
         result = await extract_from_hdrezka(url, user_lang=lang, task_id=task_id)
         await redis.set(f"extract:{task_id}:status", "extracted", ex=3600)
         await redis.set(f"extract:{task_id}:raw", json.dumps(result), ex=3600)
-        print(f"[extract:{task_id}] Extraction done.")
+        logger.info(f"[extract:{task_id}] Extraction done.")
     except Exception as e:
         await redis.set(f"extract:{task_id}:status", "error", ex=3600)
         await redis.set(f"extract:{task_id}:error", str(e), ex=3600)
-        print(f"[extract:{task_id}] Extraction error: {e}")
+        logger.info(f"[extract:{task_id}] Extraction error: {e}")
+        return  # Exit early if extraction failed
 
     try:
         config_response = await get_watch_config(task_id)
@@ -53,15 +54,15 @@ async def extract_and_generate_master_m3u8(task_id: str, url: str, lang: str):
 
         if isinstance(config_response, JSONResponse):
             body_content = bytes(config_response.body).decode('utf-8')
-            print(f"[{task_id}] get_watch_config returned:", body_content)
+            logger.info(f"[{task_id}] get_watch_config returned:", body_content)
         else:
-            print(f"[{task_id}] get_watch_config returned (non-JSON):", config_response)
+            logger.info(f"[{task_id}] get_watch_config returned (non-JSON):", config_response)
 
 
         await redis.set(f"extract:{task_id}:watch_config", config, ex=3600)
         await redis.set(f"extract:{task_id}:status", "done", ex=3600)
     except Exception as e:
-        print(f"[extract:{task_id}] Error building watch_config: {e}")
+        logger.info(f"[extract:{task_id}] Error building watch_config: {e}")
         await redis.set(f"extract:{task_id}:status", "error", ex=3600)
         await redis.set(f"extract:{task_id}:error", f"watch_config error: {str(e)}", ex=3600)
 
@@ -73,7 +74,7 @@ async def extract_entry(data: MovieInput, background_tasks: BackgroundTasks):
     await redis.set(f"extract:{task_id}:status", "pending", ex=3600)
 
     background_tasks.add_task(extract_and_generate_master_m3u8, task_id, data.url, data.lang)
-    print(f"[extract:{task_id}] Extraction started for {data.url}")
+    logger.info(f"[extract:{task_id}] Extraction started for {data.url}")
 
     return {"task_id": task_id, "status": "started"}
 
@@ -85,13 +86,18 @@ async def check_watch_status(task_id: str):
     if not status:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    logger.info(f"[status/watch:{task_id}] Status: {status}")
+
     if status == "done":
         data = await redis.get(f"extract:{task_id}:watch_config")
+        logger.info(f"[status/watch:{task_id}] Returning done with data: {data[:200] if data else 'None'}...")
         return {"status": status, "data": json.loads(data)}
     elif status == "error":
         error = await redis.get(f"extract:{task_id}:error")
+        logger.info(f"[status/watch:{task_id}] Returning error: {error}")
         return {"status": status, "error": error}
     else:
+        logger.info(f"[status/watch:{task_id}] Returning pending status: {status}")
         return {"status": status}
 
 @router.get("/status/merge_progress/{task_id}")
@@ -112,9 +118,9 @@ async def get_watch_config(task_id: str):
 
     if status == "done":
         raw_data = await redis.get(f"extract:{task_id}:watch_config")
-        print("[get_watch_config returned]:", json.dumps(raw_data, ensure_ascii=False, indent=2))
+        logger.info("[get_watch_config returned]:", json.dumps(raw_data, ensure_ascii=False, indent=2))
         if not raw_data:
-            print(f"🛑 Inconsistent Redis state: {task_id} has status=done but no config found")
+            logger.info(f"🛑 Inconsistent Redis state: {task_id} has status=done but no config found")
             return JSONResponse(content={"error": "Config missing despite status=done"}, status_code=500)
         try:
             return JSONResponse(content=json.loads(raw_data))
@@ -128,7 +134,7 @@ async def get_watch_config(task_id: str):
 
         raw_data = await redis.get(f"extract:{task_id}:raw")
         if not raw_data:
-            print(f"🛑 Extraction raw data missing, but status is 'extracted', task_id: {task_id} ")
+            logger.info(f"🛑 Extraction raw data missing, but status is 'extracted', task_id: {task_id} ")
             return JSONResponse(content={"error": "Extraction raw data missing"}, status_code=500)
 
         try:
@@ -211,7 +217,7 @@ async def proxy_segment_router(movie_id: str, encoded_path: str, request: Reques
 @router.post("/log-client-error")
 async def log_client_error(request: Request):
     data = await request.json()
-    print(f"⚠️ Client Error: {json.dumps(data, ensure_ascii=False, indent=2)}")
+    logger.info(f"⚠️ Client Error: {json.dumps(data, ensure_ascii=False, indent=2)}")
     return {"status": "logged"}
 
 #TODO: DO we really need movie_id? We probably should change it to smth else
