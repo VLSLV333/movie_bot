@@ -35,6 +35,7 @@ async def watch_mirror_handler(query: types.CallbackQuery):
         logger.error("CallbackQuery or its data is None in watch_mirror_handler")
         return
     user_id = query.from_user.id
+    await query.answer()
     
     # Get user's preferred language
     user_lang = await UserService.get_user_preferred_language(user_id)
@@ -167,6 +168,7 @@ async def download_mirror_handler(query: types.CallbackQuery):
         logger.error("CallbackQuery or its data is None in download_mirror_handler")
         return
     user_id = query.from_user.id
+    await query.answer()
     
     # Get user's preferred language
     user_lang = await UserService.get_user_preferred_language(user_id)

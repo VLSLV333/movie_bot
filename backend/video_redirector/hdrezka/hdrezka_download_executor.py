@@ -27,6 +27,9 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
         await redis.set(f"download:{task_id}:status", "merging", ex=3600)
         output_path = await merge_ts_to_mp4(task_id, result["url"], result['headers'])
 
+        if not output_path:
+            raise Exception("Failed to merge video segments into MP4 file")
+
         await redis.set(f"download:{task_id}:status", "uploading", ex=3600)
         upload_result: Optional[dict] = await check_size_upload_large_file(output_path, task_id)
 

@@ -1,6 +1,5 @@
 import os
 import logging
-import aiohttp
 import random
 import time
 from dotenv import load_dotenv
@@ -309,6 +308,16 @@ def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_d
     return part_paths
 
 async def check_size_upload_large_file(file_path: str, task_id: str):
+    if not file_path:
+        logger.error(f"[{task_id}] File path is None or empty")
+        await notify_admin(f"[{task_id}] File path is None or empty. Check space on VPS or other error logs!")
+        return None
+
+    if not os.path.exists(file_path):
+        logger.error(f"[{task_id}] File does not exist: {file_path}")
+        await notify_admin(f"[{task_id}] File does not exist: {file_path}. Check space on VPS or other error logs!")
+        return None
+
     file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
     logger.info(f"[{task_id}] Checking file: {file_path} ({file_size_mb:.2f} MB)")
     global bot_tokens

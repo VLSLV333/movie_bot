@@ -54,9 +54,9 @@ async def extract_and_generate_master_m3u8(task_id: str, url: str, lang: str):
 
         if isinstance(config_response, JSONResponse):
             body_content = bytes(config_response.body).decode('utf-8')
-            logger.info(f"[{task_id}] get_watch_config returned:", body_content)
+            logger.info(f"[{task_id}] get_watch_config returned: {body_content}" )
         else:
-            logger.info(f"[{task_id}] get_watch_config returned (non-JSON):", config_response)
+            logger.info(f"[{task_id}] get_watch_config returned (non-JSON): {config_response}" )
 
 
         await redis.set(f"extract:{task_id}:watch_config", config, ex=3600)
@@ -118,7 +118,7 @@ async def get_watch_config(task_id: str):
 
     if status == "done":
         raw_data = await redis.get(f"extract:{task_id}:watch_config")
-        logger.info("[get_watch_config returned]:", json.dumps(raw_data, ensure_ascii=False, indent=2))
+        logger.info(f"[get_watch_config returned]: {json.dumps(raw_data, ensure_ascii=False, indent=2)}" )
         if not raw_data:
             logger.info(f"🛑 Inconsistent Redis state: {task_id} has status=done but no config found")
             return JSONResponse(content={"error": "Config missing despite status=done"}, status_code=500)
