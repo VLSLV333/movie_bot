@@ -1,4 +1,5 @@
 import logging
+logging.getLogger("pyrogram").setLevel(logging.DEBUG)
 import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles

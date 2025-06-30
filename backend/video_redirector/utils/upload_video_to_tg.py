@@ -9,6 +9,7 @@ import asyncio
 from pyrogram.client import Client
 from typing import Optional, Dict, Any
 import shutil
+import datetime
 
 from backend.video_redirector.utils.notify_admin import notify_admin
 
@@ -33,7 +34,7 @@ TG_DELIVERY_BOT_USERNAME = str(TG_DELIVERY_BOT_USERNAME)  # type: ignore
 bot_tokens = os.getenv("DELIVERY_BOT_TOKEN", "").split(",")
 bot_tokens = [t.strip() for t in bot_tokens if t.strip()]
 
-MAX_MB = 1900
+MAX_MB = 1400
 PARTS_DIR = "downloads/parts"
 # Use absolute path to match where your working test created the session file
 SESSION_DIR = "/app/backend/session_files"
@@ -204,6 +205,8 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
             app = await get_client()
             
             # Upload with timeout
+            start_time = datetime.datetime.now()
+            logger.info(f"[{task_id}] [Part {part_num}] Starting upload at {start_time:%Y-%m-%d %H:%M:%S}")
             async with asyncio.timeout(UPLOAD_TIMEOUT):
                 msg = await app.send_video(
                     chat_id=TG_DELIVERY_BOT_USERNAME,
@@ -212,6 +215,9 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     disable_notification=True,
                     supports_streaming=True
                 )
+            end_time = datetime.datetime.now()
+            elapsed = (end_time - start_time).total_seconds()
+            logger.info(f"[{task_id}] [Part {part_num}] Finished upload at {end_time:%Y-%m-%d %H:%M:%S}, elapsed: {elapsed:.2f} seconds")
             
             if msg and msg.video:
                 file_id = msg.video.file_id
