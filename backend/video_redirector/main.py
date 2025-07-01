@@ -11,6 +11,7 @@ from backend.video_redirector.utils.redis_client import RedisClient
 from backend.video_redirector.routes.mirror_search_route import  router as mirror_search_route
 from backend.video_redirector.routes.tg_id_movies import router as tg_id_route
 from backend.video_redirector.routes.user_routes import router as user_routes
+from backend.video_redirector.utils.pyrogram_acc_manager import UPLOAD_ACCOUNT_POOL
 
 if not logging.getLogger().hasHandlers():
     logging.basicConfig(
@@ -20,9 +21,9 @@ if not logging.getLogger().hasHandlers():
 
 logger = logging.getLogger(__name__)
 
-session_path = "/app/backend/session_files/user_uploader_session.session"
+session_path = "/app/backend/session_files"
 if not os.path.exists(session_path):
-    logger.critical(f"❗️ Pyrogram .session file NOT FOUND! Expected at: {session_path}")
+    logger.critical(f"❗️ Pyrogram session_files NOT FOUND! Expected at: {session_path}")
     logger.critical("🛑 Upload to Telegram with user account will FAIL. Stopping application startup.")
     raise SystemExit(f"❌ Startup aborted: Required .session file is missing → {session_path}")
 else:
@@ -34,6 +35,8 @@ async def lifespan(app_as: FastAPI):
     await start_background_workers()
     yield
     await RedisClient.close()
+    for account in UPLOAD_ACCOUNT_POOL:
+        await account.stop_client()
 
 app = FastAPI(lifespan=lifespan)
 

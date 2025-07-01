@@ -1,35 +1,27 @@
 import os
 import logging
 import random
-import time
 from dotenv import load_dotenv
 import math
 import subprocess
 import asyncio
-from pyrogram.client import Client
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 import shutil
 import datetime
 
 from backend.video_redirector.utils.notify_admin import notify_admin
-from backend.video_redirector.utils.pyrogram_acc_manager import select_upload_account,increment_daily_stat,increment_total_stat
+from backend.video_redirector.utils.pyrogram_acc_manager import select_upload_account, increment_daily_stat
 
 logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Get environment variables
-API_ID = os.getenv("API_ID")
-API_HASH = os.getenv("API_HASH")
-SESSION_NAME = os.getenv("SESSION_NAME")
 TG_DELIVERY_BOT_USERNAME = os.getenv("TG_DELIVERY_BOT_USERNAME")
 
-if not all([API_ID, API_HASH, SESSION_NAME, TG_DELIVERY_BOT_USERNAME]):
+if not all([TG_DELIVERY_BOT_USERNAME]):
     raise ValueError("Missing required environment variables: API_ID, API_HASH, SESSION_NAME, or TG_DELIVERY_BOT_USERNAME")
 
 # Type assertion after validation - we know these are not None due to the check above
-API_ID = int(API_ID)  # type: ignore
-API_HASH = str(API_HASH)  # type: ignore
-SESSION_NAME = str(SESSION_NAME)  # type: ignore
 TG_DELIVERY_BOT_USERNAME = str(TG_DELIVERY_BOT_USERNAME)  # type: ignore
 
 bot_tokens = os.getenv("DELIVERY_BOT_TOKEN", "").split(",")
@@ -37,8 +29,6 @@ bot_tokens = [t.strip() for t in bot_tokens if t.strip()]
 
 MAX_MB = 1400
 PARTS_DIR = "downloads/parts"
-# Use absolute path to match where your working test created the session file
-SESSION_DIR = "/app/backend/session_files"
 TG_USER_ID_TO_UPLOAD = 7841848291
 
 # Upload configuration
@@ -58,18 +48,9 @@ _upload_stats = {
 
 # Create necessary directories
 os.makedirs(PARTS_DIR, exist_ok=True)
-os.makedirs(SESSION_DIR, exist_ok=True)
 
 logger.info(f"📁 Current working directory: {os.getcwd()}")
-logger.info(f"📁 Session directory: {SESSION_DIR}")
 logger.info(f"📁 Parts directory: {PARTS_DIR}")
-
-# Global client instance to avoid multiple connections
-_client_instance = None
-_client_lock = asyncio.Lock()
-_client_last_used = 0
-_client_ref_count = 0  # Track how many users are using the client
-CLIENT_TIMEOUT = 300  # 5 minutes timeout
 
 async def check_system_resources() -> Dict[str, Any]:
     """Check system resources before upload"""
@@ -93,81 +74,7 @@ async def check_system_resources() -> Dict[str, Any]:
         logger.warning(f"⚠️ Could not check system resources: {e}")
         return {"disk_ok": True, "memory_ok": True}  # Assume OK if can't check
 
-async def get_client():
-    """Get or create a Pyrogram client instance with proper session handling"""
-    global _client_instance, _client_last_used, _client_ref_count
-    
-    async with _client_lock:
-        current_time = time.time()
-        
-        # Check if client exists and is healthy
-        if _client_instance is not None:
-            # Check if client is too old and should be refreshed
-            if current_time - _client_last_used > CLIENT_TIMEOUT:
-                logger.info("🔄 Client timeout reached, refreshing connection...")
-                try:
-                    await _client_instance.stop()
-                except Exception as e:
-                    logger.warning(f"⚠️ Error stopping old client: {e}")
-                _client_instance = None
-                _client_ref_count = 0  # Reset ref count when client is refreshed
-        
-        if _client_instance is None:
-            session_path = os.path.join(SESSION_DIR, SESSION_NAME)
-            logger.info(f"🔧 Creating Pyrogram client with session path: {session_path}")
-            
-            # Check if session file exists
-            session_file = f"{session_path}.session"
-            if os.path.exists(session_file):
-                logger.info(f"✅ Session file exists: {session_file}")
-            else:
-                logger.warning(f"⚠️ Session file does not exist: {session_file}")
-            
-            try:
-                _client_instance = Client(
-                    session_path, 
-                    api_id=API_ID, 
-                    api_hash=API_HASH
-                )
-                await _client_instance.start()
-                logger.info(f"✅ Pyrogram client started successfully")
-            except Exception as e:
-                logger.error(f"❌ Failed to create Pyrogram client: {e}")
-                raise e
-        
-        _client_last_used = current_time
-        _client_ref_count += 1
-        logger.debug(f"📊 Client reference count: {_client_ref_count}")
-        return _client_instance
-
-async def release_client():
-    """Release a reference to the client (called when upload completes)"""
-    global _client_ref_count
-    
-    async with _client_lock:
-        if _client_ref_count > 0:
-            _client_ref_count -= 1
-            logger.debug(f"📊 Client reference count: {_client_ref_count}")
-
-async def cleanup_client():
-    """Clean up the global Pyrogram client instance only if no one is using it"""
-    global _client_instance, _client_last_used, _client_ref_count
-    
-    async with _client_lock:
-        if _client_instance is not None and _client_ref_count == 0:
-            try:
-                await _client_instance.stop()
-                logger.info("🔌 Pyrogram client stopped successfully")
-            except Exception as e:
-                logger.warning(f"⚠️ Error stopping Pyrogram client: {e}")
-            finally:
-                _client_instance = None
-                _client_last_used = 0
-                _client_ref_count = 0
-        elif _client_ref_count > 0:
-            logger.info(f"⚠️ Client cleanup skipped - {_client_ref_count} users still using it")
-
-async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: int) -> Optional[str]:
+async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: int, db, account):
     """Upload a part with retry logic and comprehensive error handling"""
     
     # Pre-upload checks
@@ -203,7 +110,6 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                 await log_upload_metrics(task_id, file_size, False, retry_count)
                 return None
             
-            idx, account = await select_upload_account()
             async with account.lock:
                 account.busy = True
                 try:
@@ -227,8 +133,7 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                         file_id = msg.video.file_id
                         logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
                         await log_upload_metrics(task_id, file_size, True, retry_count)
-                        increment_daily_stat(idx)
-                        increment_total_stat(idx)
+                        await increment_daily_stat(db, account.session_name)
                         return file_id
                     else:
                         logger.error(f"[{task_id}] Upload succeeded but no video data returned")
@@ -254,10 +159,12 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     elif "rate" in str(err).lower() or "flood" in str(err).lower():
                         logger.warning(f"[{task_id}] Rate limit detected, waiting longer...")
                         await asyncio.sleep(RETRY_DELAY * (attempt + 1) * 2)  # Exponential backoff
+                        await account.stop_client()
                     elif "session" in str(err).lower() or "auth" in str(err).lower():
                         logger.error(f"[{task_id}] Session/auth error, cannot retry: {err}")
                         await notify_admin(f"🔐 [{task_id}] Session error for part {part_num}: {err}")
                         await log_upload_metrics(task_id, file_size, False, retry_count)
+                        await account.stop_client()
                         return None
                     else:
                         logger.warning(f"[{task_id}] Unknown error type: {error_type}")
@@ -275,14 +182,11 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
     await log_upload_metrics(task_id, file_size, False, retry_count)
     return None
 
-async def upload_part_to_tg(file_path: str, task_id: str, part_num: int):
+async def upload_part_to_tg(file_path: str, task_id: str, part_num: int, db, account):
     """Wrapper for upload_part_to_tg_with_retry with cleanup"""
     try:
-        return await upload_part_to_tg_with_retry(file_path, task_id, part_num)
+        return await upload_part_to_tg_with_retry(file_path, task_id, part_num, db, account)
     finally:
-        # Always release the client reference when done
-        await release_client()
-        
         try:
             os.remove(file_path)
         except Exception as e:
@@ -321,7 +225,7 @@ def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_d
     logger.info(f"✅ [{task_id}] All {num_parts} parts generated successfully.")
     return part_paths
 
-async def check_size_upload_large_file(file_path: str, task_id: str):
+async def check_size_upload_large_file(file_path: str, task_id: str, db):
     if not file_path:
         logger.error(f"[{task_id}] File path is None or empty")
         await notify_admin(f"[{task_id}] File path is None or empty. Check space on VPS or other error logs!")
@@ -343,9 +247,11 @@ async def check_size_upload_large_file(file_path: str, task_id: str):
         parts_result = []
 
         try:
+            # Select a single Pyrogram account for this video
+            idx, account = await select_upload_account(db)
             if file_size_mb <= MAX_MB:
                 logger.info(f"[{task_id}] File is {round(file_size_mb)} MB — uploading as one part")
-                file_id = await upload_part_to_tg(file_path, task_id, 1)
+                file_id = await upload_part_to_tg(file_path, task_id, 1, db, account)
                 if file_id:
                     logger.info(f"✅ [{task_id}] Single-part upload complete. file_id: {file_id}")
                     return {
@@ -387,7 +293,7 @@ async def check_size_upload_large_file(file_path: str, task_id: str):
 
             for idx, part_path in enumerate(part_paths):
                 try:
-                    file_id = await upload_part_to_tg(part_path, task_id, idx + 1)
+                    file_id = await upload_part_to_tg(part_path, task_id, idx + 1, db, account)
                     if not file_id:
                         raise RuntimeError(f"Upload failed for part {idx + 1}")
                     parts_result.append({"part": idx + 1, "file_id": file_id})

@@ -2,7 +2,7 @@ import json
 from pyrogram import Client
 
 CONFIG_PATH = "/home/vladadmin/movie_bot/backend/video_redirector/utils/upload_accounts.json"
-SESSION_DIR = "/home/vladadmin/movie_bot/backend/session_files"  # Make sure this directory exists
+SESSION_DIR = "/home/vladadmin/movie_bot/backend/session_files"
 
 with open(CONFIG_PATH, "r") as f:
     accounts = json.load(f)

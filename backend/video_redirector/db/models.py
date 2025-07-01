@@ -1,6 +1,6 @@
 from enum import Enum
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, UniqueConstraint,Text, ForeignKey
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, UniqueConstraint,Text, ForeignKey, Date
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -67,3 +67,13 @@ class DownloadedFilePart(Base):
     __table_args__ = (
         UniqueConstraint("downloaded_file_id", "part_number", name="uq_file_part"),
     )
+
+class UploadAccountStats(Base):
+    __tablename__ = "upload_account_stats"
+    id = Column(Integer, primary_key=True)
+    session_name = Column(String, unique=True, nullable=False)
+    total_uploads = Column(Integer, default=0)
+    today_uploads = Column(Integer, default=0)
+    last_error = Column(String)
+    last_upload_date = Column(Date)
+    last_upload_time = Column(DateTime)

@@ -5,7 +5,7 @@ from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePar
 from backend.video_redirector.db.session import get_db
 from backend.video_redirector.hdrezka.hdrezka_extract_to_download import extract_to_download_from_hdrezka
 from backend.video_redirector.hdrezka.hdrezka_merge_ts_into_mp4 import merge_ts_to_mp4
-from backend.video_redirector.utils.upload_video_to_tg import check_size_upload_large_file, cleanup_client
+from backend.video_redirector.utils.upload_video_to_tg import check_size_upload_large_file
 from backend.video_redirector.utils.notify_admin import notify_admin
 from backend.video_redirector.exceptions import RetryableDownloadError, RETRYABLE_EXCEPTIONS
 from backend.video_redirector.utils.redis_client import RedisClient
@@ -31,13 +31,13 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
             raise Exception("Failed to merge video segments into MP4 file")
 
         await redis.set(f"download:{task_id}:status", "uploading", ex=3600)
-        upload_result: Optional[dict] = await check_size_upload_large_file(output_path, task_id)
+        upload_result: Optional[dict] = None
+        async for db in get_db():
+            upload_result = await check_size_upload_large_file(output_path, task_id, db)
+            break  # Only need one session
 
         if not upload_result:
             raise Exception("Upload to Telegram failed across all delivery bots.")
-
-        # Clean up Pyrogram client after successful upload
-        await cleanup_client()
 
         tg_bot_token_file_owner = upload_result["bot_token"]
         parts = upload_result["parts"]
@@ -83,12 +83,10 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
     except RETRYABLE_EXCEPTIONS as e:
         logger.error(f"[Download Task {task_id}] Failed RETRYABLE_EXCEPTIONS: {e}")
         # Clean up client even on retryable errors
-        await cleanup_client()
         raise RetryableDownloadError(f"Temporary issue during extract: {e}")
     except Exception as e:
         logger.error(f"[Download Task {task_id}] Failed Exception: {e}")
         # Clean up client on any error
-        await cleanup_client()
         await redis.set(f"download:{task_id}:status", "error", ex=3600)
         await redis.set(f"download:{task_id}:error", str(e), ex=3600)
         await notify_admin(f"[Download Task {task_id}] Failed: {e}")
