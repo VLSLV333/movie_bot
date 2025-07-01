@@ -70,3 +70,5 @@ backend/session_files/
 *.idea/
 *.vscode/
 *.swp
+
+*upload_accounts.json

@@ -5,13 +5,12 @@ from typing import Optional
 from backend.video_redirector.utils.redis_client import RedisClient
 from backend.video_redirector.hdrezka.hdrezka_download_executor import handle_download_task
 from backend.video_redirector.exceptions import RetryableDownloadError
+from backend.video_redirector.config import MAX_CONCURRENT_DOWNLOADS, MAX_RETRIES_FOR_DOWNLOAD
 
 logger = logging.getLogger(__name__)
 
 QUEUE_KEY = "download_queue"
 ACTIVE_COUNT_KEY = "active_downloads"
-MAX_CONCURRENT_DOWNLOADS = 2
-MAX_RETRIES = 1
 
 class DownloadQueueManager:
 
@@ -89,7 +88,7 @@ class DownloadQueueManager:
             retries = int(await redis.get(f"download:{task_id}:retries") or 0)
             await redis.set(f"download:{task_id}:status", "error", ex=3600)
             await redis.set(f"download:{task_id}:error", str(e), ex=3600)
-            if retries < MAX_RETRIES:
+            if retries < MAX_RETRIES_FOR_DOWNLOAD:
                 await asyncio.sleep(10)
                 logger.warning(f"🔁 Retrying task {task_id} due to retryable error: {e}")
                 await redis.set(f"download:{task_id}:retries", retries + 1, ex=3600)

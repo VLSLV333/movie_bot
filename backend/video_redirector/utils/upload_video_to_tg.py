@@ -12,6 +12,7 @@ import shutil
 import datetime
 
 from backend.video_redirector.utils.notify_admin import notify_admin
+from backend.video_redirector.utils.pyrogram_acc_manager import select_upload_account,increment_daily_stat,increment_total_stat
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -202,67 +203,74 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                 await log_upload_metrics(task_id, file_size, False, retry_count)
                 return None
             
-            app = await get_client()
-            
-            # Upload with timeout
-            start_time = datetime.datetime.now()
-            logger.info(f"[{task_id}] [Part {part_num}] Starting upload at {start_time:%Y-%m-%d %H:%M:%S}")
-            async with asyncio.timeout(UPLOAD_TIMEOUT):
-                msg = await app.send_video(
-                    chat_id=TG_DELIVERY_BOT_USERNAME,
-                    video=file_path,
-                    caption=f"🎬 Part {part_num}",
-                    disable_notification=True,
-                    supports_streaming=True
-                )
-            end_time = datetime.datetime.now()
-            elapsed = (end_time - start_time).total_seconds()
-            logger.info(f"[{task_id}] [Part {part_num}] Finished upload at {end_time:%Y-%m-%d %H:%M:%S}, elapsed: {elapsed:.2f} seconds")
-            
-            if msg and msg.video:
-                file_id = msg.video.file_id
-                logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
-                await log_upload_metrics(task_id, file_size, True, retry_count)
-                return file_id
-            else:
-                logger.error(f"[{task_id}] Upload succeeded but no video data returned")
-                await log_upload_metrics(task_id, file_size, False, retry_count)
-                return None
+            idx, account = await select_upload_account()
+            async with account.lock:
+                account.busy = True
+                try:
+                    client = await account.get_client()
+                    # Upload with timeout
+                    start_time = datetime.datetime.now()
+                    logger.info(f"[{task_id}] [Part {part_num}] Starting upload at {start_time:%Y-%m-%d %H:%M:%S}")
+                    async with asyncio.timeout(UPLOAD_TIMEOUT):
+                        msg = await client.send_video(
+                            chat_id=str(TG_DELIVERY_BOT_USERNAME),
+                            video=file_path,
+                            caption=f"🎬 Part {part_num}",
+                            disable_notification=True,
+                            supports_streaming=True
+                        )
+                    end_time = datetime.datetime.now()
+                    elapsed = (end_time - start_time).total_seconds()
+                    logger.info(f"[{task_id}] [Part {part_num}] Finished upload at {end_time:%Y-%m-%d %H:%M:%S}, elapsed: {elapsed:.2f} seconds")
+                    
+                    if msg and msg.video:
+                        file_id = msg.video.file_id
+                        logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
+                        await log_upload_metrics(task_id, file_size, True, retry_count)
+                        increment_daily_stat(idx)
+                        increment_total_stat(idx)
+                        return file_id
+                    else:
+                        logger.error(f"[{task_id}] Upload succeeded but no video data returned")
+                        await log_upload_metrics(task_id, file_size, False, retry_count)
+                        return None
                 
-        except asyncio.TimeoutError:
-            retry_count += 1
-            logger.error(f"[{task_id}] Upload timeout for part {part_num} (attempt {attempt + 1})")
-            if attempt == MAX_RETRIES - 1:
-                await notify_admin(f"⏰ [{task_id}] Upload timeout for part {part_num} after {MAX_RETRIES} attempts")
-                await log_upload_metrics(task_id, file_size, False, retry_count)
-                return None
+                except asyncio.TimeoutError:
+                    retry_count += 1
+                    logger.error(f"[{task_id}] Upload timeout for part {part_num} (attempt {attempt + 1})")
+                    if attempt == MAX_RETRIES - 1:
+                        await notify_admin(f"⏰ [{task_id}] Upload timeout for part {part_num} after {MAX_RETRIES} attempts")
+                        await log_upload_metrics(task_id, file_size, False, retry_count)
+                        return None
                 
-        except Exception as err:
-            retry_count += 1
-            error_type = type(err).__name__
-            logger.error(f"❌ [{task_id}] Upload failed for part {part_num} (attempt {attempt + 1}): {error_type}: {err}")
-            
-            # Handle specific error types
-            if "network" in str(err).lower() or "connection" in str(err).lower():
-                logger.info(f"[{task_id}] Network error detected, will retry...")
-            elif "rate" in str(err).lower() or "flood" in str(err).lower():
-                logger.warning(f"[{task_id}] Rate limit detected, waiting longer...")
-                await asyncio.sleep(RETRY_DELAY * (attempt + 1) * 2)  # Exponential backoff
-            elif "session" in str(err).lower() or "auth" in str(err).lower():
-                logger.error(f"[{task_id}] Session/auth error, cannot retry: {err}")
-                await notify_admin(f"🔐 [{task_id}] Session error for part {part_num}: {err}")
-                await log_upload_metrics(task_id, file_size, False, retry_count)
-                return None
-            else:
-                logger.warning(f"[{task_id}] Unknown error type: {error_type}")
-            
-            if attempt == MAX_RETRIES - 1:
-                await notify_admin(f"❌ [{task_id}] Upload failed for part {part_num} after {MAX_RETRIES} attempts: {err}")
-                await log_upload_metrics(task_id, file_size, False, retry_count)
-                return None
-            
-            # Wait before retry
-            await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+                except Exception as err:
+                    retry_count += 1
+                    error_type = type(err).__name__
+                    logger.error(f"❌ [{task_id}] Upload failed for part {part_num} (attempt {attempt + 1}): {error_type}: {err}")
+                    
+                    # Handle specific error types
+                    if "network" in str(err).lower() or "connection" in str(err).lower():
+                        logger.info(f"[{task_id}] Network error detected, will retry...")
+                    elif "rate" in str(err).lower() or "flood" in str(err).lower():
+                        logger.warning(f"[{task_id}] Rate limit detected, waiting longer...")
+                        await asyncio.sleep(RETRY_DELAY * (attempt + 1) * 2)  # Exponential backoff
+                    elif "session" in str(err).lower() or "auth" in str(err).lower():
+                        logger.error(f"[{task_id}] Session/auth error, cannot retry: {err}")
+                        await notify_admin(f"🔐 [{task_id}] Session error for part {part_num}: {err}")
+                        await log_upload_metrics(task_id, file_size, False, retry_count)
+                        return None
+                    else:
+                        logger.warning(f"[{task_id}] Unknown error type: {error_type}")
+                    
+                    if attempt == MAX_RETRIES - 1:
+                        await notify_admin(f"❌ [{task_id}] Upload failed for part {part_num} after {MAX_RETRIES} attempts: {err}")
+                        await log_upload_metrics(task_id, file_size, False, retry_count)
+                        return None
+                
+                    # Wait before retry
+                    await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+        finally:
+            account.busy = False
     
     await log_upload_metrics(task_id, file_size, False, retry_count)
     return None
