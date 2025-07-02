@@ -19,8 +19,21 @@ def add_back_button(keyboard: types.InlineKeyboardMarkup, source: str = "main", 
     """
     back_button = types.InlineKeyboardButton(text="🔙 Back", callback_data=f"back:{source}")
 
+    # Get the keyboard structure - handle both aiogram 2.x and 3.x
+    try:
+        # Try to access inline_keyboard attribute
+        if hasattr(keyboard, 'inline_keyboard'):
+            original_rows = keyboard.inline_keyboard
+        elif hasattr(keyboard, 'keyboard'):
+            original_rows = keyboard.keyboard
+        else:
+            # Fallback: create a new keyboard with just the back button
+            return types.InlineKeyboardMarkup(inline_keyboard=[[back_button]])
+    except Exception:
+        # If we can't access the keyboard structure, create a new one
+        return types.InlineKeyboardMarkup(inline_keyboard=[[back_button]])
+
     # Make a safe copy of all rows
-    original_rows = keyboard.inline_keyboard
     copied_rows = [row.copy() for row in original_rows]  # Don't mutate the original
 
     # Insert at desired position or append
