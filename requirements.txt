@@ -10,7 +10,7 @@ apscheduler
 pydantic
 starlette
 camoufox
-aiogram
+aiogram==3.4.1
 aiohttp
 python-dotenv
 redis==5.2.1
