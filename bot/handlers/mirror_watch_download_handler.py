@@ -456,7 +456,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
                 "movie_url": movie_url
             }), ex=3600)
 
-            emoji = "🇺🇦" if user_lang == 'uk' else "🎙"
+            emoji = "🇺🇦" if (user_lang == 'uk' and 'no Ukrainian dubs' not in dubs_scrapper_result.get('message','')) else "🎙"
             display_dub = translate_dub_to_ua(dub) if user_lang == 'uk' else dub
             kb.append([
                 types.InlineKeyboardButton(
@@ -468,7 +468,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
     if available_dubs_can_be_downloaded:
         kb.append([types.InlineKeyboardButton(text="📥 Available to download:", callback_data="noop")])
         for dub in available_dubs_can_be_downloaded:
-            emoji = "🇺🇦" if user_lang == 'uk' else "🎙"
+            emoji = "🇺🇦" if (user_lang == 'uk' and 'no Ukrainian dubs' not in dubs_scrapper_result.get('message','')) else "🎙"
             text = emoji +  f" {translate_dub_to_ua(dub)}" if user_lang == 'uk' else f" {dub}"
             token = generate_token(tmdb_id, user_lang, dub)
             logger.info(f"Generated token {token} for TMDB_ID={tmdb_id}, dub={dub}, lang={download_task_lang}")

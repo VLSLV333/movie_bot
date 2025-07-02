@@ -62,12 +62,11 @@ async def scrape_dubs_for_movie(movie_url: str, lang: str) -> Dict[str, Union[Li
     dubs = list(dict.fromkeys(dubs))
 
     # Fallback: if lang=uk but no Ukrainian dubs found, include RU + Original + a flag
-    if lang == "uk" and not any("Украинский" in dub for dub in dubs):
+    if lang == "uk" and all(("Оригинал" in dub or "Original" in dub) for dub in dubs):
         fallback_dubs = []
         for el in dub_elements:
             dub_text = el.get_text(strip=True)
-            if "Оригинал" in dub_text or "Original" in dub_text or "Украинский" not in dub_text:
-                fallback_dubs.append(dub_text)
+            fallback_dubs.append(dub_text)
         fallback_dubs = list(dict.fromkeys(fallback_dubs))
         return {
             "dubs": fallback_dubs,
