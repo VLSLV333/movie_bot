@@ -78,5 +78,5 @@ async def scrape_dubs_for_movie(movie_url: str, lang: str) -> Dict[str, Union[Li
     return {
         "dubs": dubs,
         "fallback": False,
-        "message": None
+        "message": ''
     }
