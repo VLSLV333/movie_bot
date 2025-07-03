@@ -401,6 +401,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
         return
 
     if dubs_scrapper_result['message']:
+        await query.answer()
         if query.message is not None:
             await query.message.answer(dubs_scrapper_result['message'])
         else:
@@ -426,7 +427,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
         }), ex=3600)
 
         kb = [[types.InlineKeyboardButton(
-            text="📥 Download default dub",
+            text="✅ Download default dub",
             callback_data=f"select_dub:{token}"
         )]]
         await loading_msg.delete()

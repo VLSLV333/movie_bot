@@ -19,4 +19,5 @@ PROXY_CONFIG = {
     "rotation_method": os.getenv("PROXY_ROTATION_METHOD", "GET"),
     "rotation_headers": json.loads(os.getenv("PROXY_ROTATION_HEADERS", "{}")),
     "rotation_timeout": int(os.getenv("PROXY_ROTATION_TIMEOUT", "300")),
+    "rotate_on_startup": os.getenv("PROXY_ROTATE_ON_STARTUP", "false").lower() == "true",
 }

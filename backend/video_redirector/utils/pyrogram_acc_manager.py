@@ -44,6 +44,29 @@ async def initialize_ip_detection():
     else:
         logger.info("🌐 IP detection skipped - proxy not enabled")
 
+async def initialize_proxy_on_startup():
+    """Initialize proxy settings on bot startup"""
+    global _upload_counter
+    
+    if PROXY_CONFIG["enabled"]:
+        logger.info("🔄 Initializing proxy on startup...")
+        
+        # Reset upload counter to ensure fresh start
+        _upload_counter = 0
+        logger.info(f"📊 Upload counter reset to 0 on startup")
+        
+        # Optionally force IP rotation on startup for fresh IP
+        if PROXY_CONFIG.get("rotate_on_startup", False):
+            logger.info("🔄 Forcing IP rotation on startup...")
+            await rotate_proxy_ip()
+        else:
+            logger.info("🌐 Using current proxy IP (no rotation on startup)")
+        
+        # Initialize IP detection
+        await initialize_ip_detection()
+    else:
+        logger.info("🌐 Proxy initialization skipped - proxy not enabled")
+
 # Track uploads for IP rotation
 _upload_counter = 0
 _last_ip_rotation = 0
