@@ -215,7 +215,7 @@ class UploadAccount:
                 logger.info(f"🔧 Creating client without proxy for account {self.session_name}")
             
             client_kwargs = {
-                "session_path": session_path,
+                "session_name": session_path,
                 "api_id": self.api_id,
                 "api_hash": self.api_hash,
             }
@@ -276,7 +276,7 @@ class UploadAccount:
                 logger.info(f"🔧 Recreating client without proxy for account {self.session_name}")
             
             client_kwargs = {
-                "session_path": session_path,
+                "session_name": session_path,
                 "api_id": self.api_id,
                 "api_hash": self.api_hash,
             }
