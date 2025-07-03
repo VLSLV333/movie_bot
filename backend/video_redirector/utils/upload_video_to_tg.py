@@ -12,7 +12,16 @@ import datetime
 from pyrogram.errors import FloodWait
 
 from backend.video_redirector.utils.notify_admin import notify_admin
-from backend.video_redirector.utils.pyrogram_acc_manager import select_upload_account, increment_daily_stat
+from backend.video_redirector.utils.pyrogram_acc_manager import (
+    select_upload_account, 
+    increment_daily_stat, 
+    should_rotate_ip, 
+    rotate_proxy_ip,
+    acquire_upload_permission,
+    release_upload_permission,
+    register_upload_start,
+    register_upload_end
+)
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -35,10 +44,12 @@ TG_USER_ID_TO_UPLOAD = 7841848291
 
 # Upload configuration
 UPLOAD_TIMEOUT = 420  # 7 minutes per part
-MAX_RETRIES = 3
-RETRY_DELAY = 2  # seconds
+MAX_RETRIES = 5  # Increased from 3
+RETRY_DELAY = 5  # Increased from 2 seconds
 MIN_DISK_SPACE_MB = 1000  # 1GB minimum free space
-UPLOAD_DELAY = 3  # seconds between uploads to avoid rate limits
+UPLOAD_DELAY = 5  # Increased from 3 seconds between uploads to avoid rate limits
+FLOOD_WAIT_BUFFER = 5  # Additional buffer time after FloodWait
+MAX_FLOOD_WAIT_RETRIES = 10  # Maximum FloodWait retries per part
 
 # Upload monitoring
 _upload_stats = {
@@ -115,6 +126,12 @@ async def log_upload_performance(task_id: str, file_size_mb: float, duration_sec
                 logger.warning(f"⚠️ Low upload speed detected - check network or consider proxies")
             else:
                 logger.info(f"✅ Good performance - current setup is working well")
+    else:
+        # Log failed uploads with rate limiting info
+        if flood_wait_count > 0:
+            logger.warning(f"❌ [{task_id}] Upload failed with {flood_wait_count} FloodWaits (account: {account_name})")
+            if flood_wait_count >= 5:
+                logger.error(f"🚨 [{task_id}] Excessive FloodWaits detected - account {account_name} may be rate limited")
     
     # Update general stats
     _upload_stats["total_uploads"] += 1
@@ -176,155 +193,214 @@ async def check_system_resources() -> Dict[str, Any]:
         logger.warning(f"⚠️ Could not check system resources: {e}")
         return {"disk_ok": True, "memory_ok": True}  # Assume OK if can't check
 
+async def rotate_account_on_failure(task_id: str, db, current_account):
+    """Rotate to a different account when the current one is rate limited"""
+    logger.info(f"[{task_id}] Rotating account from {current_account.session_name}")
+    
+    # Mark current account as recently used to avoid immediate reuse
+    current_account.last_used = time.time()
+    
+    # Try to get a different account
+    try:
+        idx, new_account = await select_upload_account(db)
+        if new_account.session_name != current_account.session_name:
+            logger.info(f"[{task_id}] Rotated to account: {new_account.session_name}")
+            return new_account
+        else:
+            logger.warning(f"[{task_id}] Could not rotate to different account, using same one")
+            return current_account
+    except Exception as e:
+        logger.error(f"[{task_id}] Error rotating account: {e}")
+        return current_account
+
 async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: int, db, account):
     """Upload a part with retry logic and comprehensive error handling"""
     
-    # Pre-upload checks
-    resources = await check_system_resources()
-    if not resources["disk_ok"]:
-        error_msg = f"Insufficient disk space: {resources['disk_free_mb']:.1f}MB free"
-        logger.error(f"[{task_id}] {error_msg}")
-        await notify_admin(f"❌ [{task_id}] {error_msg}")
-        await log_upload_metrics(task_id, 0, False, 0)
+    # Register this upload as active
+    await register_upload_start(task_id)
+    
+    try:
+        # Pre-upload checks
+        resources = await check_system_resources()
+        if not resources["disk_ok"]:
+            error_msg = f"Insufficient disk space: {resources['disk_free_mb']:.1f}MB free"
+            logger.error(f"[{task_id}] {error_msg}")
+            await notify_admin(f"❌ [{task_id}] {error_msg}")
+            await log_upload_metrics(task_id, 0, False, 0)
+            return None
+        
+        if not resources["memory_ok"]:
+            error_msg = f"Low memory: {resources['memory_available_mb']:.1f}MB available"
+            logger.warning(f"[{task_id}] {error_msg}")
+        
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        file_size_mb = file_size / (1024 * 1024)
+        retry_count = 0
+        flood_wait_count = 0
+        upload_start_time = time.time()
+        
+        for attempt in range(MAX_RETRIES):
+            logger.info(f"[{task_id}] Upload attempt {attempt + 1}/{MAX_RETRIES} for part {part_num}")
+            
+            # Check if file still exists
+            if not os.path.exists(file_path):
+                logger.error(f"[{task_id}] Part {part_num} file not found: {file_path}")
+                await log_upload_metrics(task_id, file_size, False, retry_count)
+                return None
+            
+            # Check file size
+            file_size = os.path.getsize(file_path)
+            if file_size == 0:
+                logger.error(f"[{task_id}] Part {part_num} file is empty: {file_path}")
+                await log_upload_metrics(task_id, file_size, False, retry_count)
+                return None
+            
+            async with account.lock:
+                account.busy = True
+                try:
+                    client = await account.ensure_client_ready()
+                    # Upload with timeout
+                    start_time = datetime.datetime.now()
+                    logger.info(f"[{task_id}] [Part {part_num}] Starting upload at {start_time:%Y-%m-%d %H:%M:%S}")
+                    async with asyncio.timeout(UPLOAD_TIMEOUT):
+                        msg = await client.send_video(
+                            chat_id=str(TG_DELIVERY_BOT_USERNAME),
+                            video=file_path,
+                            caption=f"🎬 Part {part_num}",
+                            disable_notification=True,
+                            supports_streaming=True
+                        )
+                    end_time = datetime.datetime.now()
+                    elapsed = (end_time - start_time).total_seconds()
+                    logger.info(f"[{task_id}] [Part {part_num}] Finished upload at {end_time:%Y-%m-%d %H:%M:%S}, elapsed: {elapsed:.2f} seconds")
+
+                    if msg and msg.video:
+                        file_id = msg.video.file_id
+                        logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
+                        await log_upload_metrics(task_id, file_size, True, retry_count)
+                        await increment_daily_stat(db, account.session_name)
+                        
+                        # Check if we should rotate proxy IP
+                        if should_rotate_ip():
+                            logger.info(f"🔄 [{task_id}] Rotating proxy IP after successful upload")
+                            await rotate_proxy_ip()
+                        
+                        # Log performance statistics
+                        total_duration = time.time() - upload_start_time
+                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, True)
+                        await get_upload_performance_summary()
+                        return file_id
+                    else:
+                        logger.error(f"[{task_id}] Upload succeeded but no video data returned")
+                        await log_upload_metrics(task_id, file_size, False, retry_count)
+                        
+                        # Log failed upload
+                        total_duration = time.time() - upload_start_time
+                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+                        
+                        return None
+
+                except FloodWait as e:
+                    flood_wait_count += 1
+                    wait_time = int(str(e.value)) + FLOOD_WAIT_BUFFER
+                    logger.warning(f"[{task_id}] FloodWait for part {part_num}: waiting {wait_time} seconds")
+                    await notify_admin(f"⏰ [{task_id}] FloodWait for part {part_num} (account: {account.session_name}): waiting {wait_time} seconds")
+                    
+                    # Stop the client to prevent further rate limiting
+                    await account.stop_client()
+                    
+                    # If we've hit multiple FloodWaits, try rotating accounts
+                    if flood_wait_count >= 5:
+                        logger.info(f"[{task_id}] Multiple FloodWaits detected, attempting account rotation")
+                        new_account = await rotate_account_on_failure(task_id, db, account)
+                        if new_account.session_name != account.session_name:
+                            account = new_account
+                            logger.info(f"[{task_id}] Switched to account: {account.session_name}")
+                            # Reset flood wait count for the new account
+                            flood_wait_count = 0
+                    
+                    # Wait for the specified time plus buffer
+                    await asyncio.sleep(wait_time)
+                    
+                    # If we've hit too many FloodWaits, stop retrying
+                    if flood_wait_count >= MAX_FLOOD_WAIT_RETRIES:
+                        logger.error(f"[{task_id}] Too many FloodWaits ({flood_wait_count}) for part {part_num}, stopping retries")
+                        await notify_admin(f"🚫 [{task_id}] Too many FloodWaits for part {part_num} (account: {account.session_name})")
+                        await log_upload_metrics(task_id, file_size, False, retry_count)
+                        
+                        # Log failed upload
+                        total_duration = time.time() - upload_start_time
+                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+                        
+                        return None
+                    
+                    # Continue with retry
+                    continue
+
+                except asyncio.TimeoutError:
+                    retry_count += 1
+                    logger.error(f"[{task_id}] Upload timeout for part {part_num} (attempt {attempt + 1})")
+                    if attempt == MAX_RETRIES - 1:
+                        await notify_admin(f"⏰ [{task_id}] Upload timeout for part {part_num} after {MAX_RETRIES} attempts")
+                        await log_upload_metrics(task_id, file_size, False, retry_count)
+                        
+                        # Log failed upload
+                        total_duration = time.time() - upload_start_time
+                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+                        
+                        return None
+
+                except Exception as err:
+                    retry_count += 1
+                    error_type = type(err).__name__
+                    logger.error(f"❌ [{task_id}] Upload failed for part {part_num} (attempt {attempt + 1}): {error_type}: {err}")
+
+                    # Handle specific error types
+                    if "network" in str(err).lower() or "connection" in str(err).lower():
+                        logger.info(f"[{task_id}] Network error detected, will retry...")
+                    elif "rate" in str(err).lower() or "flood" in str(err).lower():
+                        logger.warning(f"[{task_id}] Rate limit detected, waiting longer...")
+                        await asyncio.sleep(RETRY_DELAY * (attempt + 1) * 2)  # Exponential backoff
+                        await account.stop_client()
+                    elif "session" in str(err).lower() or "auth" in str(err).lower():
+                        logger.error(f"[{task_id}] Session/auth error, cannot retry: {err}")
+                        await notify_admin(f"🔐 [{task_id}] Session error for part {part_num}: {err}")
+                        await log_upload_metrics(task_id, file_size, False, retry_count)
+                        await account.stop_client()
+                        
+                        # Log failed upload
+                        total_duration = time.time() - upload_start_time
+                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+                        
+                        return None
+                    else:
+                        logger.warning(f"[{task_id}] Unknown error type: {error_type}")
+
+                    if attempt == MAX_RETRIES - 1:
+                        await notify_admin(f"❌ [{task_id}] Upload failed for part {part_num} after {MAX_RETRIES} attempts: {err}")
+                        await log_upload_metrics(task_id, file_size, False, retry_count)
+                        
+                        # Log failed upload
+                        total_duration = time.time() - upload_start_time
+                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+                        
+                        return None
+
+                    # Wait before retry
+                    await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+                finally:
+                    account.busy = False
+        
+        await log_upload_metrics(task_id, file_size, False, retry_count)
+        
+        # Log failed upload after all retries
+        total_duration = time.time() - upload_start_time
+        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+        
         return None
-    
-    if not resources["memory_ok"]:
-        error_msg = f"Low memory: {resources['memory_available_mb']:.1f}MB available"
-        logger.warning(f"[{task_id}] {error_msg}")
-    
-    file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-    file_size_mb = file_size / (1024 * 1024)
-    retry_count = 0
-    flood_wait_count = 0
-    upload_start_time = time.time()
-    
-    for attempt in range(MAX_RETRIES):
-        logger.info(f"[{task_id}] Upload attempt {attempt + 1}/{MAX_RETRIES} for part {part_num}")
-        
-        # Check if file still exists
-        if not os.path.exists(file_path):
-            logger.error(f"[{task_id}] Part {part_num} file not found: {file_path}")
-            await log_upload_metrics(task_id, file_size, False, retry_count)
-            return None
-        
-        # Check file size
-        file_size = os.path.getsize(file_path)
-        if file_size == 0:
-            logger.error(f"[{task_id}] Part {part_num} file is empty: {file_path}")
-            await log_upload_metrics(task_id, file_size, False, retry_count)
-            return None
-        
-        async with account.lock:
-            account.busy = True
-            try:
-                client = await account.get_client()
-                # Upload with timeout
-                start_time = datetime.datetime.now()
-                logger.info(f"[{task_id}] [Part {part_num}] Starting upload at {start_time:%Y-%m-%d %H:%M:%S}")
-                async with asyncio.timeout(UPLOAD_TIMEOUT):
-                    msg = await client.send_video(
-                        chat_id=str(TG_DELIVERY_BOT_USERNAME),
-                        video=file_path,
-                        caption=f"🎬 Part {part_num}",
-                        disable_notification=True,
-                        supports_streaming=True
-                    )
-                end_time = datetime.datetime.now()
-                elapsed = (end_time - start_time).total_seconds()
-                logger.info(f"[{task_id}] [Part {part_num}] Finished upload at {end_time:%Y-%m-%d %H:%M:%S}, elapsed: {elapsed:.2f} seconds")
-
-                if msg and msg.video:
-                    file_id = msg.video.file_id
-                    logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
-                    await log_upload_metrics(task_id, file_size, True, retry_count)
-                    await increment_daily_stat(db, account.session_name)
-                    
-                    # Log performance statistics
-                    total_duration = time.time() - upload_start_time
-                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, True)
-                    await get_upload_performance_summary()
-                    return file_id
-                else:
-                    logger.error(f"[{task_id}] Upload succeeded but no video data returned")
-                    await log_upload_metrics(task_id, file_size, False, retry_count)
-                    
-                    # Log failed upload
-                    total_duration = time.time() - upload_start_time
-                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-                    
-                    return None
-
-            except FloodWait as e:
-                flood_wait_count += 1
-                wait_time = int(str(e.value)) + 2  # Add 2 seconds buffer
-                logger.warning(f"[{task_id}] FloodWait for part {part_num}: waiting {wait_time} seconds")
-                await notify_admin(f"⏰ [{task_id}] FloodWait for part {part_num} (account: {account.session_name}): waiting {wait_time} seconds")
-                
-                # Just wait and continue - no client stopping, no retry limits
-                await asyncio.sleep(wait_time)
-                continue
-
-            except asyncio.TimeoutError:
-                retry_count += 1
-                logger.error(f"[{task_id}] Upload timeout for part {part_num} (attempt {attempt + 1})")
-                if attempt == MAX_RETRIES - 1:
-                    await notify_admin(f"⏰ [{task_id}] Upload timeout for part {part_num} after {MAX_RETRIES} attempts")
-                    await log_upload_metrics(task_id, file_size, False, retry_count)
-                    
-                    # Log failed upload
-                    total_duration = time.time() - upload_start_time
-                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-                    
-                    return None
-
-            except Exception as err:
-                retry_count += 1
-                error_type = type(err).__name__
-                logger.error(f"❌ [{task_id}] Upload failed for part {part_num} (attempt {attempt + 1}): {error_type}: {err}")
-
-                # Handle specific error types
-                if "network" in str(err).lower() or "connection" in str(err).lower():
-                    logger.info(f"[{task_id}] Network error detected, will retry...")
-                elif "rate" in str(err).lower() or "flood" in str(err).lower():
-                    logger.warning(f"[{task_id}] Rate limit detected, waiting longer...")
-                    await asyncio.sleep(RETRY_DELAY * (attempt + 1) * 2)  # Exponential backoff
-                    await account.stop_client()
-                elif "session" in str(err).lower() or "auth" in str(err).lower():
-                    logger.error(f"[{task_id}] Session/auth error, cannot retry: {err}")
-                    await notify_admin(f"🔐 [{task_id}] Session error for part {part_num}: {err}")
-                    await log_upload_metrics(task_id, file_size, False, retry_count)
-                    await account.stop_client()
-                    
-                    # Log failed upload
-                    total_duration = time.time() - upload_start_time
-                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-                    
-                    return None
-                else:
-                    logger.warning(f"[{task_id}] Unknown error type: {error_type}")
-
-                if attempt == MAX_RETRIES - 1:
-                    await notify_admin(f"❌ [{task_id}] Upload failed for part {part_num} after {MAX_RETRIES} attempts: {err}")
-                    await log_upload_metrics(task_id, file_size, False, retry_count)
-                    
-                    # Log failed upload
-                    total_duration = time.time() - upload_start_time
-                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-                    
-                    return None
-
-                # Wait before retry
-                await asyncio.sleep(RETRY_DELAY * (attempt + 1))
-            finally:
-                account.busy = False
-    
-    await log_upload_metrics(task_id, file_size, False, retry_count)
-    
-    # Log failed upload after all retries
-    total_duration = time.time() - upload_start_time
-    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-    
-    return None
+    finally:
+        # Always register upload end, regardless of success/failure
+        await register_upload_end(task_id)
 
 async def upload_part_to_tg(file_path: str, task_id: str, part_num: int, db, account):
     """Wrapper for upload_part_to_tg_with_retry with cleanup"""
@@ -391,81 +467,93 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db):
         parts_result = []
 
         try:
-            # Select a single Pyrogram account for this video
-            idx, account = await select_upload_account(db)
-            if file_size_mb <= MAX_MB:
-                logger.info(f"[{task_id}] File is {round(file_size_mb)} MB — uploading as one part")
-                file_id = await upload_part_to_tg(file_path, task_id, 1, db, account)
-                if file_id:
-                    logger.info(f"✅ [{task_id}] Single-part upload complete. file_id: {file_id}")
-                    return {
-                        "bot_token": token,
-                        "parts": [{"part": 1, "file_id": file_id}]
-                    }
-                else:
-                    logger.error(f"[{task_id}] Upload of single-part file failed.")
-                    await notify_admin(f"[{task_id}] Upload of single-part file failed.")
+            # Acquire upload permission (waits if rotation is in progress)
+            await acquire_upload_permission()
+            
+            try:
+                # Select a single Pyrogram account for this video
+                idx, account = await select_upload_account(db)
+                logger.info(f"[{task_id}] Selected account: {account.session_name}")
+                
+                if file_size_mb <= MAX_MB:
+                    logger.info(f"[{task_id}] File is {round(file_size_mb)} MB — uploading as one part")
+                    file_id = await upload_part_to_tg(file_path, task_id, 1, db, account)
+                    if file_id:
+                        logger.info(f"✅ [{task_id}] Single-part upload complete. file_id: {file_id}")
+                        return {
+                            "bot_token": token,
+                            "parts": [{"part": 1, "file_id": file_id}]
+                        }
+                    else:
+                        logger.error(f"[{task_id}] Upload of single-part file failed.")
+                        await notify_admin(f"[{task_id}] Upload of single-part file failed with account {account.session_name}.")
+                        # Try with a different account next time
+                        continue
+
+                logger.info(f"[{task_id}] File is {round(file_size_mb)} MB — splitting...")
+
+                # Step 1: Get duration
+                try:
+                    result = subprocess.run([
+                        "ffprobe", "-v", "error",
+                        "-show_entries", "format=duration",
+                        "-of", "default=noprint_wrappers=1:nokey=1",
+                        file_path
+                    ], capture_output=True, text=True, check=True)
+                    logger.debug(f"[{task_id}] ffprobe output: {result.stdout}")
+                    logger.debug(f"[{task_id}] ffprobe errors: {result.stderr}")
+                    if not result.stdout.strip():
+                        raise ValueError("FFprobe returned empty duration.")
+                    duration = float(result.stdout.strip())
+                except Exception as ero:
+                    logger.exception(f"[{task_id}] FFprobe failed")
+                    await notify_admin(f"❌ [Task {task_id}] Failed to get video duration: {ero}")
                     continue
 
-            logger.info(f"[{task_id}] File is {round(file_size_mb)} MB — splitting...")
+                num_parts = math.ceil(file_size_mb / MAX_MB)
+                part_duration = duration / num_parts
 
-            # Step 1: Get duration
-            try:
-                result = subprocess.run([
-                    "ffprobe", "-v", "error",
-                    "-show_entries", "format=duration",
-                    "-of", "default=noprint_wrappers=1:nokey=1",
-                    file_path
-                ], capture_output=True, text=True, check=True)
-                logger.debug(f"[{task_id}] ffprobe output: {result.stdout}")
-                logger.debug(f"[{task_id}] ffprobe errors: {result.stderr}")
-                if not result.stdout.strip():
-                    raise ValueError("FFprobe returned empty duration.")
-                duration = float(result.stdout.strip())
-            except Exception as ero:
-                logger.exception(f"[{task_id}] FFprobe failed")
-                await notify_admin(f"❌ [Task {task_id}] Failed to get video duration: {ero}")
-                continue
+                part_paths = split_video_by_duration(file_path, task_id, num_parts, part_duration)
+                if not part_paths:
+                    await notify_admin(f"❌ [Task {task_id}] Failed to split movie during ffmpeg slicing.")
+                    continue
 
-            num_parts = math.ceil(file_size_mb / MAX_MB)
-            part_duration = duration / num_parts
+                # Upload parts sequentially with delays to avoid rate limits
+                for idx, part_path in enumerate(part_paths):
+                    try:
+                        # Add delay between uploads to avoid rate limits
+                        if idx > 0:
+                            logger.info(f"[{task_id}] Waiting {UPLOAD_DELAY} seconds before uploading part {idx + 1}")
+                            await asyncio.sleep(UPLOAD_DELAY)
+                        
+                        file_id = await upload_part_to_tg(part_path, task_id, idx + 1, db, account)
+                        if not file_id:
+                            raise RuntimeError(f"Upload failed for part {idx + 1}")
+                        parts_result.append({"part": idx + 1, "file_id": file_id})
+                    except Exception as e:
+                        logger.exception(f"[{task_id}] Error uploading part {idx + 1}")
+                        await notify_admin(f"❌ [Task {task_id}] Part {idx + 1} upload failed: {e}")
+                        # If we fail on a part, try with a different account
+                        break
 
-            part_paths = split_video_by_duration(file_path, task_id, num_parts, part_duration)
-            if not part_paths:
-                await notify_admin(f"❌ [Task {task_id}] Failed to split movie during ffmpeg slicing.")
-                continue
+                if len(parts_result) == num_parts:
+                    try:
+                        os.remove(file_path)
+                    except Exception as errr:
+                        logger.warning(f"[{task_id}] Couldn't clean up original movie file: {errr}")
+                    logger.info(f"[{task_id}] Upload successful with bot: {token[:10]}...")
+                    logger.info(f"✅ [{task_id}] Multipart upload complete. {len(parts_result)} parts uploaded.")
+                    return {
+                        "bot_token": token,
+                        "parts": parts_result
+                    }
+                else:
+                    logger.warning(f"[{task_id}] Upload incomplete with bot {token[:10]}... Trying another...")
+                    await notify_admin(f"⚠️ [Task {task_id}] Upload incomplete with bot `{token[:10]}...`. Uploaded {len(parts_result)} of {num_parts}. Trying next...")
 
-            # Upload parts sequentially with delays to avoid rate limits
-            for idx, part_path in enumerate(part_paths):
-                try:
-                    # Add delay between uploads to avoid rate limits
-                    if idx > 0:
-                        logger.info(f"[{task_id}] Waiting {UPLOAD_DELAY} seconds before uploading part {idx + 1}")
-                        await asyncio.sleep(UPLOAD_DELAY)
-                    
-                    file_id = await upload_part_to_tg(part_path, task_id, idx + 1, db, account)
-                    if not file_id:
-                        raise RuntimeError(f"Upload failed for part {idx + 1}")
-                    parts_result.append({"part": idx + 1, "file_id": file_id})
-                except Exception as e:
-                    logger.exception(f"[{task_id}] Error uploading part {idx + 1}")
-                    await notify_admin(f"❌ [Task {task_id}] Part {idx + 1} upload failed: {e}")
-                    break
-
-            if len(parts_result) == num_parts:
-                try:
-                    os.remove(file_path)
-                except Exception as errr:
-                    logger.warning(f"[{task_id}] Couldn't clean up original movie file: {errr}")
-                logger.info(f"[{task_id}] Upload successful with bot: {token[:10]}...")
-                logger.info(f"✅ [{task_id}] Multipart upload complete. {len(parts_result)} parts uploaded.")
-                return {
-                    "bot_token": token,
-                    "parts": parts_result
-                }
-            else:
-                logger.warning(f"[{task_id}] Upload incomplete with bot {token[:10]}... Trying another...")
-                await notify_admin(f"⚠️ [Task {task_id}] Upload incomplete with bot `{token[:10]}...`. Uploaded {len(parts_result)} of {num_parts}. Trying next...")
+            finally:
+                # Always release upload permission
+                release_upload_permission()
 
         except Exception as e:
             logger.exception(f"[{task_id}] Critical error with token {token[:10]}")
