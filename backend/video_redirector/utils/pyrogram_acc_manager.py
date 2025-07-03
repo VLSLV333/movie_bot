@@ -79,16 +79,48 @@ async def get_current_ip():
             "https://checkip.amazonaws.com"
         ]
         
+        # Configure proxy for IP detection if enabled
+        proxy_config = None
+        if PROXY_CONFIG["enabled"] and PROXY_CONFIG["url"]:
+            proxy_url = PROXY_CONFIG["url"]
+            scheme = proxy_url.split("://")[0]
+            hostname = proxy_url.split("@")[-1].split(":")[0]
+            port = int(proxy_url.split(":")[-1])
+            
+            # Extract authentication if present
+            username = None
+            password = None
+            if "@" in proxy_url:
+                auth_part = proxy_url.split("@")[0].split("://")[1]
+                if ":" in auth_part:
+                    username, password = auth_part.split(":")
+            
+            # Configure proxy for aiohttp
+            if scheme == "socks5":
+                proxy_config = f"socks5://{username}:{password}@{hostname}:{port}" if username and password else f"socks5://{hostname}:{port}"
+            else:
+                proxy_config = f"http://{username}:{password}@{hostname}:{port}" if username and password else f"http://{hostname}:{port}"
+        
         async with aiohttp.ClientSession() as session:
             for url in ip_check_urls:
                 try:
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                        if response.status == 200:
-                            ip = (await response.text()).strip()
-                            if ip and len(ip.split('.')) == 4:  # Basic IPv4 validation
-                                _current_ip = ip
-                                logger.info(f"🌐 Current IP detected: {ip} (via {url})")
-                                return ip
+                    # Use proxy for IP detection if configured
+                    if proxy_config:
+                        async with session.get(url, proxy=proxy_config, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                            if response.status == 200:
+                                ip = (await response.text()).strip()
+                                if ip and len(ip.split('.')) == 4:  # Basic IPv4 validation
+                                    _current_ip = ip
+                                    logger.info(f"🌐 Current IP detected via proxy: {ip} (via {url})")
+                                    return ip
+                    else:
+                        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                            if response.status == 200:
+                                ip = (await response.text()).strip()
+                                if ip and len(ip.split('.')) == 4:  # Basic IPv4 validation
+                                    _current_ip = ip
+                                    logger.info(f"🌐 Current IP detected: {ip} (via {url})")
+                                    return ip
                 except Exception as e:
                     logger.debug(f"Failed to get IP from {url}: {e}")
                     continue
@@ -522,14 +554,27 @@ def should_rotate_ip():
     if not PROXY_CONFIG["enabled"]:
         return False
     
-    _upload_counter += 1
     should_rotate = _upload_counter >= PROXY_CONFIG["rotation_interval"]
     
     if should_rotate:
-        _upload_counter = 0
         logger.info(f"🔄 IP rotation triggered after {PROXY_CONFIG['rotation_interval']} uploads")
         logger.info(f"   Upload counter reset to 0")
     else:
         logger.debug(f"📊 Upload counter: {_upload_counter}/{PROXY_CONFIG['rotation_interval']} (rotation at {PROXY_CONFIG['rotation_interval']})")
     
     return should_rotate
+
+def increment_upload_counter():
+    """Increment upload counter - call this once per actual upload"""
+    global _upload_counter
+    
+    if not PROXY_CONFIG["enabled"]:
+        return
+    
+    _upload_counter += 1
+    logger.debug(f"📊 Upload counter incremented to: {_upload_counter}/{PROXY_CONFIG['rotation_interval']}")
+    
+    # Check if we should rotate after incrementing
+    if _upload_counter >= PROXY_CONFIG["rotation_interval"]:
+        _upload_counter = 0
+        logger.info(f"🔄 Upload counter reset to 0 after reaching rotation threshold")

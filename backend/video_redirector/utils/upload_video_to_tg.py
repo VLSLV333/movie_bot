@@ -20,7 +20,8 @@ from backend.video_redirector.utils.pyrogram_acc_manager import (
     acquire_upload_permission,
     release_upload_permission,
     register_upload_start,
-    register_upload_end
+    register_upload_end,
+    increment_upload_counter
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ PARTS_DIR = "downloads/parts"
 TG_USER_ID_TO_UPLOAD = 7841848291
 
 # Upload configuration
-UPLOAD_TIMEOUT = 420  # 7 minutes per part
+UPLOAD_TIMEOUT = 600  # 10 minutes per part
 MAX_RETRIES = 5  # Increased from 3
 RETRY_DELAY = 5  # Increased from 2 seconds
 MIN_DISK_SPACE_MB = 1000  # 1GB minimum free space
@@ -279,6 +280,9 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                         logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
                         await log_upload_metrics(task_id, file_size, True, retry_count)
                         await increment_daily_stat(db, account.session_name)
+                        
+                        # Increment upload counter for IP rotation
+                        increment_upload_counter()
                         
                         # Check if we should rotate proxy IP
                         if should_rotate_ip():
