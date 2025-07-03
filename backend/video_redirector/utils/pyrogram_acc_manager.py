@@ -144,14 +144,6 @@ class UploadAccount:
         self.last_client_creation = 0  # Track when client was last created
         self.client_creation_cooldown = 60  # 60 seconds cooldown between client creations
 
-    async def get_client(self):
-        if self.client is None:
-            session_path = os.path.join(str(SESSION_DIR), str(self.session_name))
-            self.client = Client(session_path, api_id=self.api_id, api_hash=self.api_hash)
-            await self.client.start()
-        self.last_used = time.time()
-        return self.client
-
     async def stop_client(self):
         if self.client is not None:
             try:
@@ -214,15 +206,21 @@ class UploadAccount:
             else:
                 logger.info(f"🔧 Creating client without proxy for account {self.session_name}")
             
-            client_kwargs = {
-                "session_name": session_path,
-                "api_id": self.api_id,
-                "api_hash": self.api_hash,
-            }
+            # Create client with session name as first positional argument
             if proxy_config:
-                client_kwargs["proxy"] = proxy_config
+                self.client = Client(
+                    session_path,
+                    api_id=self.api_id,
+                    api_hash=self.api_hash,
+                    proxy=proxy_config
+                )
+            else:
+                self.client = Client(
+                    session_path,
+                    api_id=self.api_id,
+                    api_hash=self.api_hash
+                )
             
-            self.client = Client(**client_kwargs)
             await self.client.start()
             self.last_client_creation = current_time
             
@@ -275,15 +273,21 @@ class UploadAccount:
             else:
                 logger.info(f"🔧 Recreating client without proxy for account {self.session_name}")
             
-            client_kwargs = {
-                "session_name": session_path,
-                "api_id": self.api_id,
-                "api_hash": self.api_hash,
-            }
+            # Create client with session name as first positional argument
             if proxy_config:
-                client_kwargs["proxy"] = proxy_config
+                self.client = Client(
+                    session_path,
+                    api_id=self.api_id,
+                    api_hash=self.api_hash,
+                    proxy=proxy_config
+                )
+            else:
+                self.client = Client(
+                    session_path,
+                    api_id=self.api_id,
+                    api_hash=self.api_hash
+                )
             
-            self.client = Client(**client_kwargs)
             await self.client.start()
             self.last_client_creation = time.time()
             
