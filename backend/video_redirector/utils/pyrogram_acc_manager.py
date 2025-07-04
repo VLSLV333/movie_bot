@@ -16,8 +16,8 @@ from backend.video_redirector.config import PROXY_CONFIG
 
 logger = logging.getLogger(__name__)
 
-MULTI_ACCOUNT_CONFIG_PATH = Path('app/backend/video_redirector/utils/upload_accounts.json')
-SESSION_DIR = "/app/backend/session_files"
+MULTI_ACCOUNT_CONFIG_PATH = Path('backend/video_redirector/utils/upload_accounts.json')
+SESSION_DIR = "backend/session_files"
 
 # Log proxy configuration status
 if PROXY_CONFIG["enabled"]:
@@ -91,11 +91,7 @@ if MULTI_ACCOUNT_CONFIG_PATH.exists():
     with open(MULTI_ACCOUNT_CONFIG_PATH, 'r') as f:
         UPLOAD_ACCOUNTS = json.load(f)
 else:
-    UPLOAD_ACCOUNTS = [{
-        "api_id": os.getenv("API_ID"),
-        "api_hash": os.getenv("API_HASH"),
-        "session_name": os.getenv("SESSION_NAME")
-    }]
+    logger.error('MULTI_ACCOUNT_CONFIG_PATH was not found! No accounts can be used to upload videos')
 
 IDLE_TIMEOUT_SECONDS = 15 * 60  # 15 minutes
 
