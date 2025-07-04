@@ -21,7 +21,8 @@ from backend.video_redirector.utils.pyrogram_acc_manager import (
     release_upload_permission,
     register_upload_start,
     register_upload_end,
-    increment_upload_counter
+    increment_upload_counter,
+    track_rate_limit_event
 )
 
 logger = logging.getLogger(__name__)
@@ -68,11 +69,28 @@ _upload_stats = {
     }
 }
 
+# Rate limiting detection
+_rate_limit_detection_enabled = True
+
 # Create necessary directories
 os.makedirs(PARTS_DIR, exist_ok=True)
 
 logger.info(f"📁 Current working directory: {os.getcwd()}")
 logger.info(f"📁 Parts directory: {PARTS_DIR}")
+
+def report_rate_limit_event(wait_seconds: int, task_id: str = "unknown"):
+    """Report a rate limiting event detected from logs or monitoring"""
+    if not _rate_limit_detection_enabled:
+        return
+    
+    logger.info(f"⏰ [{task_id}] Rate limit event reported: {wait_seconds}s wait")
+    
+    # Track the rate limit event
+    should_rotate = track_rate_limit_event(wait_seconds)
+    
+    if should_rotate:
+        logger.warning(f"🚨 [{task_id}] Smart IP rotation should be triggered")
+        # Note: The actual rotation will happen on the next upload check
 
 async def log_upload_performance(task_id: str, file_size_mb: float, duration_seconds: float, 
                                 flood_wait_count: int, account_name: str, success: bool):

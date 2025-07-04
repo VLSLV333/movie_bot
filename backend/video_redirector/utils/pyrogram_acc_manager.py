@@ -24,11 +24,15 @@ if PROXY_CONFIG["enabled"]:
     logger.info("🌐 Proxy support enabled")
     logger.info(f"   Rotation interval: {PROXY_CONFIG['rotation_interval']} uploads")
     logger.info(f"   Rotation timeout: {PROXY_CONFIG['rotation_timeout']} seconds")
-    if PROXY_CONFIG["rotation_url"]:
-        logger.info(f"   IP rotation URL: {PROXY_CONFIG['rotation_url']}")
-        logger.info(f"   Rotation method: {PROXY_CONFIG['rotation_method']}")
-    else:
+    if not PROXY_CONFIG["rotation_url"]:
         logger.warning("⚠️ Proxy enabled but no rotation URL configured")
+    
+    # Log smart rotation configuration
+    if PROXY_CONFIG.get("smart_rotation_enabled", True):
+        logger.info("🧠 Smart IP rotation enabled")
+        logger.info(f"   Rate limit threshold: {PROXY_CONFIG.get('rate_limit_wait_threshold', 5)}s")
+    else:
+        logger.info("🧠 Smart IP rotation disabled - using upload counter only")
 else:
     logger.info("🌐 Proxy support disabled")
 
@@ -71,6 +75,12 @@ async def initialize_proxy_on_startup():
 _upload_counter = 0
 _last_ip_rotation = 0
 _current_ip = None  # Track current IP address
+
+# Smart rotation tracking
+_rate_limit_events = []  # Track rate limit events with timestamps
+_rate_limit_detection_window = PROXY_CONFIG.get("rate_limit_detection_window", 10)
+_rate_limit_wait_threshold = PROXY_CONFIG.get("rate_limit_wait_threshold", 5)
+_max_rate_limit_events = PROXY_CONFIG.get("max_rate_limit_events", 3)
 
 # Global upload management
 _global_upload_lock = asyncio.Lock()  # Prevents new uploads during rotation
@@ -562,6 +572,9 @@ async def rotate_proxy_ip():
         # Update global IP tracker
         _current_ip = new_ip
         
+        # Clear rate limit events after successful rotation
+        clear_rate_limit_events()
+        
     except Exception as e:
         logger.error(f"❌ Proxy rotation error: {e}")
         logger.error(f"   Error type: {type(e).__name__}")
@@ -571,19 +584,33 @@ async def rotate_proxy_ip():
         logger.info("🔄 Proxy IP rotation completed - new uploads can proceed")
 
 def should_rotate_ip():
-    """Check if we should rotate IP based on upload count"""
+    """Check if we should rotate IP based on upload count or rate limiting signals"""
     global _upload_counter
     
     if not PROXY_CONFIG["enabled"]:
         return False
     
+    # Check smart rotation first (if enabled)
+    if PROXY_CONFIG.get("smart_rotation_enabled", True):
+        rate_limit_stats = get_rate_limit_stats()
+        significant_events = rate_limit_stats["significant_events"]
+        
+        if significant_events >= _max_rate_limit_events:
+            logger.warning(f"🚨 Smart IP rotation triggered: {significant_events} significant rate limit events")
+            return True
+    
+    # Fallback to upload counter-based rotation
     should_rotate = _upload_counter >= PROXY_CONFIG["rotation_interval"]
     
     if should_rotate:
         logger.info(f"🔄 IP rotation triggered after {PROXY_CONFIG['rotation_interval']} uploads")
         logger.info(f"   Upload counter reset to 0")
     else:
+        # Log current status for debugging
+        rate_limit_stats = get_rate_limit_stats()
         logger.debug(f"📊 Upload counter: {_upload_counter}/{PROXY_CONFIG['rotation_interval']} (rotation at {PROXY_CONFIG['rotation_interval']})")
+        if rate_limit_stats["total_events"] > 0:
+            logger.debug(f"📊 Rate limit events: {rate_limit_stats['significant_events']}/{_max_rate_limit_events} significant")
     
     return should_rotate
 
@@ -601,3 +628,67 @@ def increment_upload_counter():
     if _upload_counter >= PROXY_CONFIG["rotation_interval"]:
         _upload_counter = 0
         logger.info(f"🔄 Upload counter reset to 0 after reaching rotation threshold")
+
+def clear_rate_limit_events():
+    """Clear rate limit events after successful IP rotation"""
+    global _rate_limit_events
+    
+    if _rate_limit_events:
+        logger.info(f"🧹 Clearing {len(_rate_limit_events)} rate limit events after IP rotation")
+        _rate_limit_events.clear()
+
+def track_rate_limit_event(wait_seconds: int):
+    """Track a rate limiting event from Telegram"""
+    global _rate_limit_events
+    
+    if not PROXY_CONFIG["enabled"] or not PROXY_CONFIG.get("smart_rotation_enabled", True):
+        return
+    
+    current_time = time.time()
+    
+    # Add the rate limit event
+    _rate_limit_events.append({
+        "timestamp": current_time,
+        "wait_seconds": wait_seconds
+    })
+    
+    # Keep only events within the detection window
+    cutoff_time = current_time - (_rate_limit_detection_window * 60)  # Convert to seconds
+    _rate_limit_events = [event for event in _rate_limit_events if event["timestamp"] > cutoff_time]
+    
+    # Log rate limit event
+    logger.info(f"⏰ Rate limit event detected: {wait_seconds}s wait")
+    logger.info(f"   Recent rate limit events: {len(_rate_limit_events)} in last {_rate_limit_detection_window} minutes")
+    
+    # Check if we should trigger rotation
+    significant_events = [event for event in _rate_limit_events if event["wait_seconds"] >= _rate_limit_wait_threshold]
+    
+    if len(significant_events) >= _max_rate_limit_events:
+        logger.warning(f"🚨 Smart IP rotation triggered: {len(significant_events)} significant rate limit events detected")
+        return True
+    
+    return False
+
+def get_rate_limit_stats():
+    """Get current rate limiting statistics"""
+    global _rate_limit_events
+    
+    if not _rate_limit_events:
+        return {
+            "total_events": 0,
+            "significant_events": 0,
+            "max_wait_time": 0,
+            "average_wait_time": 0,
+            "events_in_window": 0
+        }
+    
+    significant_events = [event for event in _rate_limit_events if event["wait_seconds"] >= _rate_limit_wait_threshold]
+    wait_times = [event["wait_seconds"] for event in _rate_limit_events]
+    
+    return {
+        "total_events": len(_rate_limit_events),
+        "significant_events": len(significant_events),
+        "max_wait_time": max(wait_times) if wait_times else 0,
+        "average_wait_time": sum(wait_times) / len(wait_times) if wait_times else 0,
+        "events_in_window": len(_rate_limit_events)
+    }
