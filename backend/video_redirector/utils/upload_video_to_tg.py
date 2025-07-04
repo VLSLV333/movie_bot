@@ -24,6 +24,7 @@ from backend.video_redirector.utils.pyrogram_acc_manager import (
     increment_upload_counter,
     track_rate_limit_event
 )
+from backend.video_redirector.db.crud_upload_accounts import update_last_error
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -328,6 +329,9 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     logger.warning(f"[{task_id}] FloodWait for part {part_num}: waiting {wait_time} seconds")
                     await notify_admin(f"⏰ [{task_id}] FloodWait for part {part_num} (account: {account.session_name}): waiting {wait_time} seconds")
                     
+                    # Track the error in database
+                    await update_last_error(db, account.session_name, f"FloodWait: {wait_time}s wait")
+                    
                     # Stop the client to prevent further rate limiting
                     await account.stop_client()
                     
@@ -348,6 +352,10 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     if flood_wait_count >= MAX_FLOOD_WAIT_RETRIES:
                         logger.error(f"[{task_id}] Too many FloodWaits ({flood_wait_count}) for part {part_num}, stopping retries")
                         await notify_admin(f"🚫 [{task_id}] Too many FloodWaits for part {part_num} (account: {account.session_name})")
+                        
+                        # Track the error in database
+                        await update_last_error(db, account.session_name, f"Too many FloodWaits: {flood_wait_count} retries exceeded")
+                        
                         await log_upload_metrics(task_id, file_size, False, retry_count)
                         
                         # Log failed upload
@@ -364,6 +372,10 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     logger.error(f"[{task_id}] Upload timeout for part {part_num} (attempt {attempt + 1})")
                     if attempt == MAX_RETRIES - 1:
                         await notify_admin(f"⏰ [{task_id}] Upload timeout for part {part_num} after {MAX_RETRIES} attempts")
+                        
+                        # Track the error in database
+                        await update_last_error(db, account.session_name, f"Upload timeout after {MAX_RETRIES} attempts")
+                        
                         await log_upload_metrics(task_id, file_size, False, retry_count)
                         
                         # Log failed upload
@@ -387,6 +399,10 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     elif "session" in str(err).lower() or "auth" in str(err).lower():
                         logger.error(f"[{task_id}] Session/auth error, cannot retry: {err}")
                         await notify_admin(f"🔐 [{task_id}] Session error for part {part_num}: {err}")
+                        
+                        # Track the error in database
+                        await update_last_error(db, account.session_name, f"Session/Auth error: {error_type}: {err}")
+                        
                         await log_upload_metrics(task_id, file_size, False, retry_count)
                         await account.stop_client()
                         
@@ -400,6 +416,10 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
 
                     if attempt == MAX_RETRIES - 1:
                         await notify_admin(f"❌ [{task_id}] Upload failed for part {part_num} after {MAX_RETRIES} attempts: {err}")
+                        
+                        # Track the error in database
+                        await update_last_error(db, account.session_name, f"Upload failed after {MAX_RETRIES} attempts: {error_type}: {err}")
+                        
                         await log_upload_metrics(task_id, file_size, False, retry_count)
                         
                         # Log failed upload

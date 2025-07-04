@@ -47,7 +47,6 @@ else:
 async def initialize_ip_detection():
     """Initialize IP detection on startup"""
     if PROXY_CONFIG["enabled"]:
-        logger.info("🌐 Initializing IP detection...")
         initial_ip = await get_current_ip()
         if initial_ip:
             logger.info(f"🌐 Initial IP detected: {initial_ip}")
@@ -61,12 +60,10 @@ async def initialize_proxy_on_startup():
     global _upload_counter
     
     if PROXY_CONFIG["enabled"]:
-        logger.info("🔄 Initializing proxy on startup...")
-        
+
         # Reset upload counter to ensure fresh start
         _upload_counter = 0
-        logger.info(f"📊 Upload counter reset to 0 on startup")
-        
+
         # Optionally force IP rotation on startup for fresh IP
         if PROXY_CONFIG.get("rotate_on_startup", False):
             logger.info("🔄 Forcing IP rotation on startup...")
@@ -147,7 +144,6 @@ async def get_current_ip():
                         connector = ProxyConnector.from_url(f"socks5://{username}:{password}@{hostname}:{port}")
                     else:
                         connector = ProxyConnector.from_url(f"socks5://{hostname}:{port}")
-                    logger.info(f"🌐 Using SOCKS5 proxy for IP detection: {hostname}:{port}")
                 else:
                     logger.warning("⚠️ SOCKS5 proxy configured but aiohttp-socks not available. IP detection may fail.")
                     connector = None
@@ -159,7 +155,6 @@ async def get_current_ip():
                 else:
                     proxy_config = f"http://{hostname}:{port}"
                 connector = None
-                logger.info(f"🌐 Using HTTP proxy for IP detection: {hostname}:{port}")
         else:
             connector = None
             proxy_config = None
@@ -214,7 +209,6 @@ async def get_current_ip():
 async def log_ip_change(old_ip: str | None, new_ip: str | None):
     """Log IP change with detailed information"""
     if old_ip and new_ip and old_ip != new_ip:
-        logger.info(f"🔄 IP Rotation Successful!")
         logger.info(f"   Previous IP: {old_ip}")
         logger.info(f"   New IP: {new_ip}")
         logger.info(f"   IP Changed: ✅")
@@ -570,15 +564,11 @@ async def rotate_proxy_ip():
     
     # Get current IP before rotation
     old_ip = await get_current_ip()
-    logger.info(f"🔄 Starting proxy IP rotation")
     logger.info(f"   Current IP before rotation: {old_ip or 'Unknown'}")
-    logger.info(f"   Rotation URL: {PROXY_CONFIG['rotation_url']}")
-    logger.info(f"   Rotation method: {PROXY_CONFIG['rotation_method']}")
-    
+
     # Set rotation flag to prevent new uploads
     _rotation_in_progress = True
-    logger.info("🔄 Preventing new uploads during rotation...")
-    
+
     try:
         # Wait for ongoing uploads to complete
         all_completed = await wait_for_ongoing_uploads()
@@ -587,7 +577,6 @@ async def rotate_proxy_ip():
             logger.warning("⚠️ Some uploads didn't complete before timeout, proceeding with rotation anyway")
         
         # Perform the actual IP rotation
-        logger.info(f"🔄 Sending rotation request to proxy provider...")
         async with aiohttp.ClientSession() as session:
             if PROXY_CONFIG["rotation_method"].upper() == "POST":
                 async with session.post(
@@ -615,7 +604,6 @@ async def rotate_proxy_ip():
                         logger.warning(f"   Response: {await response.text()}")
         
         # Wait a moment for the new IP to be active
-        logger.info("⏳ Waiting 5 seconds for new IP to become active...")
         await asyncio.sleep(5)
         
         # Get new IP after rotation
@@ -636,7 +624,6 @@ async def rotate_proxy_ip():
     finally:
         # Clear rotation flag to allow new uploads
         _rotation_in_progress = False
-        logger.info("🔄 Proxy IP rotation completed - new uploads can proceed")
 
 def should_rotate_ip():
     """Check if we should rotate IP based on upload count or rate limiting signals"""

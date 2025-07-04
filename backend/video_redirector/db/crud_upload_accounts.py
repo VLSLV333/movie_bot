@@ -37,16 +37,6 @@ async def increment_uploads(db: AsyncSession, session_name: str, error: Optional
     await db.refresh(stats)
     return stats
 
-async def reset_today_uploads_if_new_day(db: AsyncSession, session_name: str) -> Optional[UploadAccountStats]:
-    stats = await get_account_stats_by_session_name(db, session_name)
-    today = date.today()
-    if stats is not None and stats.last_upload_date != today:
-        stats.today_uploads = 0
-        stats.last_upload_date = today
-        await db.commit()
-        await db.refresh(stats)
-    return stats
-
 async def get_least_used_accounts_today(db: AsyncSession) -> List[UploadAccountStats]:
     result = await db.execute(
         select(UploadAccountStats).order_by(UploadAccountStats.today_uploads.asc())
