@@ -12,6 +12,7 @@ starlette
 camoufox
 aiogram==3.4.1
 aiohttp
+aiohttp-socks
 python-dotenv
 redis==5.2.1
 langdetect

@@ -14,6 +14,14 @@ from backend.video_redirector.db.crud_upload_accounts import (
 import logging
 from backend.video_redirector.config import PROXY_CONFIG
 
+# Import aiohttp_socks for SOCKS5 support (optional - will be installed)
+try:
+    from aiohttp_socks import ProxyConnector
+    SOCKS5_AVAILABLE = True
+except ImportError:
+    SOCKS5_AVAILABLE = False
+    ProxyConnector = None
+
 logger = logging.getLogger(__name__)
 
 MULTI_ACCOUNT_CONFIG_PATH = Path('/app/backend/video_redirector/utils/upload_accounts.json')
@@ -110,10 +118,10 @@ async def get_current_ip():
     try:
         # Use multiple IP check services for reliability
         ip_check_urls = [
-            "https://api.ipify.org",
-            "https://ipinfo.io/ip",
-            "https://icanhazip.com",
-            "https://checkip.amazonaws.com"
+            "http://api.ipify.org",
+            "http://ipinfo.io/ip",
+            "http://icanhazip.com",
+            "http://checkip.amazonaws.com"
         ]
         
         # Configure proxy for IP detection if enabled
@@ -132,35 +140,69 @@ async def get_current_ip():
                 if ":" in auth_part:
                     username, password = auth_part.split(":")
             
-            # Configure proxy for aiohttp
+            # Configure proxy for aiohttp with proper SOCKS5 support
             if scheme == "socks5":
-                proxy_config = f"socks5://{username}:{password}@{hostname}:{port}" if username and password else f"socks5://{hostname}:{port}"
-            else:
-                proxy_config = f"http://{username}:{password}@{hostname}:{port}" if username and password else f"http://{hostname}:{port}"
-        
-        async with aiohttp.ClientSession() as session:
-            for url in ip_check_urls:
-                try:
-                    # Use proxy for IP detection if configured
-                    if proxy_config:
-                        async with session.get(url, proxy=proxy_config, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                            if response.status == 200:
-                                ip = (await response.text()).strip()
-                                if ip and len(ip.split('.')) == 4:  # Basic IPv4 validation
-                                    _current_ip = ip
-                                    logger.info(f"🌐 Current IP detected via proxy: {ip} (via {url})")
-                                    return ip
+                if SOCKS5_AVAILABLE and ProxyConnector:
+                    if username and password:
+                        connector = ProxyConnector.from_url(f"socks5://{username}:{password}@{hostname}:{port}")
                     else:
+                        connector = ProxyConnector.from_url(f"socks5://{hostname}:{port}")
+                    logger.info(f"🌐 Using SOCKS5 proxy for IP detection: {hostname}:{port}")
+                else:
+                    logger.warning("⚠️ SOCKS5 proxy configured but aiohttp-socks not available. IP detection may fail.")
+                    connector = None
+                    proxy_config = None
+            else:
+                # HTTP proxy configuration (fallback)
+                if username and password:
+                    proxy_config = f"http://{username}:{password}@{hostname}:{port}"
+                else:
+                    proxy_config = f"http://{hostname}:{port}"
+                connector = None
+                logger.info(f"🌐 Using HTTP proxy for IP detection: {hostname}:{port}")
+        else:
+            connector = None
+            proxy_config = None
+        
+        # Create session with appropriate connector
+        if connector:
+            async with aiohttp.ClientSession(connector=connector) as session:
+                for url in ip_check_urls:
+                    try:
                         async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                             if response.status == 200:
                                 ip = (await response.text()).strip()
                                 if ip and len(ip.split('.')) == 4:  # Basic IPv4 validation
                                     _current_ip = ip
-                                    logger.info(f"🌐 Current IP detected: {ip} (via {url})")
+                                    logger.info(f"🌐 Current IP detected via SOCKS5 proxy: {ip} (via {url})")
                                     return ip
-                except Exception as e:
-                    logger.debug(f"Failed to get IP from {url}: {e}")
-                    continue
+                    except Exception as e:
+                        logger.debug(f"Failed to get IP from {url} via SOCKS5: {e}")
+                        continue
+        else:
+            # Use regular aiohttp session
+            async with aiohttp.ClientSession() as session:
+                for url in ip_check_urls:
+                    try:
+                        if proxy_config:
+                            async with session.get(url, proxy=proxy_config, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                                if response.status == 200:
+                                    ip = (await response.text()).strip()
+                                    if ip and len(ip.split('.')) == 4:  # Basic IPv4 validation
+                                        _current_ip = ip
+                                        logger.info(f"🌐 Current IP detected via HTTP proxy: {ip} (via {url})")
+                                        return ip
+                        else:
+                            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                                if response.status == 200:
+                                    ip = (await response.text()).strip()
+                                    if ip and len(ip.split('.')) == 4:  # Basic IPv4 validation
+                                        _current_ip = ip
+                                        logger.info(f"🌐 Current IP detected: {ip} (via {url})")
+                                        return ip
+                    except Exception as e:
+                        logger.debug(f"Failed to get IP from {url}: {e}")
+                        continue
         
         logger.warning("⚠️ Could not detect current IP address from any service")
         return _current_ip  # Return last known IP if available
