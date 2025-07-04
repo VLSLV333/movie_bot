@@ -48,9 +48,7 @@ async def initialize_ip_detection():
     """Initialize IP detection on startup"""
     if PROXY_CONFIG["enabled"]:
         initial_ip = await get_current_ip()
-        if initial_ip:
-            logger.info(f"🌐 Initial IP detected: {initial_ip}")
-        else:
+        if not initial_ip:
             logger.warning("⚠️ Could not detect initial IP address")
     else:
         logger.info("🌐 IP detection skipped - proxy not enabled")
@@ -169,7 +167,6 @@ async def get_current_ip():
                                 ip = (await response.text()).strip()
                                 if ip and len(ip.split('.')) == 4:  # Basic IPv4 validation
                                     _current_ip = ip
-                                    logger.info(f"🌐 Current IP detected via SOCKS5 proxy: {ip} (via {url})")
                                     return ip
                     except Exception as e:
                         logger.debug(f"Failed to get IP from {url} via SOCKS5: {e}")
@@ -209,9 +206,9 @@ async def get_current_ip():
 async def log_ip_change(old_ip: str | None, new_ip: str | None):
     """Log IP change with detailed information"""
     if old_ip and new_ip and old_ip != new_ip:
-        logger.info(f"   Previous IP: {old_ip}")
-        logger.info(f"   New IP: {new_ip}")
-        logger.info(f"   IP Changed: ✅")
+        logger.info(f"🌐 Previous IP: {old_ip}")
+        logger.info(f"🌐 New IP: {new_ip}")
+        logger.info(f"IP Changed: ✅")
     elif old_ip and new_ip and old_ip == new_ip:
         logger.warning(f"⚠️ IP Rotation Completed but IP remains the same")
         logger.info(f"   Current IP: {new_ip}")
@@ -564,7 +561,6 @@ async def rotate_proxy_ip():
     
     # Get current IP before rotation
     old_ip = await get_current_ip()
-    logger.info(f"   Current IP before rotation: {old_ip or 'Unknown'}")
 
     # Set rotation flag to prevent new uploads
     _rotation_in_progress = True
