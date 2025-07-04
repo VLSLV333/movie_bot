@@ -16,8 +16,8 @@ from backend.video_redirector.config import PROXY_CONFIG
 
 logger = logging.getLogger(__name__)
 
-MULTI_ACCOUNT_CONFIG_PATH = Path('backend/video_redirector/utils/upload_accounts.json')
-SESSION_DIR = "backend/session_files"
+MULTI_ACCOUNT_CONFIG_PATH = Path('/app/backend/video_redirector/utils/upload_accounts.json')
+SESSION_DIR = "/app/backend/session_files"
 
 # Log proxy configuration status
 if PROXY_CONFIG["enabled"]:
@@ -87,11 +87,19 @@ _global_upload_lock = asyncio.Lock()  # Prevents new uploads during rotation
 _active_uploads = set()  # Track active upload task IDs
 _rotation_in_progress = False  # Flag to indicate rotation is happening
 
+# Initialize UPLOAD_ACCOUNTS with fallback
+logger.info(f"🔍 Looking for upload accounts config at: {MULTI_ACCOUNT_CONFIG_PATH}")
+logger.info(f"🔍 Current working directory: {os.getcwd()}")
+logger.info(f"🔍 Config file exists: {MULTI_ACCOUNT_CONFIG_PATH.exists()}")
+
 if MULTI_ACCOUNT_CONFIG_PATH.exists():
     with open(MULTI_ACCOUNT_CONFIG_PATH, 'r') as f:
         UPLOAD_ACCOUNTS = json.load(f)
+        logger.info(f"✅ Loaded {len(UPLOAD_ACCOUNTS)} accounts from {MULTI_ACCOUNT_CONFIG_PATH}")
 else:
-    logger.error('MULTI_ACCOUNT_CONFIG_PATH was not found! No accounts can be used to upload videos')
+    logger.error(f'❌ MULTI_ACCOUNT_CONFIG_PATH was not found at {MULTI_ACCOUNT_CONFIG_PATH}! No accounts can be used to upload videos')
+    # Fallback to empty list to prevent NameError
+    UPLOAD_ACCOUNTS = []
 
 IDLE_TIMEOUT_SECONDS = 15 * 60  # 15 minutes
 
@@ -366,6 +374,15 @@ class UploadAccount:
         return self.client
 
 UPLOAD_ACCOUNT_POOL = [UploadAccount(cfg) for cfg in UPLOAD_ACCOUNTS]
+
+# Validate that we have at least one account
+if not UPLOAD_ACCOUNT_POOL:
+    logger.critical("🚨 No upload accounts available! Application cannot start.")
+    logger.critical(f"   Expected config file: {MULTI_ACCOUNT_CONFIG_PATH}")
+    logger.critical("   Please ensure upload_accounts.json exists and contains valid account configurations.")
+    raise RuntimeError("No upload accounts available - cannot start application")
+
+logger.info(f"✅ Initialized {len(UPLOAD_ACCOUNT_POOL)} upload accounts: {[acc.session_name for acc in UPLOAD_ACCOUNT_POOL]}")
 
 # --- Global upload management functions ---
 
