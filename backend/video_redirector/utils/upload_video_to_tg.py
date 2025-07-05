@@ -50,7 +50,7 @@ UPLOAD_TIMEOUT = 600  # 10 minutes per part
 MAX_RETRIES = 5  # Increased from 3
 RETRY_DELAY = 5  # Increased from 2 seconds
 MIN_DISK_SPACE_MB = 1000  # 1GB minimum free space
-UPLOAD_DELAY = 5  # Increased from 3 seconds between uploads to avoid rate limits
+UPLOAD_DELAY = 3  
 FLOOD_WAIT_BUFFER = 5  # Additional buffer time after FloodWait
 MAX_FLOOD_WAIT_RETRIES = 10  # Maximum FloodWait retries per part
 

@@ -7,13 +7,14 @@ import certifi
 import aiohttp
 import ssl
 
+from backend.video_redirector.config import MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 logger = logging.getLogger(__name__)
 status_tracker: Dict[str, Dict] = {}  # Example: {task_id: {"total": 0, "done": 0, "progress": 0.0}}
 
-semaphore = asyncio.Semaphore(5)
+semaphore = asyncio.Semaphore(MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4)
 
 async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) -> str or None:
     output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
