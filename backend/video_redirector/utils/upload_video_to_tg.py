@@ -469,7 +469,8 @@ def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_d
             "-t", str(int(part_duration)),
             "-c", "copy",                    # Copy streams without re-encoding
             "-avoid_negative_ts", "make_zero",  # Handle negative timestamps
-            "-metadata:s:v:0", "rotate=0",   # Only essential metadata for mobile
+            "-metadata:s:v:0", "rotate=0",      # Prevent rotation issues
+            "-metadata:s:v:0", "aspect=16/9",   # Fix mobile aspect ratio display
             part_output,
             "-y"
         ]

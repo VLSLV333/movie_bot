@@ -91,7 +91,8 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         "ffmpeg",
         "-i", temp_output,
         "-c", "copy",
-        "-metadata:s:v:0", "rotate=0",   # Only essential metadata for mobile
+        "-metadata:s:v:0", "rotate=0",      # Prevent rotation issues
+        "-metadata:s:v:0", "aspect=16:9",   # Fix mobile aspect ratio display
         output_file
     ]
 
