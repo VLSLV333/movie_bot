@@ -461,25 +461,23 @@ def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_d
         start_time = i * part_duration
         part_output = os.path.join(PARTS_DIR, f"{task_id}_part{i+1}.mp4")
 
+        # Use stream copying instead of re-encoding for faster processing
         cmd = [
             "ffmpeg",
             "-ss", str(int(start_time)),
             "-i", file_path,
             "-t", str(int(part_duration)),
-            "-metadata:s:v:0", "rotate=0",
-            "-c:v", "libx264",
-            "-preset", "veryfast",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-b:a", "128k",
+            "-c", "copy",                    # Copy streams without re-encoding
+            "-avoid_negative_ts", "make_zero",  # Handle negative timestamps
+            "-metadata:s:v:0", "rotate=0",   # Only essential metadata for mobile
             part_output,
             "-y"
         ]
 
         logger.info(f"[{task_id}] Generating part {i+1}: {cmd}")
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        logger.debug(f"[{task_id}] ffprobe output: {result.stdout}")
-        logger.debug(f"[{task_id}] ffprobe errors: {result.stderr}")
+        logger.debug(f"[{task_id}] ffmpeg output: {result.stdout}")
+        logger.debug(f"[{task_id}] ffmpeg errors: {result.stderr}")
         logger.info(f"✅ [{task_id}] Part {i + 1} generated: {part_output}")
 
         if result.returncode != 0:
