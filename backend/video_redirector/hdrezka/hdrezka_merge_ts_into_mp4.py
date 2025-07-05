@@ -18,6 +18,7 @@ semaphore = asyncio.Semaphore(MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4)
 
 async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) -> str or None:
     output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
+    temp_output = os.path.join(DOWNLOAD_DIR, f"{task_id}_temp.mp4")
     ffmpeg_header_str = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
 
     try:
@@ -31,8 +32,6 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         logger.error(f"❌ [{task_id}] Failed to fetch m3u8 file: {e}")
         return None
 
-
-
     segment_count = sum(1 for line in m3u8_text.splitlines() if line.strip().endswith(".ts"))
 
     if segment_count == 0:
@@ -42,26 +41,23 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
     status_tracker[task_id] = {"total": segment_count, "done": 0, "progress": 0.0}
     logger.info(f"📦 [{task_id}] Found {segment_count} segments")
 
-    # Step 2: Prepare ffmpeg command
-    cmd = [
+    # Step 1: Fast merge with metadata stripping
+    cmd1 = [
         "ffmpeg",
         "-loglevel", "info",
         "-headers", ffmpeg_header_str,
         "-protocol_whitelist", "file,http,https,tcp,tls",
         "-i", m3u8_url,
-        "-metadata:s:v:0", "rotate=0",
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "23",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        output_file
+        "-c", "copy",
+        "-bsf:a", "aac_adtstoasc",
+        "-map_metadata", "-1",           # Strip all metadata
+        "-map_metadata:s:v", "-1",       # Strip video metadata
+        "-map_metadata:s:a", "-1",       # Strip audio metadata
+        temp_output
     ]
 
-    logger.info(f"▶️ [{task_id}] Starting ffmpeg merge...")
-
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
+    process1 = await asyncio.create_subprocess_exec(
+        *cmd1,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT
     )
@@ -69,7 +65,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
     ts_pattern = re.compile(r"Opening '.*?\.ts'")
 
     while True:
-        line = await process.stdout.readline()
+        line = await process1.stdout.readline()
         if not line:
             break
         decoded = line.decode().strip()
@@ -79,10 +75,44 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                 tracker["done"] += 1
                 tracker["progress"] = round((tracker["done"] / tracker["total"]) * 100, 1)
 
-    returncode = await process.wait()
+    returncode1 = await process1.wait()
 
-    if returncode == 0:
-        logger.info(f"✅ [{task_id}] Merge complete: {output_file}")
+    if returncode1 != 0:
+        logger.error(f"❌ [{task_id}] Step 1 failed, couldn't merge ts files with metadata stripping.")
+        if os.path.exists(temp_output):
+            try:
+                os.remove(temp_output)
+            except Exception as e:
+                logger.warning(f"⚠️ [{task_id}] Failed to remove temp file: {e}")
+        return None
+
+    # Step 2: Quick metadata fix for mobile compatibility
+    cmd2 = [
+        "ffmpeg",
+        "-i", temp_output,
+        "-c", "copy",
+        "-metadata:s:v:0", "rotate=0",   # Only essential metadata for mobile
+        output_file
+    ]
+
+    process2 = await asyncio.create_subprocess_exec(
+        *cmd2,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT
+    )
+
+    returncode2 = await process2.wait()
+
+    # Clean up temp file
+    if os.path.exists(temp_output):
+        try:
+            os.remove(temp_output)
+            logger.info(f"🧹 [{task_id}] Removed temp file")
+        except Exception as e:
+            logger.warning(f"⚠️ [{task_id}] Failed to remove temp file: {e}")
+
+    if returncode2 == 0:
+        logger.info(f"✅ [{task_id}] Two-step merge complete: {output_file}")
         status_tracker.pop(task_id, None)
         return output_file
     else:
@@ -98,7 +128,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         except KeyError:
             pass
 
-        logger.error(f"❌ [{task_id}] Merge failed")
+        logger.error(f"❌ [{task_id}] Step 2 failed")
         return None
 
 def get_task_progress(task_id: str) -> Dict:
