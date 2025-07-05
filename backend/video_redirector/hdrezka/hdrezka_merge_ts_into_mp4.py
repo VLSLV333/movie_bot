@@ -186,51 +186,66 @@ async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Di
     """
     output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
     
-    # Strategy 1: Direct copy (fastest)
-    try:
-        logger.info(f"🔄 [{task_id}] Attempting direct copy merge...")
-        result = await merge_with_direct_copy(task_id, m3u8_url, headers, output_file)
-        if result:
-            return result
-    except MergeError as e:
-        logger.warning(f"⚠️ [{task_id}] Direct copy failed: {e.message}")
-        logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
+    # Check if mobile compatibility fixes are needed first
+    should_fix, reason = should_fix_aspect_ratio(segment_metadata)
     
-    # Strategy 2: SAR fix with bitstream filter (fast, no re-encoding)
-    try:
-        logger.info(f"🔄 [{task_id}] Attempting SAR fix with bitstream filter...")
-        should_fix, reason = should_fix_aspect_ratio(segment_metadata)
-        if should_fix:
-            logger.info(f"🎯 [{task_id}] Fixing SAR without re-encoding: {reason}")
+    if should_fix:
+        logger.info(f"📱 [{task_id}] Mobile compatibility issue detected: {reason}")
+        logger.info(f"🎯 [{task_id}] Skipping direct copy, attempting SAR fixes...")
+        
+        # Strategy 1: SAR fix with bitstream filter (fast, no re-encoding)
+        try:
+            logger.info(f"🔄 [{task_id}] Attempting SAR fix with bitstream filter...")
             result = await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
             if result:
                 return result
-        else:
-            logger.info(f"ℹ️ [{task_id}] No SAR fix needed: {reason}")
-    except MergeError as e:
-        logger.warning(f"⚠️ [{task_id}] SAR fix failed: {e.message}")
-        logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
+        except MergeError as e:
+            logger.warning(f"⚠️ [{task_id}] SAR fix failed: {e.message}")
+            logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
+        
+        # Strategy 2: Container-level aspect ratio fix (fast, no re-encoding)
+        try:
+            logger.info(f"🔄 [{task_id}] Attempting container-level aspect ratio fix...")
+            result = await merge_with_container_aspect_fix(task_id, m3u8_url, headers, output_file)
+            if result:
+                return result
+        except MergeError as e:
+            logger.warning(f"⚠️ [{task_id}] Container aspect fix failed: {e.message}")
+            logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
+        
+        # Strategy 3: Last resort - re-encode only if absolutely necessary
+        try:
+            logger.warning(f"⚠️ [{task_id}] Fast SAR fixes failed, attempting re-encode as last resort...")
+            logger.warning(f"🐌 [{task_id}] This will be slow on your VPS - consider if source is compatible")
+            result = await merge_with_aspect_fix(task_id, m3u8_url, headers, output_file)
+            if result:
+                return result
+        except MergeError as e:
+            logger.error(f"❌ [{task_id}] Re-encode failed: {e.message}")
+            logger.error(f"FFmpeg output: {e.ffmpeg_output}")
     
-    # Strategy 3: Container-level aspect ratio fix (fast, no re-encoding)
-    try:
-        logger.info(f"🔄 [{task_id}] Attempting container-level aspect ratio fix...")
-        result = await merge_with_container_aspect_fix(task_id, m3u8_url, headers, output_file)
-        if result:
-            return result
-    except MergeError as e:
-        logger.warning(f"⚠️ [{task_id}] Container aspect fix failed: {e.message}")
-        logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
-    
-    # Strategy 4: Last resort - re-encode only if absolutely necessary
-    try:
-        logger.warning(f"⚠️ [{task_id}] All fast methods failed, attempting re-encode as last resort...")
-        logger.warning(f"🐌 [{task_id}] This will be slow on your VPS - consider if source is compatible")
-        result = await merge_with_aspect_fix(task_id, m3u8_url, headers, output_file)
-        if result:
-            return result
-    except MergeError as e:
-        logger.error(f"❌ [{task_id}] Re-encode failed: {e.message}")
-        logger.error(f"FFmpeg output: {e.ffmpeg_output}")
+    else:
+        logger.info(f"✅ [{task_id}] No mobile compatibility issues detected: {reason}")
+        
+        # Strategy 1: Direct copy (fastest, no issues detected)
+        try:
+            logger.info(f"🔄 [{task_id}] Attempting direct copy merge...")
+            result = await merge_with_direct_copy(task_id, m3u8_url, headers, output_file)
+            if result:
+                return result
+        except MergeError as e:
+            logger.warning(f"⚠️ [{task_id}] Direct copy failed: {e.message}")
+            logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
+        
+        # Strategy 2: Fallback to SAR fix if direct copy fails
+        try:
+            logger.info(f"🔄 [{task_id}] Direct copy failed, trying SAR fix as fallback...")
+            result = await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
+            if result:
+                return result
+        except MergeError as e:
+            logger.warning(f"⚠️ [{task_id}] SAR fix fallback failed: {e.message}")
+            logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
     
     # All strategies failed
     logger.error(f"❌ [{task_id}] All merge strategies failed")
@@ -436,6 +451,32 @@ async def run_ffmpeg_command(cmd: list, task_id: str, strategy: str) -> str | No
                 
                 # Log final MP4 metadata for analysis
                 await log_video_metadata(output_file, task_id, f"Final MP4 file ({strategy})")
+                
+                # Validate output for mobile compatibility if this was meant to fix SAR issues
+                if "SAR fix" in strategy or "aspect fix" in strategy:
+                    # Check if SAR was actually fixed
+                    try:
+                        cmd = [
+                            "ffprobe",
+                            "-v", "quiet",
+                            "-print_format", "json",
+                            "-show_streams",
+                            output_file
+                        ]
+                        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                        if result.returncode == 0:
+                            metadata = json.loads(result.stdout)
+                            for stream in metadata.get("streams", []):
+                                if stream.get("codec_type") == "video":
+                                    sar = stream.get('sample_aspect_ratio', '1:1')
+                                    if sar != '1:1':
+                                        logger.warning(f"⚠️ [{task_id}] {strategy} completed but SAR still {sar} - fix may have failed")
+                                        # Don't raise error here, just log the issue
+                                    else:
+                                        logger.info(f"✅ [{task_id}] SAR successfully fixed to 1:1")
+                                    break
+                    except Exception as e:
+                        logger.warning(f"⚠️ [{task_id}] Could not validate output SAR: {e}")
                 
                 status_tracker.pop(task_id, None)
                 return output_file
