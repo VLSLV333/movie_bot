@@ -86,13 +86,16 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                 logger.warning(f"⚠️ [{task_id}] Failed to remove temp file: {e}")
         return None
 
-    # Step 2: Quick metadata fix for mobile compatibility
+    # Step 2: Quick video fix for mobile compatibility (fast re-encoding)
     cmd2 = [
         "ffmpeg",
         "-i", temp_output,
-        "-c", "copy",
-        "-metadata:s:v:0", "rotate=0",      # Prevent rotation issues
-        "-metadata:s:v:0", "aspect=16:9",   # Fix mobile aspect ratio display
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,setdar=16/9",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",           # Fastest encoding preset
+        "-crf", "23",                     # Good quality
+        "-c:a", "copy",                   # Copy audio (fast)
+        "-movflags", "+faststart",        # Optimize for streaming
         output_file
     ]
 

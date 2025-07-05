@@ -461,7 +461,7 @@ def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_d
         start_time = i * part_duration
         part_output = os.path.join(PARTS_DIR, f"{task_id}_part{i+1}.mp4")
 
-        # Use stream copying instead of re-encoding for faster processing
+        # Use stream copying since Step 2 already fixed mobile compatibility
         cmd = [
             "ffmpeg",
             "-ss", str(int(start_time)),
@@ -469,8 +469,6 @@ def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_d
             "-t", str(int(part_duration)),
             "-c", "copy",                    # Copy streams without re-encoding
             "-avoid_negative_ts", "make_zero",  # Handle negative timestamps
-            "-metadata:s:v:0", "rotate=0",      # Prevent rotation issues
-            "-metadata:s:v:0", "aspect=16/9",   # Fix mobile aspect ratio display
             part_output,
             "-y"
         ]
