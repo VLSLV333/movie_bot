@@ -49,8 +49,12 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         "-headers", ffmpeg_header_str,
         "-protocol_whitelist", "file,http,https,tcp,tls",
         "-i", m3u8_url,
-        "-c", "copy",
-        "-bsf:a", "aac_adtstoasc",
+        "-metadata:s:v:0", "rotate=0",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-b:a", "128k",
         output_file
     ]
 

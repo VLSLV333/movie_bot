@@ -466,7 +466,12 @@ def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_d
             "-ss", str(int(start_time)),
             "-i", file_path,
             "-t", str(int(part_duration)),
-            "-c", "copy",
+            "-metadata:s:v:0", "rotate=0",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-b:a", "128k",
             part_output,
             "-y"
         ]
@@ -480,7 +485,6 @@ def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_d
         if result.returncode != 0:
             logger.error(f"[{task_id}] FFmpeg failed on part {i+1}: {result.stderr}")
             return None
-
 
         part_paths.append(part_output)
 
