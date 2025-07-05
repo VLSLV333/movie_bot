@@ -6,6 +6,7 @@ import math
 import subprocess
 import asyncio
 import time
+import json
 from typing import Dict, Any
 import shutil
 import datetime
@@ -550,42 +551,121 @@ async def upload_part_to_tg(file_path: str, task_id: str, part_num: int, db, acc
         except Exception as e:
             logger.warning(f"[{task_id}] Fail in finally block, file path - {file_path}, error: {e}")
 
-def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_duration: float) -> list[str] | None:
+async def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_duration: float) -> list[str] | None:
+    """
+    Split video by duration with improved error handling and mobile compatibility
+    """
     part_paths = []
-
-    for i in range(num_parts):
-        start_time = i * part_duration
-        part_output = os.path.join(PARTS_DIR, f"{task_id}_part{i+1}.mp4")
-
-        # Use stream copying since Step 2 already fixed mobile compatibility
-        cmd = [
-            "ffmpeg",
-            "-ss", str(int(start_time)),
-            "-i", file_path,
-            "-t", str(int(part_duration)),
-            "-c", "copy",                    # Copy streams without re-encoding
-            "-avoid_negative_ts", "make_zero",  # Handle negative timestamps
-            part_output,
-            "-y"
-        ]
-
-        logger.info(f"[{task_id}] Generating part {i+1}: {cmd}")
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        logger.debug(f"[{task_id}] ffmpeg output: {result.stdout}")
-        logger.debug(f"[{task_id}] ffmpeg errors: {result.stderr}")
-        logger.info(f"✅ [{task_id}] Part {i + 1} generated: {part_output}")
-
-        if result.returncode != 0:
-            logger.error(f"[{task_id}] FFmpeg failed on part {i+1}: {result.stderr}")
+    
+    try:
+        # Check if source file exists and is readable
+        if not os.path.exists(file_path):
+            logger.error(f"❌ [{task_id}] Source file doesn't exist: {file_path}")
             return None
-
-        # Log metadata of the generated part
-        asyncio.create_task(log_video_metadata_for_upload(part_output, task_id, f"Generated part {i+1}"))
-
-        part_paths.append(part_output)
-
-    logger.info(f"✅ [{task_id}] All {num_parts} parts generated successfully.")
-    return part_paths
+        
+        file_size = os.path.getsize(file_path)
+        if file_size == 0:
+            logger.error(f"❌ [{task_id}] Source file is empty: {file_path}")
+            return None
+        
+        logger.info(f"📂 [{task_id}] Splitting {file_size / (1024*1024):.1f}MB file into {num_parts} parts")
+        
+        for i in range(num_parts):
+            start_time = i * part_duration
+            part_output = os.path.join(PARTS_DIR, f"{task_id}_part{i+1}.mp4")
+            
+            # Remove existing part if it exists
+            if os.path.exists(part_output):
+                try:
+                    os.remove(part_output)
+                except Exception as e:
+                    logger.warning(f"⚠️ [{task_id}] Couldn't remove existing part {i+1}: {e}")
+            
+            # Simple stream copy since mobile compatibility is already handled
+            cmd = [
+                "ffmpeg",
+                "-ss", str(int(start_time)),
+                "-i", file_path,
+                "-t", str(int(part_duration)),
+                "-c", "copy",  # Just copy, no re-processing
+                "-avoid_negative_ts", "make_zero",
+                "-movflags", "+faststart",
+                "-y",
+                part_output
+            ]
+            
+            logger.info(f"🎬 [{task_id}] Generating part {i+1}/{num_parts} (start: {int(start_time)}s, duration: {int(part_duration)}s)")
+            
+            # Run FFmpeg with timeout
+            try:
+                start_time_actual = time.time()
+                result = subprocess.run(
+                    cmd, 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE, 
+                    text=True,
+                    timeout=300  # 5 minute timeout per part
+                )
+                elapsed_time = time.time() - start_time_actual
+                
+                if result.returncode != 0:
+                    logger.warning(f"⚠️ [{task_id}] FFmpeg failed on part {i+1} (return code: {result.returncode})")
+                    logger.warning(f"FFmpeg stderr: {result.stderr}")
+                    
+                    # Since we're just doing stream copy, failure means the source file has issues
+                    logger.error(f"❌ [{task_id}] Stream copy failed for part {i+1} - source file may be corrupted")
+                    logger.error(f"FFmpeg stderr: {result.stderr}")
+                    logger.error(f"FFmpeg command: {' '.join(cmd)}")
+                    
+                    # Clean up failed parts
+                    for cleanup_path in part_paths:
+                        try:
+                            if os.path.exists(cleanup_path):
+                                os.remove(cleanup_path)
+                        except Exception as e:
+                            logger.warning(f"⚠️ [{task_id}] Couldn't clean up {cleanup_path}: {e}")
+                    
+                    return None
+                
+                # Verify part was created successfully
+                if not os.path.exists(part_output):
+                    logger.error(f"❌ [{task_id}] Part {i+1} output file not created: {part_output}")
+                    return None
+                
+                part_size = os.path.getsize(part_output)
+                if part_size == 0:
+                    logger.error(f"❌ [{task_id}] Part {i+1} is empty: {part_output}")
+                    return None
+                
+                logger.info(f"✅ [{task_id}] Part {i+1} generated: {part_output} ({part_size / (1024*1024):.1f}MB) in {elapsed_time:.1f}s")
+                
+                # Log metadata of the generated part
+                asyncio.create_task(log_video_metadata_for_upload(part_output, task_id, f"Generated part {i+1}"))
+                
+                part_paths.append(part_output)
+                
+            except subprocess.TimeoutExpired:
+                logger.error(f"❌ [{task_id}] FFmpeg timeout on part {i+1} (5 minutes)")
+                return None
+            except Exception as e:
+                logger.error(f"❌ [{task_id}] Unexpected error generating part {i+1}: {e}")
+                return None
+        
+        logger.info(f"✅ [{task_id}] All {num_parts} parts generated successfully.")
+        return part_paths
+    
+    except Exception as e:
+        logger.error(f"❌ [{task_id}] Critical error in split_video_by_duration: {e}")
+        
+        # Clean up any partial parts
+        for cleanup_path in part_paths:
+            try:
+                if os.path.exists(cleanup_path):
+                    os.remove(cleanup_path)
+            except Exception as cleanup_e:
+                logger.warning(f"⚠️ [{task_id}] Couldn't clean up {cleanup_path}: {cleanup_e}")
+        
+        return None
 
 async def check_size_upload_large_file(file_path: str, task_id: str, db):
     if not file_path:
@@ -659,7 +739,7 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db):
                 num_parts = math.ceil(file_size_mb / MAX_MB)
                 part_duration = duration / num_parts
 
-                part_paths = split_video_by_duration(file_path, task_id, num_parts, part_duration)
+                part_paths = await split_video_by_duration(file_path, task_id, num_parts, part_duration)
                 if not part_paths:
                     await notify_admin(f"❌ [Task {task_id}] Failed to split movie during ffmpeg slicing.")
                     continue
