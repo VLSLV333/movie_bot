@@ -185,47 +185,62 @@ async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Di
     Merge TS to MP4 with fallback strategies - optimized for performance
     """
     output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
+    temp_output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}_temp.mp4")
     
     # Check if mobile compatibility fixes are needed first
     should_fix, reason = should_fix_aspect_ratio(segment_metadata)
     
     if should_fix:
         logger.info(f"📱 [{task_id}] Mobile compatibility issue detected: {reason}")
-        logger.info(f"🎯 [{task_id}] Skipping direct copy, attempting SAR fixes...")
+        logger.info(f"🎯 [{task_id}] Trying fast fixes first...")
         
-        # Strategy 1: Container-level aspect ratio fix (fastest, no re-encoding)
+        # Strategy 1: Container-level fix + MP4Box (fastest, ~30 seconds total)
         try:
-            logger.info(f"🔄 [{task_id}] Attempting container-level aspect ratio fix...")
-            result = await merge_with_container_aspect_fix(task_id, m3u8_url, headers, output_file)
-            if result:
-                return result
+            logger.info(f"🔄 [{task_id}] Attempting container-level fix with MP4Box SAR correction...")
+            
+            # First, create temporary file with container fix
+            container_result = await merge_with_container_aspect_fix(task_id, m3u8_url, headers, temp_output_file)
+            if container_result:
+                # Then use MP4Box to fix SAR metadata
+                mp4box_result = await merge_with_mp4box_fix(task_id, temp_output_file, output_file)
+                if mp4box_result:
+                    # Clean up temp file
+                    if os.path.exists(temp_output_file):
+                        os.remove(temp_output_file)
+                    return mp4box_result
+                else:
+                    logger.info(f"🎯 [{task_id}] MP4Box not available or failed, trying other methods...")
         except MergeError as e:
-            logger.warning(f"⚠️ [{task_id}] Container aspect fix failed: {e.message}")
+            logger.warning(f"⚠️ [{task_id}] Container + MP4Box fix failed: {e.message}")
             logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
-            # If this was a SAR validation failure, we need to try re-encoding
-            if "SAR validation failed" in e.message:
-                logger.info(f"🎯 [{task_id}] Container fix didn't achieve mobile compatibility, proceeding to re-encode...")
+        finally:
+            # Always clean up temp file from this strategy
+            if os.path.exists(temp_output_file):
+                try:
+                    os.remove(temp_output_file)
+                except Exception as e:
+                    logger.warning(f"⚠️ [{task_id}] Could not clean up temp file: {e}")
         
-        # Strategy 2: SAR fix with fast re-encoding (good quality, moderate speed)
+        # Strategy 2: Ultra-fast re-encoding (2-3 minutes)
         try:
-            logger.info(f"🔄 [{task_id}] Attempting SAR fix with fast re-encoding...")
+            logger.info(f"🔄 [{task_id}] Attempting ultra-fast SAR fix re-encoding...")
             result = await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
             if result:
                 return result
         except MergeError as e:
-            logger.warning(f"⚠️ [{task_id}] Fast SAR fix failed: {e.message}")
+            logger.warning(f"⚠️ [{task_id}] Ultra-fast SAR fix failed: {e.message}")
             logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
         
-        # Strategy 3: Last resort - high quality re-encode with balanced settings
+        # Strategy 3: Speed over quality - direct copy with mobile warning
         try:
-            logger.warning(f"⚠️ [{task_id}] Fast fixes failed, attempting high-quality re-encode as last resort...")
-            logger.warning(f"🐌 [{task_id}] This will be slower but ensures maximum mobile compatibility")
-            result = await merge_with_aspect_fix(task_id, m3u8_url, headers, output_file)
+            logger.warning(f"⚠️ [{task_id}] SAR fixes taking too long, using direct copy for speed...")
+            logger.warning(f"📱 [{task_id}] Video may display as square on mobile, but will be fast!")
+            result = await merge_with_direct_copy(task_id, m3u8_url, headers, output_file)
             if result:
                 return result
         except MergeError as e:
-            logger.error(f"❌ [{task_id}] High-quality re-encode failed: {e.message}")
-            logger.error(f"FFmpeg output: {e.ffmpeg_output}")
+            logger.error(f"❌ [{task_id}] Even direct copy failed: {e.message}")
+            logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
     
     else:
         logger.info(f"✅ [{task_id}] No mobile compatibility issues detected: {reason}")
@@ -240,18 +255,26 @@ async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Di
             logger.warning(f"⚠️ [{task_id}] Direct copy failed: {e.message}")
             logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
         
-        # Strategy 2: Fallback to SAR fix if direct copy fails
+        # Strategy 2: Ultra-fast re-encoding fallback
         try:
-            logger.info(f"🔄 [{task_id}] Direct copy failed, trying SAR fix as fallback...")
+            logger.info(f"🔄 [{task_id}] Direct copy failed, trying ultra-fast re-encoding...")
             result = await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
             if result:
                 return result
         except MergeError as e:
-            logger.warning(f"⚠️ [{task_id}] SAR fix fallback failed: {e.message}")
+            logger.warning(f"⚠️ [{task_id}] Ultra-fast re-encoding failed: {e.message}")
             logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
     
     # All strategies failed
     logger.error(f"❌ [{task_id}] All merge strategies failed")
+    
+    # Clean up temp file if it exists
+    if os.path.exists(temp_output_file):
+        try:
+            os.remove(temp_output_file)
+        except Exception as e:
+            logger.warning(f"⚠️ [{task_id}] Could not clean up temp file: {e}")
+    
     return None
 
 async def merge_with_direct_copy(task_id: str, m3u8_url: str, headers: Dict[str, str], 
@@ -290,16 +313,60 @@ async def merge_with_sar_fix(task_id: str, m3u8_url: str, headers: Dict[str, str
         "-protocol_whitelist", "file,http,https,tcp,tls",
         "-i", m3u8_url,
         "-c:v", "libx264",  # Fast H.264 encoding
-        "-preset", "veryfast",  # Fastest preset for minimal processing time
-        "-crf", "18",  # High quality (lossless-like)
+        "-preset", "ultrafast",  # Fastest possible preset
+        "-crf", "24",  # Lower quality but much faster
         "-vf", "setsar=1:1",  # Fix SAR
         "-c:a", "copy",  # Copy audio without re-encoding
         "-movflags", "+faststart",
+        "-threads", "0",  # Use all CPU cores
         "-y",
         output_file
     ]
     
     return await run_ffmpeg_command(cmd, task_id, "SAR fix (fast re-encoding)")
+
+async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: str) -> str | None:
+    """
+    Use MP4Box to fix SAR metadata without re-encoding (very fast)
+    """
+    try:
+        # First, check if MP4Box is available
+        check_cmd = ["MP4Box", "-version"]
+        check_result = subprocess.run(check_cmd, capture_output=True, text=True)
+        
+        if check_result.returncode != 0:
+            logger.warning(f"[{task_id}] MP4Box not available, skipping")
+            return None
+        
+        # Use MP4Box to fix SAR
+        cmd = [
+            "MP4Box",
+            "-par", "1:1",  # Set pixel aspect ratio to 1:1
+            "-out", output_file,
+            temp_mp4_file
+        ]
+        
+        logger.info(f"🔧 [{task_id}] Fixing SAR with MP4Box (no re-encoding)...")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        if result.returncode == 0:
+            if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+                logger.info(f"✅ [{task_id}] MP4Box SAR fix complete: {output_file}")
+                return output_file
+            else:
+                logger.error(f"❌ [{task_id}] MP4Box completed but output file is empty")
+                return None
+        else:
+            logger.error(f"❌ [{task_id}] MP4Box failed: {result.stderr}")
+            return None
+            
+    except subprocess.TimeoutExpired:
+        logger.error(f"❌ [{task_id}] MP4Box timeout")
+        return None
+    except Exception as e:
+        logger.error(f"❌ [{task_id}] MP4Box error: {e}")
+        return None
 
 async def merge_with_container_aspect_fix(task_id: str, m3u8_url: str, headers: Dict[str, str], 
                                         output_file: str) -> str | None:
