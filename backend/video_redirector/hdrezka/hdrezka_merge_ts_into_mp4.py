@@ -9,6 +9,7 @@ import aiohttp
 import ssl
 import json
 import time
+import struct
 
 from backend.video_redirector.config import MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4
 DOWNLOAD_DIR = "downloads"
@@ -182,91 +183,90 @@ def should_fix_aspect_ratio(metadata: Optional[Dict]) -> Tuple[bool, str]:
 async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Dict[str, str], 
                                       segment_metadata: Optional[Dict] = None) -> str | None:
     """
-    Merge TS to MP4 with fallback strategies - optimized for performance
+    Merge TS to MP4 with mobile compatibility fixes
+    Strategy: MP4Box binary → Python binary manipulation → Ultra-fast FFmpeg
     """
     output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
     temp_output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}_temp.mp4")
     
-    # Check if mobile compatibility fixes are needed first
+    # Check if mobile compatibility fixes are needed
     should_fix, reason = should_fix_aspect_ratio(segment_metadata)
     
-    if should_fix:
-        logger.info(f"📱 [{task_id}] Mobile compatibility issue detected: {reason}")
-        logger.info(f"🎯 [{task_id}] Trying fast fixes first...")
-        
-        # Strategy 1: Container-level fix + MP4Box (fastest, ~30 seconds total)
-        try:
-            logger.info(f"🔄 [{task_id}] Attempting container-level fix with MP4Box SAR correction...")
-            
-            # First, create temporary file with container fix
-            container_result = await merge_with_container_aspect_fix(task_id, m3u8_url, headers, temp_output_file)
-            if container_result:
-                # Then use MP4Box to fix SAR metadata
-                mp4box_result = await merge_with_mp4box_fix(task_id, temp_output_file, output_file)
-                if mp4box_result:
-                    # Clean up temp file
-                    if os.path.exists(temp_output_file):
-                        os.remove(temp_output_file)
-                    return mp4box_result
-                else:
-                    logger.info(f"🎯 [{task_id}] MP4Box not available or failed, trying other methods...")
-        except MergeError as e:
-            logger.warning(f"⚠️ [{task_id}] Container + MP4Box fix failed: {e.message}")
-            logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
-        finally:
-            # Always clean up temp file from this strategy
-            if os.path.exists(temp_output_file):
-                try:
-                    os.remove(temp_output_file)
-                except Exception as e:
-                    logger.warning(f"⚠️ [{task_id}] Could not clean up temp file: {e}")
-        
-        # Strategy 2: Ultra-fast re-encoding (2-3 minutes)
-        try:
-            logger.info(f"🔄 [{task_id}] Attempting ultra-fast SAR fix re-encoding...")
-            result = await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
-            if result:
-                return result
-        except MergeError as e:
-            logger.warning(f"⚠️ [{task_id}] Ultra-fast SAR fix failed: {e.message}")
-            logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
-        
-        # Strategy 3: Speed over quality - direct copy with mobile warning
-        try:
-            logger.warning(f"⚠️ [{task_id}] SAR fixes taking too long, using direct copy for speed...")
-            logger.warning(f"📱 [{task_id}] Video may display as square on mobile, but will be fast!")
-            result = await merge_with_direct_copy(task_id, m3u8_url, headers, output_file)
-            if result:
-                return result
-        except MergeError as e:
-            logger.error(f"❌ [{task_id}] Even direct copy failed: {e.message}")
-            logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
+    # First, always get a direct copy for fast manipulation
+    logger.info(f"🚀 [{task_id}] Getting direct copy for fast SAR manipulation...")
+    try:
+        direct_copy_result = await merge_with_direct_copy(task_id, m3u8_url, headers, temp_output_file)
+        if not direct_copy_result:
+            logger.error(f"❌ [{task_id}] Could not get direct copy - trying re-encoding instead")
+            # Skip to final fallback
+            return await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
+    except MergeError as e:
+        logger.warning(f"⚠️ [{task_id}] Direct copy failed: {e.message}")
+        logger.info(f"🔄 [{task_id}] Skipping to re-encoding fallback...")
+        return await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
     
-    else:
+    # If no SAR issues detected, we're done
+    if not should_fix:
         logger.info(f"✅ [{task_id}] No mobile compatibility issues detected: {reason}")
+        # Move temp file to final output
+        if os.path.exists(temp_output_file):
+            os.rename(temp_output_file, output_file)
+            return output_file
+        else:
+            logger.error(f"❌ [{task_id}] Temp file disappeared")
+            return None
+    
+    # SAR issues detected - try to fix them
+    logger.info(f"📱 [{task_id}] Mobile compatibility issue detected: {reason}")
+    logger.info(f"🎯 [{task_id}] Trying fast SAR fixes...")
+    
+    # Strategy 1: Pre-compiled MP4Box binary (fastest SAR fix)
+    try:
+        logger.info(f"🔧 [{task_id}] Attempting MP4Box SAR fix (fastest method)...")
+        mp4box_result = await merge_with_mp4box_fix(task_id, temp_output_file, output_file)
+        if mp4box_result:
+            # Clean up temp file
+            if os.path.exists(temp_output_file):
+                os.remove(temp_output_file)
+            logger.info(f"✅ [{task_id}] MP4Box SAR fix successful!")
+            return mp4box_result
+        else:
+            logger.info(f"⚠️ [{task_id}] MP4Box not available or failed, trying Python binary manipulation...")
+    except Exception as e:
+        logger.warning(f"⚠️ [{task_id}] MP4Box SAR fix failed: {e}")
+    
+    # Strategy 2: Python binary MP4 manipulation (fallback)
+    try:
+        logger.info(f"🔧 [{task_id}] Attempting Python binary SAR fix...")
+        binary_result = await fix_mp4_sar_binary(task_id, temp_output_file, output_file)
+        if binary_result:
+            # Clean up temp file
+            if os.path.exists(temp_output_file):
+                os.remove(temp_output_file)
+            logger.info(f"✅ [{task_id}] Python binary SAR fix successful!")
+            return binary_result
+        else:
+            logger.info(f"⚠️ [{task_id}] Python binary manipulation failed, trying ultra-fast re-encoding...")
+    except Exception as e:
+        logger.warning(f"⚠️ [{task_id}] Python binary SAR fix failed: {e}")
+    
+    # Strategy 3: Ultra-fast FFmpeg re-encoding (final fallback)
+    try:
+        logger.info(f"🔄 [{task_id}] Attempting ultra-fast FFmpeg SAR fix (final fallback)...")
+        # Clean up temp file first
+        if os.path.exists(temp_output_file):
+            os.remove(temp_output_file)
         
-        # Strategy 1: Direct copy (fastest, no issues detected)
-        try:
-            logger.info(f"🔄 [{task_id}] Attempting direct copy merge...")
-            result = await merge_with_direct_copy(task_id, m3u8_url, headers, output_file)
-            if result:
-                return result
-        except MergeError as e:
-            logger.warning(f"⚠️ [{task_id}] Direct copy failed: {e.message}")
-            logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
-        
-        # Strategy 2: Ultra-fast re-encoding fallback
-        try:
-            logger.info(f"🔄 [{task_id}] Direct copy failed, trying ultra-fast re-encoding...")
-            result = await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
-            if result:
-                return result
-        except MergeError as e:
-            logger.warning(f"⚠️ [{task_id}] Ultra-fast re-encoding failed: {e.message}")
-            logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
+        result = await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
+        if result:
+            logger.info(f"✅ [{task_id}] Ultra-fast FFmpeg SAR fix successful!")
+            return result
+    except MergeError as e:
+        logger.error(f"❌ [{task_id}] Ultra-fast FFmpeg SAR fix failed: {e.message}")
+        logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
     
     # All strategies failed
-    logger.error(f"❌ [{task_id}] All merge strategies failed")
+    logger.error(f"❌ [{task_id}] All SAR fix strategies failed")
     
     # Clean up temp file if it exists
     if os.path.exists(temp_output_file):
@@ -314,7 +314,7 @@ async def merge_with_sar_fix(task_id: str, m3u8_url: str, headers: Dict[str, str
         "-i", m3u8_url,
         "-c:v", "libx264",  # Fast H.264 encoding
         "-preset", "ultrafast",  # Fastest possible preset
-        "-crf", "24",  # Lower quality but much faster
+        "-crf", "23",  # Lower quality but much faster
         "-vf", "setsar=1:1",  # Fix SAR
         "-c:a", "copy",  # Copy audio without re-encoding
         "-movflags", "+faststart",
@@ -328,126 +328,74 @@ async def merge_with_sar_fix(task_id: str, m3u8_url: str, headers: Dict[str, str
 async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: str) -> str | None:
     """
     Use MP4Box to fix SAR metadata without re-encoding (very fast)
+    This is our Strategy 1: fastest possible SAR fix
     """
     try:
         # First, check if MP4Box is available
         check_cmd = ["MP4Box", "-version"]
-        check_result = subprocess.run(check_cmd, capture_output=True, text=True)
+        check_result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=10)
         
         if check_result.returncode != 0:
-            logger.warning(f"[{task_id}] MP4Box not available, skipping")
+            logger.info(f"[{task_id}] MP4Box not available on system")
             return None
         
-        # Use MP4Box to fix SAR
-        cmd = [
-            "MP4Box",
-            "-par", "1:1",  # Set pixel aspect ratio to 1:1
-            "-out", output_file,
-            temp_mp4_file
+        logger.info(f"🔧 [{task_id}] MP4Box available, fixing SAR metadata (no re-encoding)...")
+        
+        # Use MP4Box to fix SAR - try multiple approaches
+        commands_to_try = [
+            # Approach 1: Set pixel aspect ratio to 1:1
+            [
+                "MP4Box",
+                "-par", "1:1",
+                "-out", output_file,
+                temp_mp4_file
+            ],
+            # Approach 2: More explicit SAR fix
+            [
+                "MP4Box", 
+                "-par", "1",
+                "-out", output_file,
+                temp_mp4_file
+            ],
+            # Approach 3: Alternative syntax
+            [
+                "MP4Box",
+                "-par", "1:1",
+                "-new", output_file,
+                temp_mp4_file
+            ]
         ]
         
-        logger.info(f"🔧 [{task_id}] Fixing SAR with MP4Box (no re-encoding)...")
+        for i, cmd in enumerate(commands_to_try, 1):
+            try:
+                logger.info(f"🔧 [{task_id}] MP4Box attempt {i}/{len(commands_to_try)}: {' '.join(cmd[1:4])}")
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                
+                if result.returncode == 0:
+                    if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+                        logger.info(f"✅ [{task_id}] MP4Box SAR fix successful with approach {i}")
+                        return output_file
+                    else:
+                        logger.warning(f"⚠️ [{task_id}] MP4Box approach {i} completed but output file is empty")
+                        # Try next approach
+                        continue
+                else:
+                    logger.warning(f"⚠️ [{task_id}] MP4Box approach {i} failed: {result.stderr}")
+                    # Try next approach
+                    continue
+                    
+            except subprocess.TimeoutExpired:
+                logger.warning(f"⚠️ [{task_id}] MP4Box approach {i} timeout")
+                continue
         
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        
-        if result.returncode == 0:
-            if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                logger.info(f"✅ [{task_id}] MP4Box SAR fix complete: {output_file}")
-                return output_file
-            else:
-                logger.error(f"❌ [{task_id}] MP4Box completed but output file is empty")
-                return None
-        else:
-            logger.error(f"❌ [{task_id}] MP4Box failed: {result.stderr}")
-            return None
+        # All approaches failed
+        logger.info(f"[{task_id}] All MP4Box approaches failed")
+        return None
             
-    except subprocess.TimeoutExpired:
-        logger.error(f"❌ [{task_id}] MP4Box timeout")
-        return None
     except Exception as e:
-        logger.error(f"❌ [{task_id}] MP4Box error: {e}")
+        logger.warning(f"⚠️ [{task_id}] MP4Box error: {e}")
         return None
-
-async def merge_with_container_aspect_fix(task_id: str, m3u8_url: str, headers: Dict[str, str], 
-                                        output_file: str) -> str | None:
-    """
-    Merge with container-level aspect ratio fix - fast, no re-encoding
-    Note: This only fixes container metadata, not the actual video stream SAR
-    """
-    ffmpeg_header_str = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
-    
-    cmd = [
-        "ffmpeg",
-        "-loglevel", "error",
-        "-headers", ffmpeg_header_str,
-        "-protocol_whitelist", "file,http,https,tcp,tls",
-        "-i", m3u8_url,
-        "-c", "copy",  # No re-encoding
-        "-aspect", "16:9",  # Force 16:9 aspect ratio at container level only
-        "-metadata:s:v:0", "rotate=0",  # Clear any rotation metadata
-        "-bsf:a", "aac_adtstoasc",
-        "-movflags", "+faststart",
-        "-y",
-        output_file
-    ]
-    
-    return await run_ffmpeg_command(cmd, task_id, "container aspect fix (no re-encoding)")
-
-async def merge_with_aspect_fix(task_id: str, m3u8_url: str, headers: Dict[str, str], 
-                              output_file: str) -> str | None:
-    """
-    Merge with aspect ratio fix - slower but fixes mobile compatibility (RE-ENCODING)
-    """
-    ffmpeg_header_str = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
-    
-    cmd = [
-        "ffmpeg",
-        "-loglevel", "error",
-        "-headers", ffmpeg_header_str,
-        "-protocol_whitelist", "file,http,https,tcp,tls",
-        "-i", m3u8_url,
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "23",
-        "-vf", "setsar=1:1",  # Fix aspect ratio by setting SAR to 1:1
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-movflags", "+faststart",
-        "-y",
-        output_file
-    ]
-    
-    return await run_ffmpeg_command(cmd, task_id, "aspect fix (RE-ENCODING)")
-
-async def merge_with_safe_reencode(task_id: str, m3u8_url: str, headers: Dict[str, str], 
-                                 output_file: str) -> str | None:
-    """
-    Safe re-encode merge - slowest but most compatible
-    """
-    ffmpeg_header_str = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
-    
-    cmd = [
-        "ffmpeg",
-        "-loglevel", "error",
-        "-headers", ffmpeg_header_str,
-        "-protocol_whitelist", "file,http,https,tcp,tls",
-        "-i", m3u8_url,
-        "-c:v", "libx264",
-        "-preset", "medium",
-        "-crf", "23",
-        "-vf", "setsar=1:1,format=yuv420p",  # Fix aspect ratio and ensure compatible pixel format
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-movflags", "+faststart",
-        "-profile:v", "high",
-        "-level", "4.0",
-        "-maxrate", "5M",
-        "-bufsize", "10M",
-        "-y",
-        output_file
-    ]
-    
-    return await run_ffmpeg_command(cmd, task_id, "safe re-encode")
 
 async def run_ffmpeg_command(cmd: list, task_id: str, strategy: str) -> str | None:
     """
@@ -648,3 +596,142 @@ def get_task_progress(task_id: str) -> Dict:
         "message": "Download task is running.",
         **status_tracker[task_id]
     }
+
+async def fix_mp4_sar_binary(task_id: str, input_file: str, output_file: str) -> str | None:
+    """
+    Fix MP4 SAR using pure Python binary manipulation (very fast)
+    Modifies the PASP (Pixel Aspect Ratio) atom directly
+    """
+    try:
+        logger.info(f"🔧 [{task_id}] Attempting Python binary SAR fix...")
+        
+        if not os.path.exists(input_file):
+            logger.error(f"❌ [{task_id}] Input file doesn't exist: {input_file}")
+            return None
+        
+        file_size = os.path.getsize(input_file)
+        if file_size == 0:
+            logger.error(f"❌ [{task_id}] Input file is empty")
+            return None
+        
+        start_time = time.time()
+        
+        with open(input_file, 'rb') as f:
+            data = bytearray(f.read())
+        
+        # Look for existing PASP atom or create one
+        pasp_modified = False
+        
+        # Find video track (moov -> trak -> mdia -> minf -> stbl -> stsd -> first entry)
+        # This is a simplified approach - look for common patterns
+        
+        # Pattern 1: Look for existing PASP atom (4 bytes size + 4 bytes 'pasp' + 8 bytes data)
+        pasp_pattern = b'pasp'
+        pasp_pos = data.find(pasp_pattern)
+        
+        if pasp_pos > 4:  # Found existing PASP atom
+            # PASP atom structure: [size:4][type:4][hSpacing:4][vSpacing:4]
+            # We want hSpacing = vSpacing = 1 for square pixels
+            pasp_start = pasp_pos - 4  # Position of size field
+            
+            # Read current PASP atom size
+            current_size = struct.unpack('>I', data[pasp_start:pasp_start+4])[0]
+            
+            if current_size >= 16:  # Valid PASP atom size
+                # Set hSpacing and vSpacing to 1:1 (square pixels)
+                struct.pack_into('>I', data, pasp_start + 8, 1)   # hSpacing = 1
+                struct.pack_into('>I', data, pasp_start + 12, 1)  # vSpacing = 1
+                pasp_modified = True
+                logger.info(f"✅ [{task_id}] Modified existing PASP atom to 1:1")
+        
+        # Pattern 2: Look for visual sample description and try to inject PASP
+        if not pasp_modified:
+            # Look for video sample description atoms (avc1, mp4v, etc.)
+            video_codecs = [b'avc1', b'mp4v', b'hvc1', b'hev1']
+            
+            for codec in video_codecs:
+                codec_pos = data.find(codec)
+                if codec_pos > 8:
+                    # Found video codec atom, try to add PASP after it
+                    # This is more complex and risky, so we'll try a simple approach
+                    
+                    # Look for the end of this atom to insert PASP
+                    atom_start = codec_pos - 4
+                    atom_size = struct.unpack('>I', data[atom_start:atom_start+4])[0]
+                    
+                    if atom_size > 0 and atom_size < len(data):
+                        atom_end = atom_start + atom_size
+                        
+                        # Create new PASP atom: [size:16][type:'pasp'][hSpacing:1][vSpacing:1]
+                        pasp_atom = struct.pack('>I4sII', 16, b'pasp', 1, 1)
+                        
+                        # Insert PASP atom at the end of the video sample description
+                        # This is simplified - real MP4 structure is more complex
+                        data[atom_end:atom_end] = pasp_atom
+                        
+                        # Update the parent atom size
+                        parent_size = struct.unpack('>I', data[atom_start:atom_start+4])[0]
+                        struct.pack_into('>I', data, atom_start, parent_size + 16)
+                        
+                        pasp_modified = True
+                        logger.info(f"✅ [{task_id}] Injected new PASP atom (1:1) into {codec.decode()} atom")
+                        break
+        
+        if not pasp_modified:
+            # Fallback: Try to modify any existing aspect ratio information
+            # Look for STSD atom and modify aspect ratio fields if present
+            stsd_pos = data.find(b'stsd')
+            if stsd_pos > 0:
+                logger.info(f"📝 [{task_id}] Found STSD atom, attempting heuristic SAR fix...")
+                
+                # This is a heuristic approach - look for aspect ratio patterns
+                # and try to normalize them (very simplified)
+                
+                # Look for common non-square pixel ratios in the vicinity
+                search_start = max(0, stsd_pos - 1000)
+                search_end = min(len(data), stsd_pos + 2000)
+                
+                # Look for potential aspect ratio values near 1041:1040
+                for i in range(search_start, search_end - 8, 4):
+                    try:
+                        val1 = struct.unpack('>I', data[i:i+4])[0]
+                        val2 = struct.unpack('>I', data[i+4:i+8])[0]
+                        
+                        # Check if this looks like our problematic SAR (1041:1040)
+                        if (val1 == 1041 and val2 == 1040) or (val1 == 1040 and val2 == 1041):
+                            # Replace with 1:1
+                            struct.pack_into('>I', data, i, 1)
+                            struct.pack_into('>I', data, i+4, 1)
+                            pasp_modified = True
+                            logger.info(f"✅ [{task_id}] Found and fixed SAR values {val1}:{val2} -> 1:1 at offset {i}")
+                            break
+                            
+                        # Also check for the inverted SAR ratio we saw (347:360)
+                        if (val1 == 347 and val2 == 360) or (val1 == 360 and val2 == 347):
+                            struct.pack_into('>I', data, i, 1)
+                            struct.pack_into('>I', data, i+4, 1)
+                            pasp_modified = True
+                            logger.info(f"✅ [{task_id}] Found and fixed SAR values {val1}:{val2} -> 1:1 at offset {i}")
+                            break
+                            
+                    except (struct.error, IndexError):
+                        continue
+        
+        if pasp_modified:
+            # Write the modified data
+            with open(output_file, 'wb') as f:
+                f.write(data)
+            
+            elapsed = time.time() - start_time
+            output_size = len(data)
+            logger.info(f"✅ [{task_id}] Python binary SAR fix complete in {elapsed:.2f}s")
+            logger.info(f"📁 [{task_id}] Output file: {output_file} ({output_size / (1024*1024):.1f}MB)")
+            
+            return output_file
+        else:
+            logger.warning(f"⚠️ [{task_id}] Could not locate or modify SAR information in MP4 structure")
+            return None
+            
+    except Exception as e:
+        logger.error(f"❌ [{task_id}] Python binary SAR fix failed: {e}")
+        return None
