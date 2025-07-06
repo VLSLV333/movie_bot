@@ -10,6 +10,7 @@ import ssl
 import json
 import time
 import struct
+import shutil
 
 from backend.video_redirector.config import MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4
 DOWNLOAD_DIR = "downloads"
@@ -145,13 +146,12 @@ async def analyze_first_ts_segment(m3u8_url: str, headers: Dict[str, str], task_
                             metadata = json.loads(result.stdout)
                             
                             # Clean up
-                            os.remove(segment_path)
+                            cleanup_file(segment_path, task_id, "first TS segment")
                             
                             return metadata
                         except Exception as e:
                             logger.error(f"❌ [{task_id}] Error getting segment metadata: {e}")
-                            if os.path.exists(segment_path):
-                                os.remove(segment_path)
+                            cleanup_file(segment_path, task_id, "first TS segment (error)")
                             return None
                     else:
                         logger.error(f"❌ [{task_id}] Failed to download first TS segment: HTTP {resp.status}")
@@ -180,11 +180,41 @@ def should_fix_aspect_ratio(metadata: Optional[Dict]) -> Tuple[bool, str]:
     
     return False, "Square pixels (SAR: 1:1)"
 
+async def check_disk_space(required_mb: float, task_id: str) -> bool:
+    """Check if there's enough disk space for the operation"""
+    try:
+        total, used, free = shutil.disk_usage(DOWNLOAD_DIR)
+        free_mb = free / (1024 * 1024)
+        
+        if free_mb < required_mb:
+            logger.error(f"❌ [{task_id}] Insufficient disk space: {free_mb:.1f}MB free, {required_mb:.1f}MB required")
+            return False
+        
+        logger.info(f"💾 [{task_id}] Disk space check: {free_mb:.1f}MB free, {required_mb:.1f}MB required")
+        return True
+    except Exception as e:
+        logger.warning(f"⚠️ [{task_id}] Could not check disk space: {e}")
+        return True  # Assume OK if can't check
+
+def cleanup_file(file_path: str, task_id: str, description: str = "file"):
+    """
+    Safely clean up a file with logging
+    """
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            logger.info(f"🧹 [{task_id}] Cleaned up {description}: {os.path.basename(file_path)}")
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ [{task_id}] Could not clean up {description}: {e}")
+            return False
+    return True
+
 async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Dict[str, str], 
                                       segment_metadata: Optional[Dict] = None) -> str | None:
     """
     Merge TS to MP4 with mobile compatibility fixes
-    Strategy: MP4Box binary → Python binary manipulation → Ultra-fast FFmpeg
+    Strategy: MOV MetaEdit → MP4Box → FFmpeg metadata → Ultra-fast FFmpeg
     """
     output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
     temp_output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}_temp.mp4")
@@ -220,35 +250,44 @@ async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Di
     logger.info(f"📱 [{task_id}] Mobile compatibility issue detected: {reason}")
     logger.info(f"🎯 [{task_id}] Trying fast SAR fixes...")
     
-    # Strategy 1: Pre-compiled MP4Box binary (fastest SAR fix)
+    # Check disk space before attempting fixes (need ~2x file size for safety)
+    if os.path.exists(temp_output_file):
+        temp_file_size_mb = os.path.getsize(temp_output_file) / (1024 * 1024)
+        required_space_mb = temp_file_size_mb * 1.5  # 50% buffer for safety
+        
+        if not await check_disk_space(required_space_mb, task_id):
+            logger.warning(f"⚠️ [{task_id}] Insufficient disk space for SAR fixes, using temp file as-is")
+            # Move temp file to final output without fixes
+            os.rename(temp_output_file, output_file)
+            return output_file
+    
+    # Strategy 1: MOV MetaEdit (official MediaArea tool - fastest and most reliable)
     try:
-        logger.info(f"🔧 [{task_id}] Attempting MP4Box SAR fix (fastest method)...")
+        logger.info(f"🔧 [{task_id}] Attempting MOV MetaEdit SAR fix (professional tool)...")
+        movmetaedit_result = await merge_with_movmetaedit_fix(task_id, temp_output_file, output_file)
+        if movmetaedit_result:
+            # Clean up temp file
+            cleanup_file(temp_output_file, task_id, "temp file after MOV MetaEdit success")
+            logger.info(f"✅ [{task_id}] MOV MetaEdit SAR fix successful!")
+            return movmetaedit_result
+        else:
+            logger.info(f"⚠️ [{task_id}] MOV MetaEdit failed, trying MP4Box...")
+    except Exception as e:
+        logger.warning(f"⚠️ [{task_id}] MOV MetaEdit SAR fix failed: {e}")
+    
+    # Strategy 1.5: MP4Box (fallback when MOV MetaEdit is not available)
+    try:
+        logger.info(f"🔧 [{task_id}] Attempting MP4Box SAR fix (fallback method)...")
         mp4box_result = await merge_with_mp4box_fix(task_id, temp_output_file, output_file)
         if mp4box_result:
             # Clean up temp file
-            if os.path.exists(temp_output_file):
-                os.remove(temp_output_file)
+            cleanup_file(temp_output_file, task_id, "temp file after MP4Box success")
             logger.info(f"✅ [{task_id}] MP4Box SAR fix successful!")
             return mp4box_result
         else:
-            logger.info(f"⚠️ [{task_id}] MP4Box failed, trying AtomicParsley...")
+            logger.info(f"⚠️ [{task_id}] MP4Box failed, trying FFmpeg metadata fix...")
     except Exception as e:
         logger.warning(f"⚠️ [{task_id}] MP4Box SAR fix failed: {e}")
-    
-    # Strategy 1.5: AtomicParsley SAR fix (alternative fast method)
-    try:
-        logger.info(f"🔧 [{task_id}] Attempting AtomicParsley SAR fix...")
-        atomicparsley_result = await merge_with_atomicparsley_fix(task_id, temp_output_file, output_file)
-        if atomicparsley_result:
-            # Clean up temp file
-            if os.path.exists(temp_output_file):
-                os.remove(temp_output_file)
-            logger.info(f"✅ [{task_id}] AtomicParsley SAR fix successful!")
-            return atomicparsley_result
-        else:
-            logger.info(f"⚠️ [{task_id}] AtomicParsley failed, trying FFmpeg metadata fix...")
-    except Exception as e:
-        logger.warning(f"⚠️ [{task_id}] AtomicParsley SAR fix failed: {e}")
     
     # Strategy 1.8: FFmpeg metadata fix (stream copy with metadata, no re-encoding)
     try:
@@ -256,41 +295,19 @@ async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Di
         ffmpeg_metadata_result = await merge_with_ffmpeg_metadata_fix(task_id, temp_output_file, output_file)
         if ffmpeg_metadata_result:
             # Clean up temp file
-            if os.path.exists(temp_output_file):
-                os.remove(temp_output_file)
+            cleanup_file(temp_output_file, task_id, "temp file after FFmpeg metadata success")
             logger.info(f"✅ [{task_id}] FFmpeg metadata SAR fix successful!")
             return ffmpeg_metadata_result
         else:
-            logger.info(f"⚠️ [{task_id}] FFmpeg metadata fix failed, trying Python binary manipulation...")
+            logger.info(f"⚠️ [{task_id}] FFmpeg metadata fix failed, skipping to re-encoding...")
     except Exception as e:
         logger.warning(f"⚠️ [{task_id}] FFmpeg metadata SAR fix failed: {e}")
-    
-    # Strategy 2: Python binary MP4 manipulation (fallback)
-    # DISABLED: This strategy loads entire file into memory (4GB+ files cause crashes)
-    # TODO: Implement streaming binary manipulation for large files
-    # try:
-    #     logger.info(f"🔧 [{task_id}] Attempting Python binary SAR fix...")
-    #     binary_result = await fix_mp4_sar_binary(task_id, temp_output_file, output_file)
-    #     if binary_result:
-    #         # Clean up temp file
-    #         if os.path.exists(temp_output_file):
-    #             os.remove(temp_output_file)
-    #         logger.info(f"✅ [{task_id}] Python binary SAR fix successful!")
-    #         return binary_result
-    #     else:
-    #         logger.info(f"⚠️ [{task_id}] Python binary manipulation failed, trying ultra-fast re-encoding...")
-    # except Exception as e:
-    #     logger.warning(f"⚠️ [{task_id}] Python binary SAR fix failed: {e}")
-    
-    logger.info(f"⚠️ [{task_id}] Python binary SAR fix disabled (prevents crashes with 4GB+ files)")
-    logger.info(f"🔄 [{task_id}] Skipping to ultra-fast FFmpeg re-encoding...")
     
     # Strategy 3: Ultra-fast FFmpeg re-encoding (final fallback)
     try:
         logger.info(f"🔄 [{task_id}] Attempting ultra-fast FFmpeg SAR fix (final fallback)...")
         # Clean up temp file first
-        if os.path.exists(temp_output_file):
-            os.remove(temp_output_file)
+        cleanup_file(temp_output_file, task_id, "temp file before final fallback")
         
         result = await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
         if result:
@@ -299,16 +316,17 @@ async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Di
     except MergeError as e:
         logger.error(f"❌ [{task_id}] Ultra-fast FFmpeg SAR fix failed: {e.message}")
         logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
+    except Exception as e:
+        logger.error(f"❌ [{task_id}] Unexpected error in final fallback: {e}")
     
     # All strategies failed
     logger.error(f"❌ [{task_id}] All SAR fix strategies failed")
     
     # Clean up temp file if it exists
-    if os.path.exists(temp_output_file):
-        try:
-            os.remove(temp_output_file)
-        except Exception as e:
-            logger.warning(f"⚠️ [{task_id}] Could not clean up temp file: {e}")
+    cleanup_file(temp_output_file, task_id, "temp file after all strategies failed")
+    
+    # Clean up any partial output files
+    cleanup_file(output_file, task_id, "partial output file")
     
     return None
 
@@ -360,10 +378,94 @@ async def merge_with_sar_fix(task_id: str, m3u8_url: str, headers: Dict[str, str
     
     return await run_ffmpeg_command(cmd, task_id, "SAR fix (fast re-encoding)")
 
+async def merge_with_movmetaedit_fix(task_id: str, temp_mp4_file: str, output_file: str) -> str | None:
+    """
+    Use MOV MetaEdit (official MediaArea tool) to fix SAR metadata without re-encoding
+    This is our Strategy 1: fastest and most reliable SAR fix using professional tools
+    """
+    try:
+        # First, check if MOV MetaEdit is available
+        check_cmd = ["movmetaedit", "--version"]
+        check_result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=10)
+        
+        if check_result.returncode != 0:
+            logger.info(f"[{task_id}] MOV MetaEdit not available on system")
+            return None
+        
+        logger.info(f"🔧 [{task_id}] MOV MetaEdit available, fixing SAR metadata (no re-encoding)...")
+        
+        # Strategy 1: Try in-place editing first (saves disk space)
+        inplace_cmd = [
+            "movmetaedit",
+            "--par=1:1",
+            temp_mp4_file
+        ]
+        
+        logger.info(f"🔧 [{task_id}] Trying MOV MetaEdit in-place editing (saves disk space)...")
+        try:
+            logger.info(f"🔧 [{task_id}] MOV MetaEdit in-place: {' '.join(inplace_cmd[1:3])}")
+            
+            result = subprocess.run(inplace_cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                if os.path.exists(temp_mp4_file) and os.path.getsize(temp_mp4_file) > 0:
+                    logger.info(f"✅ [{task_id}] MOV MetaEdit in-place SAR fix successful")
+                    # Move the fixed file to final output
+                    os.rename(temp_mp4_file, output_file)
+                    return output_file
+                else:
+                    logger.warning(f"⚠️ [{task_id}] MOV MetaEdit in-place completed but file is empty")
+            else:
+                logger.warning(f"⚠️ [{task_id}] MOV MetaEdit in-place failed: {result.stderr}")
+                
+        except subprocess.TimeoutExpired:
+            logger.warning(f"⚠️ [{task_id}] MOV MetaEdit in-place timeout")
+        
+        # Strategy 2: If in-place editing failed, try output to new file
+        logger.info(f"🔧 [{task_id}] In-place editing failed, trying output to new file...")
+        
+        # Use MOV MetaEdit to fix PAR - output to new file
+        output_cmd = [
+            "movmetaedit",
+            "--par=1:1",
+            temp_mp4_file,
+            output_file
+        ]
+        
+        try:
+            logger.info(f"🔧 [{task_id}] MOV MetaEdit output to new file: {' '.join(output_cmd[1:3])}")
+            
+            result = subprocess.run(output_cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+                    logger.info(f"✅ [{task_id}] MOV MetaEdit SAR fix successful")
+                    return output_file
+                else:
+                    logger.warning(f"⚠️ [{task_id}] MOV MetaEdit completed but output file is empty")
+                    if os.path.exists(output_file):
+                        os.remove(output_file)
+                    return None
+            else:
+                logger.warning(f"⚠️ [{task_id}] MOV MetaEdit failed: {result.stderr}")
+                if os.path.exists(output_file):
+                    os.remove(output_file)
+                return None
+                
+        except subprocess.TimeoutExpired:
+            logger.warning(f"⚠️ [{task_id}] MOV MetaEdit timeout")
+            if os.path.exists(output_file):
+                os.remove(output_file)
+            return None
+        
+    except Exception as e:
+        logger.error(f"❌ [{task_id}] MOV MetaEdit SAR fix failed: {e}")
+        return None
+
 async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: str) -> str | None:
     """
-    Use MP4Box to fix SAR metadata without re-encoding (very fast)
-    This is our Strategy 1: fastest possible SAR fix
+    Use MP4Box to fix SAR metadata without re-encoding (fallback method)
+    This is our Strategy 1.5: fallback when MOV MetaEdit is not available
     """
     try:
         # First, check if MP4Box is available
@@ -375,6 +477,49 @@ async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: s
             return None
         
         logger.info(f"🔧 [{task_id}] MP4Box available, fixing SAR metadata (no re-encoding)...")
+        
+        # Strategy 1: Try in-place editing first (saves disk space)
+        inplace_commands = [
+            # In-place editing - modify the file directly
+            [
+                "MP4Box",
+                "-par", "1=1:1",
+                temp_mp4_file
+            ],
+            # Alternative in-place with remove PAR
+            [
+                "MP4Box",
+                "-par", "1=none",
+                temp_mp4_file
+            ]
+        ]
+        
+        logger.info(f"🔧 [{task_id}] Trying in-place MP4Box editing (saves disk space)...")
+        for i, cmd in enumerate(inplace_commands, 1):
+            try:
+                logger.info(f"🔧 [{task_id}] MP4Box in-place attempt {i}/{len(inplace_commands)}: {' '.join(cmd[1:3])}")
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                if result.returncode == 0:
+                    if os.path.exists(temp_mp4_file) and os.path.getsize(temp_mp4_file) > 0:
+                        logger.info(f"✅ [{task_id}] MP4Box in-place SAR fix successful with approach {i}")
+                        # Move the fixed file to final output
+                        os.rename(temp_mp4_file, output_file)
+                        return output_file
+                    else:
+                        logger.warning(f"⚠️ [{task_id}] MP4Box in-place approach {i} completed but file is empty")
+                        continue
+                else:
+                    logger.warning(f"⚠️ [{task_id}] MP4Box in-place approach {i} failed: {result.stderr}")
+                    continue
+                    
+            except subprocess.TimeoutExpired:
+                logger.warning(f"⚠️ [{task_id}] MP4Box in-place approach {i} timeout")
+                continue
+        
+        # Strategy 2: If in-place editing failed, try output to new file
+        logger.info(f"🔧 [{task_id}] In-place editing failed, trying output to new file...")
         
         # Use MP4Box to fix SAR - correct syntax with track ID
         commands_to_try = [
@@ -397,13 +542,6 @@ async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: s
                 "MP4Box",
                 "-par", "0=1:1",
                 "-out", output_file,
-                temp_mp4_file
-            ],
-            # Approach 4: Alternative syntax with -new flag
-            [
-                "MP4Box",
-                "-par", "1=1:1",
-                "-new", output_file,
                 temp_mp4_file
             ]
         ]
@@ -843,73 +981,6 @@ async def fix_mp4_sar_binary(task_id: str, input_file: str, output_file: str) ->
         logger.error(f"❌ [{task_id}] Python binary SAR fix failed: {e}")
         return None
 
-async def merge_with_atomicparsley_fix(task_id: str, temp_mp4_file: str, output_file: str) -> str | None:
-    """
-    Use AtomicParsley to fix SAR metadata without re-encoding (alternative fast method)
-    """
-    try:
-        # Check if AtomicParsley is available
-        check_cmd = ["AtomicParsley", "--version"]
-        check_result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=10)
-        
-        if check_result.returncode != 0:
-            logger.info(f"[{task_id}] AtomicParsley not available on system")
-            return None
-        
-        logger.info(f"🔧 [{task_id}] AtomicParsley available, fixing SAR metadata...")
-        
-        # Use AtomicParsley to fix pixel aspect ratio
-        commands_to_try = [
-            # Approach 1: Set pixel aspect ratio to 1:1
-            [
-                "AtomicParsley",
-                temp_mp4_file,
-                "--pixelAspectRatio", "1:1",
-                "--output", output_file
-            ],
-            # Approach 2: Remove existing pixel aspect ratio
-            [
-                "AtomicParsley",
-                temp_mp4_file,
-                "--pixelAspectRatio", "",
-                "--output", output_file
-            ]
-        ]
-        
-        for i, cmd in enumerate(commands_to_try, 1):
-            try:
-                logger.info(f"🔧 [{task_id}] AtomicParsley attempt {i}/{len(commands_to_try)}")
-                
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                
-                if result.returncode == 0:
-                    if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                        logger.info(f"✅ [{task_id}] AtomicParsley SAR fix successful with approach {i}")
-                        return output_file
-                    else:
-                        logger.warning(f"⚠️ [{task_id}] AtomicParsley approach {i} completed but output file is empty")
-                        if os.path.exists(output_file):
-                            os.remove(output_file)
-                        continue
-                else:
-                    logger.warning(f"⚠️ [{task_id}] AtomicParsley approach {i} failed: {result.stderr}")
-                    if os.path.exists(output_file):
-                        os.remove(output_file)
-                    continue
-                    
-            except subprocess.TimeoutExpired:
-                logger.warning(f"⚠️ [{task_id}] AtomicParsley approach {i} timeout")
-                if os.path.exists(output_file):
-                    os.remove(output_file)
-                continue
-        
-        logger.info(f"[{task_id}] All AtomicParsley approaches failed")
-        return None
-            
-    except Exception as e:
-        logger.warning(f"⚠️ [{task_id}] AtomicParsley error: {e}")
-        return None
-
 async def merge_with_ffmpeg_metadata_fix(task_id: str, temp_mp4_file: str, output_file: str) -> str | None:
     """
     Use FFmpeg stream copy with metadata fix (fast, no re-encoding)
@@ -919,30 +990,23 @@ async def merge_with_ffmpeg_metadata_fix(task_id: str, temp_mp4_file: str, outpu
         
         # FFmpeg stream copy with SAR fix - no re-encoding
         commands_to_try = [
-            # Approach 1: Stream copy with SAR filter
+            # Approach 1: Stream copy with aspect ratio fix
             [
                 "ffmpeg",
+                "-loglevel", "error",
                 "-i", temp_mp4_file,
                 "-c", "copy",
                 "-aspect", "16:9",  # Common mobile aspect ratio
                 "-y",
                 output_file
             ],
-            # Approach 2: Stream copy with metadata override
+            # Approach 2: Stream copy with pixel aspect ratio fix
             [
                 "ffmpeg",
+                "-loglevel", "error",
                 "-i", temp_mp4_file,
                 "-c", "copy",
-                "-metadata:s:v:0", "aspect=1:1",
-                "-y",
-                output_file
-            ],
-            # Approach 3: Stream copy with display aspect ratio
-            [
-                "ffmpeg",
-                "-i", temp_mp4_file,
-                "-c", "copy",
-                "-aspect", "1280:694",  # Use original resolution ratio
+                "-vf", "setsar=1:1",  # Set SAR to 1:1 (square pixels)
                 "-y",
                 output_file
             ]
@@ -952,25 +1016,52 @@ async def merge_with_ffmpeg_metadata_fix(task_id: str, temp_mp4_file: str, outpu
             try:
                 logger.info(f"🔧 [{task_id}] FFmpeg metadata fix attempt {i}/{len(commands_to_try)}")
                 
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                # Use asyncio subprocess for better timeout handling
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
                 
-                if result.returncode == 0:
-                    if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                        logger.info(f"✅ [{task_id}] FFmpeg metadata fix successful with approach {i}")
-                        return output_file
+                try:
+                    # Wait for process with timeout
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=60.0  # 60 second timeout
+                    )
+                    
+                    if process.returncode == 0:
+                        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+                            logger.info(f"✅ [{task_id}] FFmpeg metadata fix successful with approach {i}")
+                            return output_file
+                        else:
+                            logger.warning(f"⚠️ [{task_id}] FFmpeg metadata approach {i} completed but output file is empty")
+                            if os.path.exists(output_file):
+                                os.remove(output_file)
+                            continue
                     else:
-                        logger.warning(f"⚠️ [{task_id}] FFmpeg metadata approach {i} completed but output file is empty")
+                        logger.warning(f"⚠️ [{task_id}] FFmpeg metadata approach {i} failed: {stderr.decode()}")
                         if os.path.exists(output_file):
                             os.remove(output_file)
                         continue
-                else:
-                    logger.warning(f"⚠️ [{task_id}] FFmpeg metadata approach {i} failed: {result.stderr}")
+                        
+                except asyncio.TimeoutError:
+                    logger.warning(f"⚠️ [{task_id}] FFmpeg metadata approach {i} timeout (60s)")
+                    # Kill the process if it's still running
+                    if process.returncode is None:
+                        process.terminate()
+                        try:
+                            await asyncio.wait_for(process.wait(), timeout=5.0)
+                        except asyncio.TimeoutError:
+                            process.kill()
+                    
+                    # Clean up partial output
                     if os.path.exists(output_file):
                         os.remove(output_file)
                     continue
                     
-            except subprocess.TimeoutExpired:
-                logger.warning(f"⚠️ [{task_id}] FFmpeg metadata approach {i} timeout")
+            except Exception as e:
+                logger.warning(f"⚠️ [{task_id}] FFmpeg metadata approach {i} error: {e}")
                 if os.path.exists(output_file):
                     os.remove(output_file)
                 continue

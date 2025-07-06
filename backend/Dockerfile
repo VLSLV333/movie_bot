@@ -42,7 +42,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 RUN echo "✅ System build tools installed"
 
-# Install MP4Box with multiple fallback methods
+# Install MOV MetaEdit (official MediaArea tool) for professional SAR fixing
+RUN echo "📦 Installing MOV MetaEdit..." && \
+    apt-get update && \
+    apt-get install -y movmetaedit && \
+    which movmetaedit && \
+    movmetaedit --version && \
+    echo "✅ MOV MetaEdit installed successfully"
+
+# Install MP4Box with multiple fallback methods (fallback for MOV MetaEdit)
 RUN echo "📦 Installing MP4Box binary..." && \
     # Method 1: Try to install from Ubuntu repository
     (apt-get update && \
@@ -98,31 +106,6 @@ RUN echo "📦 Installing MP4Box binary..." && \
 
 # Clean up apt cache
 RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-# Install AtomicParsley for additional SAR fixing capabilities
-RUN echo "📦 Installing AtomicParsley..." && \
-    # Method 1: Try to install from Ubuntu repository
-    (apt-get update && \
-     apt-get install -y atomicparsley && \
-     which AtomicParsley && \
-     AtomicParsley --version && \
-     echo "✅ AtomicParsley installed from Ubuntu repository") || \
-    \
-    # Method 2: Download pre-compiled binary
-    (echo "⚠️ Repository install failed, trying pre-compiled binary..." && \
-     wget -q https://github.com/wez/atomicparsley/releases/download/20210715.173801.8fb1ade/AtomicParsley-20210715.173801.8fb1ade-linux-x86_64.zip -O /tmp/atomicparsley.zip && \
-     cd /tmp && \
-     unzip -q atomicparsley.zip && \
-     cp AtomicParsley /usr/local/bin/AtomicParsley && \
-     chmod +x /usr/local/bin/AtomicParsley && \
-     rm -rf /tmp/atomicparsley.zip AtomicParsley && \
-     which AtomicParsley && \
-     AtomicParsley --version && \
-     echo "✅ AtomicParsley installed from pre-compiled binary") || \
-    \
-    # Method 3: Continue without AtomicParsley
-    (echo "⚠️ AtomicParsley installation failed - will use other methods" && \
-     echo "⚠️ Container will continue without AtomicParsley")
 
 # Final cleanup
 RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
