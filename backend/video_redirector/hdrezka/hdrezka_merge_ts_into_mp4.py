@@ -193,17 +193,7 @@ async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Di
         logger.info(f"📱 [{task_id}] Mobile compatibility issue detected: {reason}")
         logger.info(f"🎯 [{task_id}] Skipping direct copy, attempting SAR fixes...")
         
-        # Strategy 1: SAR fix with bitstream filter (fast, no re-encoding)
-        try:
-            logger.info(f"🔄 [{task_id}] Attempting SAR fix with bitstream filter...")
-            result = await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
-            if result:
-                return result
-        except MergeError as e:
-            logger.warning(f"⚠️ [{task_id}] SAR fix failed: {e.message}")
-            logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
-        
-        # Strategy 2: Container-level aspect ratio fix (fast, no re-encoding)
+        # Strategy 1: Container-level aspect ratio fix (fastest, no re-encoding)
         try:
             logger.info(f"🔄 [{task_id}] Attempting container-level aspect ratio fix...")
             result = await merge_with_container_aspect_fix(task_id, m3u8_url, headers, output_file)
@@ -212,16 +202,29 @@ async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Di
         except MergeError as e:
             logger.warning(f"⚠️ [{task_id}] Container aspect fix failed: {e.message}")
             logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
+            # If this was a SAR validation failure, we need to try re-encoding
+            if "SAR validation failed" in e.message:
+                logger.info(f"🎯 [{task_id}] Container fix didn't achieve mobile compatibility, proceeding to re-encode...")
         
-        # Strategy 3: Last resort - re-encode only if absolutely necessary
+        # Strategy 2: SAR fix with fast re-encoding (good quality, moderate speed)
         try:
-            logger.warning(f"⚠️ [{task_id}] Fast SAR fixes failed, attempting re-encode as last resort...")
-            logger.warning(f"🐌 [{task_id}] This will be slow on your VPS - consider if source is compatible")
+            logger.info(f"🔄 [{task_id}] Attempting SAR fix with fast re-encoding...")
+            result = await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
+            if result:
+                return result
+        except MergeError as e:
+            logger.warning(f"⚠️ [{task_id}] Fast SAR fix failed: {e.message}")
+            logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
+        
+        # Strategy 3: Last resort - high quality re-encode with balanced settings
+        try:
+            logger.warning(f"⚠️ [{task_id}] Fast fixes failed, attempting high-quality re-encode as last resort...")
+            logger.warning(f"🐌 [{task_id}] This will be slower but ensures maximum mobile compatibility")
             result = await merge_with_aspect_fix(task_id, m3u8_url, headers, output_file)
             if result:
                 return result
         except MergeError as e:
-            logger.error(f"❌ [{task_id}] Re-encode failed: {e.message}")
+            logger.error(f"❌ [{task_id}] High-quality re-encode failed: {e.message}")
             logger.error(f"FFmpeg output: {e.ffmpeg_output}")
     
     else:
@@ -276,7 +279,7 @@ async def merge_with_direct_copy(task_id: str, m3u8_url: str, headers: Dict[str,
 async def merge_with_sar_fix(task_id: str, m3u8_url: str, headers: Dict[str, str], 
                             output_file: str) -> str | None:
     """
-    Merge with SAR fix using bitstream filter - fast, no re-encoding
+    Merge with SAR fix using fast re-encoding - fixes SAR with minimal quality loss
     """
     ffmpeg_header_str = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
     
@@ -286,20 +289,23 @@ async def merge_with_sar_fix(task_id: str, m3u8_url: str, headers: Dict[str, str
         "-headers", ffmpeg_header_str,
         "-protocol_whitelist", "file,http,https,tcp,tls",
         "-i", m3u8_url,
-        "-c", "copy",  # No re-encoding
-        "-bsf:v", "h264_metadata=sample_aspect_ratio=1:1",  # Fix SAR without re-encoding
-        "-bsf:a", "aac_adtstoasc",
+        "-c:v", "libx264",  # Fast H.264 encoding
+        "-preset", "veryfast",  # Fastest preset for minimal processing time
+        "-crf", "18",  # High quality (lossless-like)
+        "-vf", "setsar=1:1",  # Fix SAR
+        "-c:a", "copy",  # Copy audio without re-encoding
         "-movflags", "+faststart",
         "-y",
         output_file
     ]
     
-    return await run_ffmpeg_command(cmd, task_id, "SAR fix (no re-encoding)")
+    return await run_ffmpeg_command(cmd, task_id, "SAR fix (fast re-encoding)")
 
 async def merge_with_container_aspect_fix(task_id: str, m3u8_url: str, headers: Dict[str, str], 
                                         output_file: str) -> str | None:
     """
     Merge with container-level aspect ratio fix - fast, no re-encoding
+    Note: This only fixes container metadata, not the actual video stream SAR
     """
     ffmpeg_header_str = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
     
@@ -310,7 +316,8 @@ async def merge_with_container_aspect_fix(task_id: str, m3u8_url: str, headers: 
         "-protocol_whitelist", "file,http,https,tcp,tls",
         "-i", m3u8_url,
         "-c", "copy",  # No re-encoding
-        "-aspect", "16:9",  # Force 16:9 aspect ratio at container level
+        "-aspect", "16:9",  # Force 16:9 aspect ratio at container level only
+        "-metadata:s:v:0", "rotate=0",  # Clear any rotation metadata
         "-bsf:a", "aac_adtstoasc",
         "-movflags", "+faststart",
         "-y",
@@ -470,13 +477,21 @@ async def run_ffmpeg_command(cmd: list, task_id: str, strategy: str) -> str | No
                                 if stream.get("codec_type") == "video":
                                     sar = stream.get('sample_aspect_ratio', '1:1')
                                     if sar != '1:1':
-                                        logger.warning(f"⚠️ [{task_id}] {strategy} completed but SAR still {sar} - fix may have failed")
-                                        # Don't raise error here, just log the issue
+                                        logger.warning(f"⚠️ [{task_id}] {strategy} completed but SAR still {sar} - fix failed")
+                                        # For SAR/aspect fixes, fail the strategy if SAR wasn't actually fixed
+                                        # This will trigger the next fallback strategy (re-encoding)
+                                        error_msg = f"{strategy} succeeded but SAR still {sar}, mobile compatibility not achieved"
+                                        logger.error(f"❌ [{task_id}] {error_msg}")
+                                        raise MergeError(error_msg, f"SAR validation failed: {sar}", 0)
                                     else:
                                         logger.info(f"✅ [{task_id}] SAR successfully fixed to 1:1")
                                     break
+                    except MergeError:
+                        # Re-raise MergeError to trigger fallback
+                        raise
                     except Exception as e:
                         logger.warning(f"⚠️ [{task_id}] Could not validate output SAR: {e}")
+                        # If we can't validate, assume it worked to avoid infinite retry
                 
                 status_tracker.pop(task_id, None)
                 return output_file
