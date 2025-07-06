@@ -47,7 +47,9 @@ RUN echo "📦 Installing MOV MetaEdit..." && \
     # Add MediaArea repository for MOV MetaEdit
     apt-get update && \
     apt-get install -y gnupg2 && \
-    wget -q -O - https://mediaarea.net/repo/deb/repo-mediaarea_1.0-24_all.deb | dpkg -i - && \
+    wget -q https://mediaarea.net/repo/deb/repo-mediaarea_1.0-24_all.deb -O /tmp/repo-mediaarea.deb && \
+    dpkg -i /tmp/repo-mediaarea.deb && \
+    rm /tmp/repo-mediaarea.deb && \
     apt-get update && \
     apt-get install -y movmetaedit && \
     which movmetaedit && \
