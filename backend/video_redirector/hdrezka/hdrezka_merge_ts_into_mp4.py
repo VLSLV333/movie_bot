@@ -409,10 +409,36 @@ async def merge_with_movmetaedit_fix(task_id: str, temp_mp4_file: str, output_fi
             
             if result.returncode == 0:
                 if os.path.exists(temp_mp4_file) and os.path.getsize(temp_mp4_file) > 0:
-                    logger.info(f"✅ [{task_id}] MOV MetaEdit in-place SAR fix successful")
-                    # Move the fixed file to final output
-                    os.rename(temp_mp4_file, output_file)
-                    return output_file
+                    # Validate that SAR was actually fixed
+                    try:
+                        cmd = [
+                            "ffprobe",
+                            "-v", "quiet",
+                            "-print_format", "json",
+                            "-show_streams",
+                            temp_mp4_file
+                        ]
+                        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                        if result.returncode == 0:
+                            metadata = json.loads(result.stdout)
+                            for stream in metadata.get("streams", []):
+                                if stream.get("codec_type") == "video":
+                                    sar = stream.get('sample_aspect_ratio', '1:1')
+                                    if sar != '1:1':
+                                        logger.warning(f"⚠️ [{task_id}] MOV MetaEdit in-place completed but SAR still {sar} - fix failed")
+                                        # Fall through to try output method
+                                        break
+                                    else:
+                                        logger.info(f"✅ [{task_id}] MOV MetaEdit in-place SAR fix successful - SAR now 1:1")
+                                        # Move the fixed file to final output
+                                        os.rename(temp_mp4_file, output_file)
+                                        return output_file
+                                    break
+                    except Exception as e:
+                        logger.warning(f"⚠️ [{task_id}] Could not validate SAR after MOV MetaEdit in-place: {e}")
+                        # Fall through to try output method
+                    
+                    logger.warning(f"⚠️ [{task_id}] MOV MetaEdit in-place completed but SAR validation failed")
                 else:
                     logger.warning(f"⚠️ [{task_id}] MOV MetaEdit in-place completed but file is empty")
             else:
@@ -439,8 +465,40 @@ async def merge_with_movmetaedit_fix(task_id: str, temp_mp4_file: str, output_fi
             
             if result.returncode == 0:
                 if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                    logger.info(f"✅ [{task_id}] MOV MetaEdit SAR fix successful")
-                    return output_file
+                    # Validate that SAR was actually fixed
+                    try:
+                        cmd = [
+                            "ffprobe",
+                            "-v", "quiet",
+                            "-print_format", "json",
+                            "-show_streams",
+                            output_file
+                        ]
+                        validation_result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                        if validation_result.returncode == 0:
+                            metadata = json.loads(validation_result.stdout)
+                            for stream in metadata.get("streams", []):
+                                if stream.get("codec_type") == "video":
+                                    sar = stream.get('sample_aspect_ratio', '1:1')
+                                    if sar != '1:1':
+                                        logger.warning(f"⚠️ [{task_id}] MOV MetaEdit completed but SAR still {sar} - fix failed")
+                                        if os.path.exists(output_file):
+                                            os.remove(output_file)
+                                        return None
+                                    else:
+                                        logger.info(f"✅ [{task_id}] MOV MetaEdit SAR fix successful - SAR now 1:1")
+                                        return output_file
+                                    break
+                    except Exception as e:
+                        logger.warning(f"⚠️ [{task_id}] Could not validate SAR after MOV MetaEdit: {e}")
+                        if os.path.exists(output_file):
+                            os.remove(output_file)
+                        return None
+                    
+                    logger.warning(f"⚠️ [{task_id}] MOV MetaEdit completed but SAR validation failed")
+                    if os.path.exists(output_file):
+                        os.remove(output_file)
+                    return None
                 else:
                     logger.warning(f"⚠️ [{task_id}] MOV MetaEdit completed but output file is empty")
                     if os.path.exists(output_file):
@@ -503,10 +561,35 @@ async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: s
                 
                 if result.returncode == 0:
                     if os.path.exists(temp_mp4_file) and os.path.getsize(temp_mp4_file) > 0:
-                        logger.info(f"✅ [{task_id}] MP4Box in-place SAR fix successful with approach {i}")
-                        # Move the fixed file to final output
-                        os.rename(temp_mp4_file, output_file)
-                        return output_file
+                        # Validate that SAR was actually fixed
+                        try:
+                            probe_cmd = [
+                                "ffprobe",
+                                "-v", "quiet",
+                                "-print_format", "json",
+                                "-show_streams",
+                                temp_mp4_file
+                            ]
+                            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, check=True)
+                            if probe_result.returncode == 0:
+                                metadata = json.loads(probe_result.stdout)
+                                for stream in metadata.get("streams", []):
+                                    if stream.get("codec_type") == "video":
+                                        sar = stream.get('sample_aspect_ratio', '1:1')
+                                        if sar != '1:1':
+                                            logger.warning(f"⚠️ [{task_id}] MP4Box in-place approach {i} completed but SAR still {sar} - fix failed")
+                                            break  # Try next approach
+                                        else:
+                                            logger.info(f"✅ [{task_id}] MP4Box in-place SAR fix successful with approach {i} - SAR now 1:1")
+                                            # Move the fixed file to final output
+                                            os.rename(temp_mp4_file, output_file)
+                                            return output_file
+                                        break
+                        except Exception as e:
+                            logger.warning(f"⚠️ [{task_id}] Could not validate SAR after MP4Box in-place approach {i}: {e}")
+                            continue
+                        
+                        logger.warning(f"⚠️ [{task_id}] MP4Box in-place approach {i} completed but SAR validation failed")
                     else:
                         logger.warning(f"⚠️ [{task_id}] MP4Box in-place approach {i} completed but file is empty")
                         continue
@@ -554,8 +637,41 @@ async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: s
                 
                 if result.returncode == 0:
                     if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                        logger.info(f"✅ [{task_id}] MP4Box SAR fix successful with approach {i}")
-                        return output_file
+                        # Validate that SAR was actually fixed
+                        try:
+                            cmd = [
+                                "ffprobe",
+                                "-v", "quiet",
+                                "-print_format", "json",
+                                "-show_streams",
+                                output_file
+                            ]
+                            validation_result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                            if validation_result.returncode == 0:
+                                metadata = json.loads(validation_result.stdout)
+                                for stream in metadata.get("streams", []):
+                                    if stream.get("codec_type") == "video":
+                                        sar = stream.get('sample_aspect_ratio', '1:1')
+                                        if sar != '1:1':
+                                            logger.warning(f"⚠️ [{task_id}] MP4Box approach {i} completed but SAR still {sar} - fix failed")
+                                            # Clean up failed file and try next approach
+                                            if os.path.exists(output_file):
+                                                os.remove(output_file)
+                                            continue
+                                        else:
+                                            logger.info(f"✅ [{task_id}] MP4Box SAR fix successful with approach {i} - SAR now 1:1")
+                                            return output_file
+                                        break
+                        except Exception as e:
+                            logger.warning(f"⚠️ [{task_id}] Could not validate SAR after MP4Box approach {i}: {e}")
+                            # Clean up and try next approach
+                            if os.path.exists(output_file):
+                                os.remove(output_file)
+                            continue
+                        
+                        logger.warning(f"⚠️ [{task_id}] MP4Box approach {i} completed but SAR validation failed")
+                        if os.path.exists(output_file):
+                            os.remove(output_file)
                     else:
                         logger.warning(f"⚠️ [{task_id}] MP4Box approach {i} completed but output file is empty")
                         # Clean up empty file and try next approach
@@ -614,8 +730,39 @@ async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: s
                     
                     if targeted_result.returncode == 0:
                         if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                            logger.info(f"✅ [{task_id}] MP4Box SAR fix successful with -info detected track ID {track_id}")
-                            return output_file
+                            # Validate that SAR was actually fixed
+                            try:
+                                cmd = [
+                                    "ffprobe",
+                                    "-v", "quiet",
+                                    "-print_format", "json",
+                                    "-show_streams",
+                                    output_file
+                                ]
+                                validation_result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                                if validation_result.returncode == 0:
+                                    metadata = json.loads(validation_result.stdout)
+                                    for stream in metadata.get("streams", []):
+                                        if stream.get("codec_type") == "video":
+                                            sar = stream.get('sample_aspect_ratio', '1:1')
+                                            if sar != '1:1':
+                                                logger.warning(f"⚠️ [{task_id}] MP4Box -info approach with track ID {track_id} completed but SAR still {sar} - fix failed")
+                                                if os.path.exists(output_file):
+                                                    os.remove(output_file)
+                                                # Continue to next fallback
+                                                break
+                                            else:
+                                                logger.info(f"✅ [{task_id}] MP4Box SAR fix successful with -info detected track ID {track_id} - SAR now 1:1")
+                                                return output_file
+                                            break
+                            except Exception as e:
+                                logger.warning(f"⚠️ [{task_id}] Could not validate SAR after MP4Box -info approach: {e}")
+                                if os.path.exists(output_file):
+                                    os.remove(output_file)
+                            
+                            logger.warning(f"⚠️ [{task_id}] MP4Box -info approach completed but SAR validation failed")
+                            if os.path.exists(output_file):
+                                os.remove(output_file)
                         else:
                             logger.warning(f"⚠️ [{task_id}] MP4Box -info approach completed but output file is empty")
                             if os.path.exists(output_file):
@@ -635,7 +782,8 @@ async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: s
             logger.warning(f"⚠️ [{task_id}] MP4Box -info approach error: {e}")
         
         # All approaches failed
-        logger.info(f"[{task_id}] All MP4Box approaches failed")
+        logger.warning(f"🚫 [{task_id}] ALL MP4Box approaches failed (in-place, output, -info)")
+        logger.info(f"🔄 [{task_id}] MP4Box could not fix SAR - will try FFmpeg fallback...")
         return None
             
     except Exception as e:
