@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     unzip \
     build-essential \
-    gcc \ 
+    gcc \
     python3-dev \
     libffi-dev \
     libssl-dev \
