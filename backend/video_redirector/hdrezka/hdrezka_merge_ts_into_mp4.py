@@ -536,23 +536,80 @@ async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: s
         
         logger.info(f"🔧 [{task_id}] MP4Box available, fixing SAR metadata (no re-encoding)...")
         
+        # STEP 1: Detect correct video track ID first
+        logger.info(f"🔍 [{task_id}] Detecting video track ID using MP4Box -info...")
+        
+        try:
+            # Get track information first
+            info_cmd = ["MP4Box", "-info", temp_mp4_file]
+            info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30)
+            
+            if info_result.returncode != 0:
+                logger.warning(f"⚠️ [{task_id}] MP4Box -info command failed: {info_result.stderr}")
+                return None
+            
+            logger.info(f"🔍 [{task_id}] MP4Box -info output:")
+            logger.info(f"{info_result.stdout}")
+            
+            # Parse track info to find video track ID - improved parsing
+            track_id = None
+            for line in info_result.stdout.splitlines():
+                # Look for patterns like:
+                # "Track # 1 Info - TrackID 1 - TimeScale 1000"
+                # "Track 1 - VideoHandler - Resolution 1280 x 534"
+                # "TrackID 1 - Video - MPEG-4 Visual"
+                if ("Track" in line and ("Video" in line or "Visual" in line)) or \
+                   ("TrackID" in line and ("Video" in line or "Visual" in line)):
+                    
+                    # Try multiple parsing approaches
+                    # Approach 1: Look for "TrackID X"
+                    import re
+                    track_match = re.search(r'TrackID\s+(\d+)', line)
+                    if track_match:
+                        track_id = int(track_match.group(1))
+                        logger.info(f"🎯 [{task_id}] Found video track ID via TrackID pattern: {track_id}")
+                        break
+                    
+                    # Approach 2: Look for "Track # X"
+                    track_match = re.search(r'Track\s*#?\s*(\d+)', line)
+                    if track_match:
+                        track_id = int(track_match.group(1))
+                        logger.info(f"🎯 [{task_id}] Found video track ID via Track # pattern: {track_id}")
+                        break
+            
+            if track_id is None:
+                logger.warning(f"⚠️ [{task_id}] Could not detect video track ID from MP4Box -info output")
+                return None
+            
+            logger.info(f"✅ [{task_id}] Video track ID detected: {track_id}")
+            
+        except subprocess.TimeoutExpired:
+            logger.warning(f"⚠️ [{task_id}] MP4Box -info command timeout")
+            return None
+        except Exception as e:
+            logger.warning(f"⚠️ [{task_id}] MP4Box -info approach error: {e}")
+            return None
+        
+        # STEP 2: Use detected track ID in ALL MP4Box approaches
+        logger.info(f"🔧 [{task_id}] Using detected track ID {track_id} in ALL MP4Box approaches...")
+        
         # Strategy 1: Try in-place editing first (saves disk space)
         inplace_commands = [
             # In-place editing - modify the file directly
             [
                 "MP4Box",
-                "-par", "1=1:1",
+                "-par", f"{track_id}=1:1",
                 temp_mp4_file
             ],
             # Alternative in-place with remove PAR
             [
                 "MP4Box",
-                "-par", "1=none",
+                "-par", f"{track_id}=none",
                 temp_mp4_file
             ]
         ]
         
-        logger.info(f"🔧 [{task_id}] Trying in-place MP4Box editing (saves disk space)...")
+        logger.info(f"🔧 [{task_id}] Trying in-place MP4Box editing with track ID {track_id} (saves disk space)...")
         for i, cmd in enumerate(inplace_commands, 1):
             try:
                 logger.info(f"🔧 [{task_id}] MP4Box in-place attempt {i}/{len(inplace_commands)}: {' '.join(cmd[1:3])}")
@@ -602,28 +659,21 @@ async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: s
                 continue
         
         # Strategy 2: If in-place editing failed, try output to new file
-        logger.info(f"🔧 [{task_id}] In-place editing failed, trying output to new file...")
+        logger.info(f"🔧 [{task_id}] In-place editing failed, trying output to new file with track ID {track_id}...")
         
-        # Use MP4Box to fix SAR - correct syntax with track ID
+        # Use MP4Box to fix SAR - using detected track ID
         commands_to_try = [
-            # Approach 1: Set pixel aspect ratio to 1:1 for track 1 (video track)
+            # Approach 1: Set pixel aspect ratio to 1:1 for detected track
             [
                 "MP4Box",
-                "-par", "1=1:1",
+                "-par", f"{track_id}=1:1",
                 "-out", output_file,
                 temp_mp4_file
             ],
-            # Approach 2: Remove PAR for track 1 (let it default to square pixels)
+            # Approach 2: Remove PAR for detected track (let it default to square pixels)
             [
                 "MP4Box", 
-                "-par", "1=none",
-                "-out", output_file,
-                temp_mp4_file
-            ],
-            # Approach 3: Try with track ID 0 (some files use 0-based indexing)
-            [
-                "MP4Box",
-                "-par", "0=1:1",
+                "-par", f"{track_id}=none",
                 "-out", output_file,
                 temp_mp4_file
             ]
@@ -631,7 +681,7 @@ async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: s
         
         for i, cmd in enumerate(commands_to_try, 1):
             try:
-                logger.info(f"🔧 [{task_id}] MP4Box attempt {i}/{len(commands_to_try)}: {' '.join(cmd[1:4])}")
+                logger.info(f"🔧 [{task_id}] MP4Box output attempt {i}/{len(commands_to_try)}: {' '.join(cmd[1:4])}")
                 
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 
@@ -639,150 +689,60 @@ async def merge_with_mp4box_fix(task_id: str, temp_mp4_file: str, output_file: s
                     if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
                         # Validate that SAR was actually fixed
                         try:
-                            cmd = [
+                            validation_cmd = [
                                 "ffprobe",
                                 "-v", "quiet",
                                 "-print_format", "json",
                                 "-show_streams",
                                 output_file
                             ]
-                            validation_result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                            validation_result = subprocess.run(validation_cmd, capture_output=True, text=True, check=True)
                             if validation_result.returncode == 0:
                                 metadata = json.loads(validation_result.stdout)
                                 for stream in metadata.get("streams", []):
                                     if stream.get("codec_type") == "video":
                                         sar = stream.get('sample_aspect_ratio', '1:1')
                                         if sar != '1:1':
-                                            logger.warning(f"⚠️ [{task_id}] MP4Box approach {i} completed but SAR still {sar} - fix failed")
+                                            logger.warning(f"⚠️ [{task_id}] MP4Box output approach {i} completed but SAR still {sar} - fix failed")
                                             # Clean up failed file and try next approach
                                             if os.path.exists(output_file):
                                                 os.remove(output_file)
-                                            continue
+                                            break
                                         else:
-                                            logger.info(f"✅ [{task_id}] MP4Box SAR fix successful with approach {i} - SAR now 1:1")
+                                            logger.info(f"✅ [{task_id}] MP4Box SAR fix successful with output approach {i} - SAR now 1:1")
                                             return output_file
                                         break
                         except Exception as e:
-                            logger.warning(f"⚠️ [{task_id}] Could not validate SAR after MP4Box approach {i}: {e}")
+                            logger.warning(f"⚠️ [{task_id}] Could not validate SAR after MP4Box output approach {i}: {e}")
                             # Clean up and try next approach
                             if os.path.exists(output_file):
                                 os.remove(output_file)
                             continue
                         
-                        logger.warning(f"⚠️ [{task_id}] MP4Box approach {i} completed but SAR validation failed")
+                        logger.warning(f"⚠️ [{task_id}] MP4Box output approach {i} completed but SAR validation failed")
                         if os.path.exists(output_file):
                             os.remove(output_file)
                     else:
-                        logger.warning(f"⚠️ [{task_id}] MP4Box approach {i} completed but output file is empty")
+                        logger.warning(f"⚠️ [{task_id}] MP4Box output approach {i} completed but output file is empty")
                         # Clean up empty file and try next approach
                         if os.path.exists(output_file):
                             os.remove(output_file)
                         continue
                 else:
-                    logger.warning(f"⚠️ [{task_id}] MP4Box approach {i} failed: {result.stderr}")
+                    logger.warning(f"⚠️ [{task_id}] MP4Box output approach {i} failed: {result.stderr}")
                     # Clean up any partial file and try next approach
                     if os.path.exists(output_file):
                         os.remove(output_file)
                     continue
                     
             except subprocess.TimeoutExpired:
-                logger.warning(f"⚠️ [{task_id}] MP4Box approach {i} timeout")
+                logger.warning(f"⚠️ [{task_id}] MP4Box output approach {i} timeout")
                 if os.path.exists(output_file):
                     os.remove(output_file)
                 continue
         
-        # If all standard approaches failed, try to get track info first (REAL -info approach)
-        logger.info(f"🔍 [{task_id}] All standard approaches failed, trying -info approach...")
-        
-        try:
-            # Get track information first
-            info_cmd = ["MP4Box", "-info", temp_mp4_file]
-            info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30)
-            
-            if info_result.returncode == 0:
-                # Parse track info to find video track ID
-                track_id = None
-                for line in info_result.stdout.splitlines():
-                    if "Track # " in line and ("Visual" in line or "Video" in line):
-                        # Extract track ID from line like "Track # 1 Info - TrackID 1 - TimeScale 1000"
-                        parts = line.split()
-                        if len(parts) >= 3:
-                            try:
-                                track_id = int(parts[2])
-                                break
-                            except ValueError:
-                                continue
-                
-                if track_id is not None:
-                    logger.info(f"🎯 [{task_id}] Found video track ID: {track_id}")
-                    
-                    # Try with the detected track ID
-                    targeted_cmd = [
-                        "MP4Box",
-                        "-par", f"{track_id}=1:1",
-                        "-out", output_file,
-                        temp_mp4_file
-                    ]
-                    
-                    logger.info(f"🔧 [{task_id}] MP4Box -info approach with track ID {track_id}")
-                    
-                    targeted_result = subprocess.run(targeted_cmd, capture_output=True, text=True, timeout=30)
-                    
-                    if targeted_result.returncode == 0:
-                        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                            # Validate that SAR was actually fixed
-                            try:
-                                cmd = [
-                                    "ffprobe",
-                                    "-v", "quiet",
-                                    "-print_format", "json",
-                                    "-show_streams",
-                                    output_file
-                                ]
-                                validation_result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-                                if validation_result.returncode == 0:
-                                    metadata = json.loads(validation_result.stdout)
-                                    for stream in metadata.get("streams", []):
-                                        if stream.get("codec_type") == "video":
-                                            sar = stream.get('sample_aspect_ratio', '1:1')
-                                            if sar != '1:1':
-                                                logger.warning(f"⚠️ [{task_id}] MP4Box -info approach with track ID {track_id} completed but SAR still {sar} - fix failed")
-                                                if os.path.exists(output_file):
-                                                    os.remove(output_file)
-                                                # Continue to next fallback
-                                                break
-                                            else:
-                                                logger.info(f"✅ [{task_id}] MP4Box SAR fix successful with -info detected track ID {track_id} - SAR now 1:1")
-                                                return output_file
-                                            break
-                            except Exception as e:
-                                logger.warning(f"⚠️ [{task_id}] Could not validate SAR after MP4Box -info approach: {e}")
-                                if os.path.exists(output_file):
-                                    os.remove(output_file)
-                            
-                            logger.warning(f"⚠️ [{task_id}] MP4Box -info approach completed but SAR validation failed")
-                            if os.path.exists(output_file):
-                                os.remove(output_file)
-                        else:
-                            logger.warning(f"⚠️ [{task_id}] MP4Box -info approach completed but output file is empty")
-                            if os.path.exists(output_file):
-                                os.remove(output_file)
-                    else:
-                        logger.warning(f"⚠️ [{task_id}] MP4Box -info approach failed: {targeted_result.stderr}")
-                        if os.path.exists(output_file):
-                            os.remove(output_file)
-                else:
-                    logger.warning(f"⚠️ [{task_id}] Could not detect video track ID from MP4Box -info output")
-            else:
-                logger.warning(f"⚠️ [{task_id}] MP4Box -info command failed: {info_result.stderr}")
-                
-        except subprocess.TimeoutExpired:
-            logger.warning(f"⚠️ [{task_id}] MP4Box -info command timeout")
-        except Exception as e:
-            logger.warning(f"⚠️ [{task_id}] MP4Box -info approach error: {e}")
-        
         # All approaches failed
-        logger.warning(f"🚫 [{task_id}] ALL MP4Box approaches failed (in-place, output, -info)")
+        logger.warning(f"🚫 [{task_id}] ALL MP4Box approaches failed with detected track ID {track_id}")
         logger.info(f"🔄 [{task_id}] MP4Box could not fix SAR - will try FFmpeg fallback...")
         return None
             
@@ -1138,22 +1098,35 @@ async def merge_with_ffmpeg_metadata_fix(task_id: str, temp_mp4_file: str, outpu
         
         # FFmpeg stream copy with SAR fix - no re-encoding
         commands_to_try = [
-            # Approach 1: Stream copy with aspect ratio fix
+            # Approach 1: Stream copy with SAR metadata fix (no re-encoding)
             [
                 "ffmpeg",
                 "-loglevel", "error",
                 "-i", temp_mp4_file,
                 "-c", "copy",
-                "-aspect", "16:9",  # Common mobile aspect ratio
+                "-bsf:v", "h264_metadata=sample_aspect_ratio=1/1",  # Set SAR to 1:1 via bitstream filter
                 "-y",
                 output_file
             ],
-            # Approach 2: Stream copy with pixel aspect ratio fix
+            # Approach 2: Stream copy with aspect ratio fix (fallback)
             [
                 "ffmpeg",
                 "-loglevel", "error",
                 "-i", temp_mp4_file,
                 "-c", "copy",
+                "-aspect", "16:9",  # Set display aspect ratio
+                "-y",
+                output_file
+            ],
+            # Approach 3: Re-encoding with SAR fix (if metadata approaches fail)
+            [
+                "ffmpeg",
+                "-loglevel", "error",
+                "-i", temp_mp4_file,
+                "-c:v", "libx264",
+                "-crf", "23",  # High quality
+                "-preset", "veryfast",  # Fast encoding
+                "-c:a", "copy",  # Copy audio without re-encoding
                 "-vf", "setsar=1:1",  # Set SAR to 1:1 (square pixels)
                 "-y",
                 output_file
@@ -1180,8 +1153,38 @@ async def merge_with_ffmpeg_metadata_fix(task_id: str, temp_mp4_file: str, outpu
                     
                     if process.returncode == 0:
                         if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                            logger.info(f"✅ [{task_id}] FFmpeg metadata fix successful with approach {i}")
-                            return output_file
+                            # Validate that SAR was actually fixed
+                            try:
+                                validate_cmd = [
+                                    "ffprobe",
+                                    "-v", "quiet",
+                                    "-print_format", "json",
+                                    "-show_streams",
+                                    output_file
+                                ]
+                                validate_result = subprocess.run(validate_cmd, capture_output=True, text=True, check=True)
+                                if validate_result.returncode == 0:
+                                    metadata = json.loads(validate_result.stdout)
+                                    video_stream = next((s for s in metadata['streams'] if s['codec_type'] == 'video'), None)
+                                    if video_stream:
+                                        sar = video_stream.get('sample_aspect_ratio', '1:1')
+                                        if sar == '1:1':
+                                            logger.info(f"✅ [{task_id}] FFmpeg approach {i} - SAR successfully fixed to 1:1")
+                                            return output_file
+                                        else:
+                                            logger.warning(f"⚠️ [{task_id}] FFmpeg approach {i} - SAR still {sar}, not fixed")
+                                            if os.path.exists(output_file):
+                                                os.remove(output_file)
+                                            continue
+                                    else:
+                                        logger.warning(f"⚠️ [{task_id}] FFmpeg approach {i} - no video stream found in validation")
+                                        if os.path.exists(output_file):
+                                            os.remove(output_file)
+                                        continue
+                            except Exception as e:
+                                logger.warning(f"⚠️ [{task_id}] FFmpeg approach {i} - validation failed: {e}")
+                                logger.info(f"✅ [{task_id}] FFmpeg metadata fix successful with approach {i} (validation inconclusive)")
+                                return output_file
                         else:
                             logger.warning(f"⚠️ [{task_id}] FFmpeg metadata approach {i} completed but output file is empty")
                             if os.path.exists(output_file):
