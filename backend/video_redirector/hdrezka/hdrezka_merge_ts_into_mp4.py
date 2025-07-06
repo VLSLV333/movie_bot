@@ -236,19 +236,24 @@ async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Di
         logger.warning(f"⚠️ [{task_id}] MP4Box SAR fix failed: {e}")
     
     # Strategy 2: Python binary MP4 manipulation (fallback)
-    try:
-        logger.info(f"🔧 [{task_id}] Attempting Python binary SAR fix...")
-        binary_result = await fix_mp4_sar_binary(task_id, temp_output_file, output_file)
-        if binary_result:
-            # Clean up temp file
-            if os.path.exists(temp_output_file):
-                os.remove(temp_output_file)
-            logger.info(f"✅ [{task_id}] Python binary SAR fix successful!")
-            return binary_result
-        else:
-            logger.info(f"⚠️ [{task_id}] Python binary manipulation failed, trying ultra-fast re-encoding...")
-    except Exception as e:
-        logger.warning(f"⚠️ [{task_id}] Python binary SAR fix failed: {e}")
+    # DISABLED: This strategy loads entire file into memory (4GB+ files cause crashes)
+    # TODO: Implement streaming binary manipulation for large files
+    # try:
+    #     logger.info(f"🔧 [{task_id}] Attempting Python binary SAR fix...")
+    #     binary_result = await fix_mp4_sar_binary(task_id, temp_output_file, output_file)
+    #     if binary_result:
+    #         # Clean up temp file
+    #         if os.path.exists(temp_output_file):
+    #             os.remove(temp_output_file)
+    #         logger.info(f"✅ [{task_id}] Python binary SAR fix successful!")
+    #         return binary_result
+    #     else:
+    #         logger.info(f"⚠️ [{task_id}] Python binary manipulation failed, trying ultra-fast re-encoding...")
+    # except Exception as e:
+    #     logger.warning(f"⚠️ [{task_id}] Python binary SAR fix failed: {e}")
+    
+    logger.info(f"⚠️ [{task_id}] Python binary SAR fix disabled (prevents crashes with 4GB+ files)")
+    logger.info(f"🔄 [{task_id}] Skipping to ultra-fast FFmpeg re-encoding...")
     
     # Strategy 3: Ultra-fast FFmpeg re-encoding (final fallback)
     try:
