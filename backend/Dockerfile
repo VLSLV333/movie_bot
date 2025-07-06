@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     unzip \
     build-essential \
-    gcc \
+    gcc \ 
     python3-dev \
     libffi-dev \
     libssl-dev \
@@ -42,19 +42,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 RUN echo "✅ System build tools installed"
 
-# Install MOV MetaEdit (official MediaArea tool) for professional SAR fixing
-RUN echo "📦 Installing MOV MetaEdit..." && \
-    # Add MediaArea repository for MOV MetaEdit
-    apt-get update && \
-    apt-get install -y gnupg2 && \
-    wget -q https://mediaarea.net/repo/deb/repo-mediaarea_1.0-24_all.deb -O /tmp/repo-mediaarea.deb && \
-    dpkg -i /tmp/repo-mediaarea.deb && \
-    rm /tmp/repo-mediaarea.deb && \
-    apt-get update && \
-    apt-get install -y movmetaedit && \
-    which movmetaedit && \
-    movmetaedit --version && \
-    echo "✅ MOV MetaEdit installed successfully"
+# Note: MOV MetaEdit installation removed due to Docker complexity
+# MP4Box and FFmpeg provide sufficient SAR fixing capabilities
+RUN echo "📦 MOV MetaEdit skipped - using MP4Box and FFmpeg for SAR fixing"
 
 # Install MP4Box with multiple fallback methods (fallback for MOV MetaEdit)
 RUN echo "📦 Installing MP4Box binary..." && \
