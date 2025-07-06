@@ -44,6 +44,10 @@ RUN echo "✅ System build tools installed"
 
 # Install MOV MetaEdit (official MediaArea tool) for professional SAR fixing
 RUN echo "📦 Installing MOV MetaEdit..." && \
+    # Add MediaArea repository for MOV MetaEdit
+    apt-get update && \
+    apt-get install -y gnupg2 && \
+    wget -q -O - https://mediaarea.net/repo/deb/repo-mediaarea_1.0-24_all.deb | dpkg -i - && \
     apt-get update && \
     apt-get install -y movmetaedit && \
     which movmetaedit && \
