@@ -7,7 +7,7 @@ import subprocess
 import asyncio
 import time
 import json
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 import shutil
 import datetime
 from pyrogram.errors import FloodWait
@@ -77,15 +77,10 @@ _rate_limit_detection_enabled = True
 # Create necessary directories
 os.makedirs(PARTS_DIR, exist_ok=True)
 
-logger.info(f"📁 Current working directory: {os.getcwd()}")
-logger.info(f"📁 Parts directory: {PARTS_DIR}")
-
 def report_rate_limit_event(wait_seconds: int, task_id: str = "unknown"):
     """Report a rate limiting event detected from logs or monitoring"""
     if not _rate_limit_detection_enabled:
         return
-    
-    logger.info(f"⏰ [{task_id}] Rate limit event reported: {wait_seconds}s wait")
     
     # Track the rate limit event
     should_rotate = track_rate_limit_event(wait_seconds)
@@ -234,84 +229,6 @@ async def rotate_account_on_failure(task_id: str, db, current_account):
         logger.error(f"[{task_id}] Error rotating account: {e}")
         return current_account
 
-async def log_video_metadata_for_upload(file_path: str, task_id: str, description: str):
-    """
-    Log detailed video metadata for upload analysis
-    """
-    try:
-        cmd = [
-            "ffprobe",
-            "-v", "quiet",
-            "-print_format", "json",
-            "-show_format",
-            "-show_streams",
-            file_path
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        
-        if result.returncode == 0:
-            import json
-            metadata = json.loads(result.stdout)
-            
-            logger.info(f"📤 [{task_id}] {description} metadata for Telegram upload:")
-            
-            # Log format information
-            if "format" in metadata:
-                format_info = metadata["format"]
-                logger.info(f"   Format: {format_info.get('format_name', 'Unknown')}")
-                logger.info(f"   Duration: {format_info.get('duration', 'Unknown')} seconds")
-                logger.info(f"   Bitrate: {format_info.get('bit_rate', 'Unknown')} bps")
-                logger.info(f"   Size: {format_info.get('size', 'Unknown')} bytes ({os.path.getsize(file_path) / (1024*1024):.1f} MB)")
-            
-            # Log stream information
-            if "streams" in metadata:
-                for i, stream in enumerate(metadata["streams"]):
-                    codec_type = stream.get("codec_type", "unknown")
-                    logger.info(f"   Stream {i} ({codec_type}):")
-                    logger.info(f"     Codec: {stream.get('codec_name', 'Unknown')}")
-                    
-                    if codec_type == "video":
-                        width = stream.get('width', 'Unknown')
-                        height = stream.get('height', 'Unknown')
-                        logger.info(f"     Resolution: {width}x{height}")
-                        logger.info(f"     Aspect Ratio: {stream.get('display_aspect_ratio', 'Unknown')}")
-                        logger.info(f"     Pixel Format: {stream.get('pix_fmt', 'Unknown')}")
-                        logger.info(f"     Frame Rate: {stream.get('r_frame_rate', 'Unknown')}")
-                        logger.info(f"     Bitrate: {stream.get('bit_rate', 'Unknown')} bps")
-                        
-                        # Check for SAR/DAR issues that could cause mobile problems
-                        sar = stream.get('sample_aspect_ratio', '1:1')
-                        dar = stream.get('display_aspect_ratio', 'Unknown')
-                        logger.info(f"     SAR (Sample Aspect Ratio): {sar}")
-                        logger.info(f"     DAR (Display Aspect Ratio): {dar}")
-                        
-                        if sar != '1:1':
-                            logger.warning(f"   ⚠️ [{task_id}] Non-square pixels detected (SAR: {sar}) - this may cause aspect ratio issues in Telegram mobile!")
-                        
-                        # Check for common mobile-friendly aspect ratios
-                        if width != 'Unknown' and height != 'Unknown':
-                            aspect_ratio = float(width) / float(height)
-                            if abs(aspect_ratio - 16/9) < 0.1:
-                                logger.info(f"   ✅ [{task_id}] 16:9 aspect ratio detected - good for mobile")
-                            elif abs(aspect_ratio - 4/3) < 0.1:
-                                logger.info(f"   📱 [{task_id}] 4:3 aspect ratio detected")
-                            elif abs(aspect_ratio - 1.0) < 0.1:
-                                logger.warning(f"   ⚠️ [{task_id}] Square aspect ratio detected - may display poorly on mobile")
-                            else:
-                                logger.info(f"   📐 [{task_id}] Custom aspect ratio: {aspect_ratio:.2f}")
-                    
-                    elif codec_type == "audio":
-                        logger.info(f"     Sample Rate: {stream.get('sample_rate', 'Unknown')} Hz")
-                        logger.info(f"     Channels: {stream.get('channels', 'Unknown')}")
-                        logger.info(f"     Bitrate: {stream.get('bit_rate', 'Unknown')} bps")
-        
-        else:
-            logger.error(f"❌ [{task_id}] Failed to get metadata for {description}: {result.stderr}")
-    
-    except Exception as e:
-        logger.error(f"❌ [{task_id}] Error logging metadata for {description}: {e}")
-
 async def get_video_metadata_for_upload(file_path: str, task_id: str) -> Optional[Dict[str, Any]]:
     """
     Extract video metadata (width, height, duration) for Telegram upload
@@ -387,9 +304,7 @@ async def get_video_metadata_for_upload(file_path: str, task_id: str) -> Optiona
             "duration": int(duration) if duration else None,
             "aspect_ratio": round(aspect_ratio, 2)
         }
-        
-        logger.info(f"📐 [{task_id}] Extracted metadata: {width}x{height} (AR: {aspect_ratio:.2f}), duration: {duration}s")
-        
+
         return result_metadata
         
     except subprocess.TimeoutExpired:
@@ -409,9 +324,7 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
     await register_upload_start(task_id)
     
     try:
-        # Log metadata before upload
-        await log_video_metadata_for_upload(file_path, task_id, f"Part {part_num} before upload")
-        
+
         # Extract metadata for Telegram upload
         upload_metadata = await get_video_metadata_for_upload(file_path, task_id)
         if upload_metadata:
@@ -491,55 +404,6 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     if msg and msg.video:
                         file_id = msg.video.file_id
                         logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
-                        
-                        # Log what Telegram received vs what we sent
-                        tg_width = msg.video.width
-                        tg_height = msg.video.height
-                        tg_duration = msg.video.duration
-                        tg_file_size = msg.video.file_size
-                        
-                        logger.info(f"📱 [{task_id}] Telegram received: {tg_width}x{tg_height}, {tg_duration}s, {tg_file_size} bytes")
-                        
-                        # Compare sent vs received dimensions
-                        if upload_metadata:
-                            sent_width = upload_metadata["width"]
-                            sent_height = upload_metadata["height"]
-                            sent_duration = upload_metadata["duration"]
-                            
-                            logger.info(f"📊 [{task_id}] Dimension comparison:")
-                            logger.info(f"   Sent: {sent_width}x{sent_height}, {sent_duration}s")
-                            logger.info(f"   Received: {tg_width}x{tg_height}, {tg_duration}s")
-                            
-                            # Check if dimensions match
-                            if tg_width == sent_width and tg_height == sent_height:
-                                logger.info(f"✅ [{task_id}] Dimensions match perfectly!")
-                            else:
-                                logger.warning(f"⚠️ [{task_id}] Dimension mismatch detected!")
-                                logger.warning(f"   Expected: {sent_width}x{sent_height}")
-                                logger.warning(f"   Received: {tg_width}x{tg_height}")
-                            
-                            # Check for the dreaded 320x320 issue
-                            if tg_width == 320 and tg_height == 320:
-                                logger.error(f"🚨 [{task_id}] CRITICAL: Telegram received 320x320 (square) despite sending {sent_width}x{sent_height}!")
-                                logger.error(f"🚨 [{task_id}] This indicates a mobile compatibility issue!")
-                            
-                            # Check duration
-                            if sent_duration and tg_duration:
-                                duration_diff = abs(sent_duration - tg_duration)
-                                if duration_diff <= 2:  # Allow 2 second tolerance
-                                    logger.info(f"✅ [{task_id}] Duration match: {duration_diff}s difference")
-                                else:
-                                    logger.warning(f"⚠️ [{task_id}] Duration mismatch: {duration_diff}s difference")
-                        else:
-                            logger.info(f"📊 [{task_id}] No metadata sent - Telegram auto-detected: {tg_width}x{tg_height}")
-                        
-                        # Check aspect ratio
-                        if tg_width and tg_height:
-                            tg_aspect_ratio = tg_width / tg_height
-                            if abs(tg_aspect_ratio - 1.0) < 0.1:
-                                logger.warning(f"⚠️ [{task_id}] Telegram shows square aspect ratio ({tg_width}x{tg_height}) - mobile display issue confirmed!")
-                            else:
-                                logger.info(f"✅ [{task_id}] Telegram aspect ratio: {tg_aspect_ratio:.2f} ({tg_width}x{tg_height})")
                         
                         await log_upload_metrics(task_id, file_size, True, retry_count)
                         await increment_daily_stat(db, account.session_name)
@@ -786,9 +650,6 @@ async def split_video_by_duration(file_path: str, task_id: str, num_parts: int, 
                 
                 logger.info(f"✅ [{task_id}] Part {i+1} generated: {part_output} ({part_size / (1024*1024):.1f}MB) in {elapsed_time:.1f}s")
                 
-                # Log metadata of the generated part
-                asyncio.create_task(log_video_metadata_for_upload(part_output, task_id, f"Generated part {i+1}"))
-                
                 part_paths.append(part_output)
                 
             except subprocess.TimeoutExpired:
@@ -827,9 +688,6 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db):
 
     file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
     logger.info(f"[{task_id}] Checking file: {file_path} ({file_size_mb:.2f} MB)")
-    
-    # Log metadata of the final file before processing
-    await log_video_metadata_for_upload(file_path, task_id, "Final file before upload processing")
     
     global bot_tokens
     tokens = bot_tokens[:]  # Copy to preserve original

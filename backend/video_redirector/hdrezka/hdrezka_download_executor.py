@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePart
 from backend.video_redirector.db.session import get_db
 from backend.video_redirector.hdrezka.hdrezka_extract_to_download import extract_to_download_from_hdrezka
-from backend.video_redirector.hdrezka.hdrezka_merge_ts_into_mp4 import merge_ts_to_mp4, MergeError
+from backend.video_redirector.hdrezka.hdrezka_merge_ts_into_mp4 import merge_ts_to_mp4
 from backend.video_redirector.utils.upload_video_to_tg import check_size_upload_large_file
 from backend.video_redirector.utils.notify_admin import notify_admin
 from backend.video_redirector.exceptions import RetryableDownloadError, RETRYABLE_EXCEPTIONS
@@ -28,32 +28,6 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
         
         try:
             output_path = await merge_ts_to_mp4(task_id, result["url"], result['headers'])
-        except MergeError as e:
-            # Log detailed merge error information
-            logger.error(f"[Download Task {task_id}] Merge failed with detailed error:")
-            logger.error(f"  Error: {e.message}")
-            logger.error(f"  Return code: {e.returncode}")
-            if e.ffmpeg_output:
-                logger.error(f"  FFmpeg output: {e.ffmpeg_output}")
-            
-            # Provide specific error message for different failure types
-            if "timeout" in e.message.lower():
-                error_msg = f"Video merge timed out - file may be too large or connection issues: {e.message}"
-            elif "no .ts segments" in e.message.lower():
-                error_msg = f"No video segments found in source - invalid or corrupted stream: {e.message}"
-            elif "aspect ratio" in e.message.lower():
-                error_msg = f"Video aspect ratio processing failed - source may have incompatible format: {e.message}"
-            elif e.returncode != 0:
-                error_msg = f"FFmpeg processing failed (code {e.returncode}): {e.message}"
-            else:
-                error_msg = f"Video merge failed: {e.message}"
-            
-            await notify_admin(f"🎬 [Download Task {task_id}] Merge Error Details:\n"
-                             f"Error: {e.message}\n"
-                             f"Return Code: {e.returncode}\n"
-                             f"FFmpeg Output: {e.ffmpeg_output[:500]}..." if len(e.ffmpeg_output) > 500 else e.ffmpeg_output)
-            
-            raise Exception(error_msg)
         except Exception as e:
             # Handle any other merge-related errors
             logger.error(f"[Download Task {task_id}] Unexpected merge error: {e}")
