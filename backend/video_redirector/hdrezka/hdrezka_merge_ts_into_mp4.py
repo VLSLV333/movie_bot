@@ -214,7 +214,7 @@ async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Di
                                       segment_metadata: Optional[Dict] = None) -> str | None:
     """
     Merge TS to MP4 with mobile compatibility fixes
-    Strategy: MOV MetaEdit → MP4Box → FFmpeg metadata → Ultra-fast FFmpeg
+    Strategy: MOV MetaEdit → MP4Box → FFmpeg metadata → Use as-is (no re-encoding)
     """
     output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
     temp_output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}_temp.mp4")
@@ -227,13 +227,12 @@ async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Di
     try:
         direct_copy_result = await merge_with_direct_copy(task_id, m3u8_url, headers, temp_output_file)
         if not direct_copy_result:
-            logger.error(f"❌ [{task_id}] Could not get direct copy - trying re-encoding instead")
-            # Skip to final fallback
-            return await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
+            logger.error(f"❌ [{task_id}] Could not get direct copy - cannot proceed without base file")
+            return None
     except MergeError as e:
         logger.warning(f"⚠️ [{task_id}] Direct copy failed: {e.message}")
-        logger.info(f"🔄 [{task_id}] Skipping to re-encoding fallback...")
-        return await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
+        logger.error(f"❌ [{task_id}] Cannot proceed without direct copy - no re-encoding fallback")
+        return None
     
     # If no SAR issues detected, we're done
     if not should_fix:
@@ -299,36 +298,27 @@ async def merge_ts_to_mp4_with_fallback(task_id: str, m3u8_url: str, headers: Di
             logger.info(f"✅ [{task_id}] FFmpeg metadata SAR fix successful!")
             return ffmpeg_metadata_result
         else:
-            logger.info(f"⚠️ [{task_id}] FFmpeg metadata fix failed, skipping to re-encoding...")
+            logger.info(f"⚠️ [{task_id}] FFmpeg metadata fix failed, using file as-is...")
     except Exception as e:
         logger.warning(f"⚠️ [{task_id}] FFmpeg metadata SAR fix failed: {e}")
     
-    # Strategy 3: Ultra-fast FFmpeg re-encoding (final fallback)
-    try:
-        logger.info(f"🔄 [{task_id}] Attempting ultra-fast FFmpeg SAR fix (final fallback)...")
-        # Clean up temp file first
-        cleanup_file(temp_output_file, task_id, "temp file before final fallback")
-        
-        result = await merge_with_sar_fix(task_id, m3u8_url, headers, output_file)
-        if result:
-            logger.info(f"✅ [{task_id}] Ultra-fast FFmpeg SAR fix successful!")
-            return result
-    except MergeError as e:
-        logger.error(f"❌ [{task_id}] Ultra-fast FFmpeg SAR fix failed: {e.message}")
-        logger.debug(f"FFmpeg output: {e.ffmpeg_output}")
-    except Exception as e:
-        logger.error(f"❌ [{task_id}] Unexpected error in final fallback: {e}")
+    # All metadata-only strategies failed - use temp file as-is
+    logger.info(f"📁 [{task_id}] All metadata-only SAR fix strategies failed")
+    logger.info(f"🚀 [{task_id}] Using file as-is and proceeding to upload - no re-encoding")
     
-    # All strategies failed
-    logger.error(f"❌ [{task_id}] All SAR fix strategies failed")
-    
-    # Clean up temp file if it exists
-    cleanup_file(temp_output_file, task_id, "temp file after all strategies failed")
-    
-    # Clean up any partial output files
-    cleanup_file(output_file, task_id, "partial output file")
-    
-    return None
+    # Move temp file to final output without further processing
+    if os.path.exists(temp_output_file):
+        try:
+            os.rename(temp_output_file, output_file)
+            logger.info(f"✅ [{task_id}] File ready for upload (SAR fixes failed but proceeding): {output_file}")
+            return output_file
+        except Exception as e:
+            logger.error(f"❌ [{task_id}] Failed to move temp file to final output: {e}")
+            cleanup_file(temp_output_file, task_id, "temp file after move failure")
+            return None
+    else:
+        logger.error(f"❌ [{task_id}] Temp file disappeared during SAR fix attempts")
+        return None
 
 async def merge_with_direct_copy(task_id: str, m3u8_url: str, headers: Dict[str, str], 
                                output_file: str) -> str | None:
