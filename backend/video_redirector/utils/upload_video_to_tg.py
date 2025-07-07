@@ -7,7 +7,7 @@ import subprocess
 import asyncio
 import time
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Tuple
 import shutil
 import datetime
 from pyrogram.errors import FloodWait
@@ -312,6 +312,96 @@ async def log_video_metadata_for_upload(file_path: str, task_id: str, descriptio
     except Exception as e:
         logger.error(f"❌ [{task_id}] Error logging metadata for {description}: {e}")
 
+async def get_video_metadata_for_upload(file_path: str, task_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Extract video metadata (width, height, duration) for Telegram upload
+    Returns metadata dict or None if extraction fails
+    """
+    try:
+        cmd = [
+            "ffprobe",
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_streams",
+            "-show_format",
+            file_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
+        
+        if result.returncode != 0:
+            logger.warning(f"⚠️ [{task_id}] ffprobe failed with return code {result.returncode}")
+            return None
+        
+        metadata = json.loads(result.stdout)
+        
+        # Extract video stream information
+        video_stream = None
+        for stream in metadata.get("streams", []):
+            if stream.get("codec_type") == "video":
+                video_stream = stream
+                break
+        
+        if not video_stream:
+            logger.warning(f"⚠️ [{task_id}] No video stream found in file")
+            return None
+        
+        # Extract dimensions
+        width = video_stream.get("width")
+        height = video_stream.get("height")
+        
+        # Extract duration (try from format first, then from stream)
+        duration = None
+        if "format" in metadata:
+            duration_str = metadata["format"].get("duration")
+            if duration_str:
+                try:
+                    duration = float(duration_str)
+                except (ValueError, TypeError):
+                    pass
+        
+        # If no duration from format, try from stream
+        if duration is None:
+            duration_str = video_stream.get("duration")
+            if duration_str:
+                try:
+                    duration = float(duration_str)
+                except (ValueError, TypeError):
+                    pass
+        
+        # Validate extracted data
+        if not width or not height:
+            logger.warning(f"⚠️ [{task_id}] Could not extract valid dimensions: width={width}, height={height}")
+            return None
+        
+        if width <= 0 or height <= 0:
+            logger.warning(f"⚠️ [{task_id}] Invalid dimensions: {width}x{height}")
+            return None
+        
+        # Calculate aspect ratio for validation
+        aspect_ratio = width / height
+        
+        result_metadata = {
+            "width": int(width),
+            "height": int(height),
+            "duration": int(duration) if duration else None,
+            "aspect_ratio": round(aspect_ratio, 2)
+        }
+        
+        logger.info(f"📐 [{task_id}] Extracted metadata: {width}x{height} (AR: {aspect_ratio:.2f}), duration: {duration}s")
+        
+        return result_metadata
+        
+    except subprocess.TimeoutExpired:
+        logger.error(f"❌ [{task_id}] ffprobe timeout (30s) while extracting metadata")
+        return None
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ [{task_id}] Failed to parse ffprobe JSON output: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"❌ [{task_id}] Error extracting video metadata: {e}")
+        return None
+
 async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: int, db, account):
     """Upload a part with retry logic and comprehensive error handling"""
     
@@ -321,6 +411,13 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
     try:
         # Log metadata before upload
         await log_video_metadata_for_upload(file_path, task_id, f"Part {part_num} before upload")
+        
+        # Extract metadata for Telegram upload
+        upload_metadata = await get_video_metadata_for_upload(file_path, task_id)
+        if upload_metadata:
+            logger.info(f"📤 [{task_id}] Will send to Telegram: {upload_metadata['width']}x{upload_metadata['height']}, duration: {upload_metadata['duration']}s")
+        else:
+            logger.warning(f"⚠️ [{task_id}] Could not extract metadata for upload - Telegram may receive incorrect dimensions")
         
         # Pre-upload checks
         resources = await check_system_resources()
@@ -364,14 +461,29 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     # Upload with timeout
                     start_time = datetime.datetime.now()
                     logger.info(f"[{task_id}] [Part {part_num}] Starting upload at {start_time:%Y-%m-%d %H:%M:%S}")
+                    
+                    # Prepare send_video parameters
+                    send_video_params = {
+                        "chat_id": str(TG_DELIVERY_BOT_USERNAME),
+                        "video": file_path,
+                        "caption": f"🎬{part_num}",
+                        "disable_notification": True,
+                        "supports_streaming": True
+                    }
+                    
+                    # Add metadata if available
+                    if upload_metadata:
+                        send_video_params["width"] = upload_metadata["width"]
+                        send_video_params["height"] = upload_metadata["height"]
+                        if upload_metadata["duration"]:
+                            send_video_params["duration"] = upload_metadata["duration"]
+                        logger.info(f"📐 [{task_id}] Sending with metadata: {upload_metadata['width']}x{upload_metadata['height']}, duration: {upload_metadata['duration']}s")
+                    else:
+                        logger.warning(f"⚠️ [{task_id}] Sending without metadata - Telegram will auto-detect dimensions")
+                    
                     async with asyncio.timeout(UPLOAD_TIMEOUT):
-                        msg = await client.send_video(
-                            chat_id=str(TG_DELIVERY_BOT_USERNAME),
-                            video=file_path,
-                            caption=f"🎬 Part {part_num}",
-                            disable_notification=True,
-                            supports_streaming=True
-                        )
+                        msg = await client.send_video(**send_video_params)
+                        
                     end_time = datetime.datetime.now()
                     elapsed = (end_time - start_time).total_seconds()
                     logger.info(f"[{task_id}] [Part {part_num}] Finished upload at {end_time:%Y-%m-%d %H:%M:%S}, elapsed: {elapsed:.2f} seconds")
@@ -380,13 +492,48 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                         file_id = msg.video.file_id
                         logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
                         
-                        # Log what Telegram received
+                        # Log what Telegram received vs what we sent
                         tg_width = msg.video.width
                         tg_height = msg.video.height
                         tg_duration = msg.video.duration
                         tg_file_size = msg.video.file_size
+                        
                         logger.info(f"📱 [{task_id}] Telegram received: {tg_width}x{tg_height}, {tg_duration}s, {tg_file_size} bytes")
                         
+                        # Compare sent vs received dimensions
+                        if upload_metadata:
+                            sent_width = upload_metadata["width"]
+                            sent_height = upload_metadata["height"]
+                            sent_duration = upload_metadata["duration"]
+                            
+                            logger.info(f"📊 [{task_id}] Dimension comparison:")
+                            logger.info(f"   Sent: {sent_width}x{sent_height}, {sent_duration}s")
+                            logger.info(f"   Received: {tg_width}x{tg_height}, {tg_duration}s")
+                            
+                            # Check if dimensions match
+                            if tg_width == sent_width and tg_height == sent_height:
+                                logger.info(f"✅ [{task_id}] Dimensions match perfectly!")
+                            else:
+                                logger.warning(f"⚠️ [{task_id}] Dimension mismatch detected!")
+                                logger.warning(f"   Expected: {sent_width}x{sent_height}")
+                                logger.warning(f"   Received: {tg_width}x{tg_height}")
+                            
+                            # Check for the dreaded 320x320 issue
+                            if tg_width == 320 and tg_height == 320:
+                                logger.error(f"🚨 [{task_id}] CRITICAL: Telegram received 320x320 (square) despite sending {sent_width}x{sent_height}!")
+                                logger.error(f"🚨 [{task_id}] This indicates a mobile compatibility issue!")
+                            
+                            # Check duration
+                            if sent_duration and tg_duration:
+                                duration_diff = abs(sent_duration - tg_duration)
+                                if duration_diff <= 2:  # Allow 2 second tolerance
+                                    logger.info(f"✅ [{task_id}] Duration match: {duration_diff}s difference")
+                                else:
+                                    logger.warning(f"⚠️ [{task_id}] Duration mismatch: {duration_diff}s difference")
+                        else:
+                            logger.info(f"📊 [{task_id}] No metadata sent - Telegram auto-detected: {tg_width}x{tg_height}")
+                        
+                        # Check aspect ratio
                         if tg_width and tg_height:
                             tg_aspect_ratio = tg_width / tg_height
                             if abs(tg_aspect_ratio - 1.0) < 0.1:
