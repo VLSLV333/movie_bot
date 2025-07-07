@@ -45,7 +45,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         status_tracker[task_id] = {"total": segment_count, "done": 0, "progress": 0.0}
         cmd = [
             "ffmpeg",
-            "-loglevel", "error",
+            "-loglevel", "info",
             "-headers", ffmpeg_header_str,
             "-protocol_whitelist", "file,http,https,tcp,tls",
             "-i", m3u8_url,
@@ -56,7 +56,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             output_file
         ]
 
-        logger.info(f"▶️ [{task_id}] Starting ffmpeg merge...")
+        logger.info(f"▶️ [{task_id}] Starting ffmpeg merge for {segment_count} segments...")
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -64,7 +64,10 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             stderr=asyncio.subprocess.STDOUT
         )
 
-        ts_pattern = re.compile(r"Opening '.*?\.ts'")
+        ts_opening_pattern = re.compile(r"Opening '.*?\.ts'")
+        ts_input_pattern = re.compile(r"Input #\d+.*?\.ts")
+        
+        processed_segments = 0
 
         if process.stdout:
             while True:
@@ -72,11 +75,19 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                 if not line:
                     break
                 decoded = line.decode().strip()
-                if ts_pattern.search(decoded):
+                
+                if "ts" in decoded.lower():
+                    logger.debug(f"[{task_id}] FFmpeg: {decoded}")
+                
+                if (ts_opening_pattern.search(decoded) or 
+                    ts_input_pattern.search(decoded) or
+                    ".ts" in decoded and ("Opening" in decoded or "Input" in decoded)):
+                    processed_segments += 1
                     tracker = status_tracker.get(task_id)
                     if tracker:
-                        tracker["done"] += 1
-                        tracker["progress"] = round((tracker["done"] / tracker["total"]) * 100, 1)
+                        tracker["done"] = processed_segments
+                        tracker["progress"] = round((processed_segments / tracker["total"]) * 100, 1)
+                        
 
         returncode = await process.wait()
 
@@ -106,7 +117,6 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         logger.error(f"❌ [{task_id}] Merge operation failed: {e}")
         await notify_admin(f"❌ [{task_id}] Merge operation failed: {e}")
         
-        # Clean up on error
         if os.path.exists(output_file):
             try:
                 os.remove(output_file)
