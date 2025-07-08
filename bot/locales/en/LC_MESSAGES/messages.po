@@ -1,0 +1,191 @@
+# English translations for Movie Bot
+# Language: English (US)
+# Charset: UTF-8
+
+msgid ""
+msgstr ""
+"Project-Id-Version: Movie Bot\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: 2024-01-01 00:00+0000\n"
+"Language: en\n"
+"Language-Team: English\n"
+"Plural-Forms: nplurals=2; plural=(n != 1)\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+# Welcome & Onboarding Messages
+msgid "welcome_message"
+msgstr "Hi, I am Juli your movie friend bot! 🎬\n\nI can help you find, watch and download movies!"
+
+msgid "onboarding_welcome"
+msgstr "Awesome! Only 2 questions"
+
+msgid "onboarding_name_question"
+msgstr "Choose how to call you:"
+
+msgid "onboarding_language_question"
+msgstr "Select your preferred language:"
+
+msgid "onboarding_completed"
+msgstr "✅ Great! Your preferences have been saved."
+
+msgid "onboarding_skipped"
+msgstr "✅ Got it! You can always change your preferences later in the settings."
+
+msgid "preferences_suggestion"
+msgstr "💡 Want to get better movies? Answer 2 questions"
+
+msgid "custom_name_prompt"
+msgstr "Please type and send me your preferred name:"
+
+msgid "back_to_main_menu"
+msgstr "🏠 You're back at the main menu!"
+
+# Main Menu Buttons
+msgid "find_movie_btn"
+msgstr "🎬 Find a movie"
+
+msgid "recommend_btn"
+msgstr "💯 We recommend"
+
+msgid "download_btn"
+msgstr "📥 Download a movie"
+
+msgid "watch_history_btn"
+msgstr "🧩 Watch History"
+
+msgid "favorites_btn"
+msgstr "⭐ Favorites"
+
+msgid "options_btn"
+msgstr "⚙️ Options"
+
+# Search Interface
+msgid "search_type_question"
+msgstr "🎯 How would you like to search for a movie?"
+
+msgid "search_by_name_btn"
+msgstr "🔤 Search by Name"
+
+msgid "search_by_genre_btn"
+msgstr "🎭 Search by Genre"
+
+msgid "search_by_actor_btn"
+msgstr "🧑‍🎤 Search by Actor"
+
+msgid "search_by_director_btn"
+msgstr "🎬 Search by Director"
+
+# Common Buttons
+msgid "back_btn"
+msgstr "🔙 Back"
+
+msgid "custom_name_btn"
+msgstr "✏️ Custom name"
+
+msgid "set_preferences_btn"
+msgstr "⚙️ Set Preferences"
+
+msgid "maybe_later_btn"
+msgstr "❌ Maybe Later"
+
+msgid "continue_btn"
+msgstr "▶️ Continue"
+
+msgid "cancel_btn"
+msgstr "❌ Cancel"
+
+# Status Messages
+msgid "coming_soon"
+msgstr "🚀 Coming soon!"
+
+msgid "feature_unavailable"
+msgstr "⚠️ This feature is not available yet."
+
+msgid "processing"
+msgstr "⏳ Processing..."
+
+msgid "please_wait"
+msgstr "⏳ Please wait..."
+
+msgid "success"
+msgstr "✅ Success!"
+
+msgid "error_occurred"
+msgstr "❌ An error occurred."
+
+# Language Names
+msgid "lang_english"
+msgstr "🇺🇸 English"
+
+msgid "lang_ukrainian"
+msgstr "🇺🇦 Ukrainian"
+
+msgid "lang_russian"
+msgstr "🇷🇺 Russian"
+
+# Notifications
+msgid "recommendations_coming_soon"
+msgstr "💯 Smart suggestions coming soon!"
+
+msgid "watch_history_coming_soon"
+msgstr "🧩 Your watch history will be here soon!"
+
+msgid "favorites_coming_soon"
+msgstr "⭐ Your favorite movies will be stored here!"
+
+msgid "options_coming_soon"
+msgstr "⚙️ Options menu coming soon!"
+
+msgid "download_coming_soon"
+msgstr "📥 Download Movie coming soon!"
+
+# Error Messages
+msgid "network_error"
+msgstr "🌐 Network error. Please try again."
+
+msgid "backend_error"
+msgstr "🔧 Server error. Please try again later."
+
+msgid "invalid_input"
+msgstr "⚠️ Invalid input. Please try again."
+
+msgid "user_not_found"
+msgstr "👤 User not found."
+
+msgid "permission_denied"
+msgstr "🚫 Permission denied."
+
+# Validation Messages
+msgid "name_too_long"
+msgstr "⚠️ Name is too long. Maximum 50 characters."
+
+msgid "name_too_short"
+msgstr "⚠️ Name is too short. Minimum 2 characters."
+
+msgid "invalid_name"
+msgstr "⚠️ Invalid name. Please use only letters and numbers."
+
+# Movie Related
+msgid "movie_found"
+msgstr "🎬 Movie found!"
+
+msgid "no_movies_found"
+msgstr "😔 No movies found. Try different search terms."
+
+msgid "movie_details"
+msgstr "📝 Movie Details"
+
+msgid "watch_movie"
+msgstr "▶️ Watch"
+
+msgid "download_movie"
+msgstr "📥 Download"
+
+msgid "add_to_favorites"
+msgstr "⭐ Add to Favorites"
+
+msgid "remove_from_favorites"
+msgstr "💔 Remove from Favorites"

@@ -1,0 +1,191 @@
+# Russian translations for Movie Bot
+# Language: Russian
+# Charset: UTF-8
+
+msgid ""
+msgstr ""
+"Project-Id-Version: Movie Bot\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: 2024-01-01 00:00+0000\n"
+"Language: ru\n"
+"Language-Team: Russian\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2)\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+# Welcome & Onboarding Messages
+msgid "welcome_message"
+msgstr "Привет, я Джули, твой бот-друг для фильмов! 🎬\n\nЯ могу помочь найти, посмотреть и скачать фильмы!"
+
+msgid "onboarding_welcome"
+msgstr "Отлично! Всего 2 вопроса"
+
+msgid "onboarding_name_question"
+msgstr "Выберите, как к вам обращаться:"
+
+msgid "onboarding_language_question"
+msgstr "Выберите ваш предпочитаемый язык:"
+
+msgid "onboarding_completed"
+msgstr "✅ Отлично! Ваши настройки сохранены."
+
+msgid "onboarding_skipped"
+msgstr "✅ Понятно! Вы всегда можете изменить настройки позже в меню."
+
+msgid "preferences_suggestion"
+msgstr "💡 Хотите лучшие фильмы? Ответьте на 2 вопроса"
+
+msgid "custom_name_prompt"
+msgstr "Пожалуйста, напишите и отправьте мне ваше предпочитаемое имя:"
+
+msgid "back_to_main_menu"
+msgstr "🏠 Вы вернулись в главное меню!"
+
+# Main Menu Buttons
+msgid "find_movie_btn"
+msgstr "🎬 Найти фильм"
+
+msgid "recommend_btn"
+msgstr "💯 Мы рекомендуем"
+
+msgid "download_btn"
+msgstr "📥 Скачать фильм"
+
+msgid "watch_history_btn"
+msgstr "🧩 История просмотров"
+
+msgid "favorites_btn"
+msgstr "⭐ Избранное"
+
+msgid "options_btn"
+msgstr "⚙️ Настройки"
+
+# Search Interface
+msgid "search_type_question"
+msgstr "🎯 Как бы вы хотели искать фильм?"
+
+msgid "search_by_name_btn"
+msgstr "🔤 Поиск по названию"
+
+msgid "search_by_genre_btn"
+msgstr "🎭 Поиск по жанру"
+
+msgid "search_by_actor_btn"
+msgstr "🧑‍🎤 Поиск по актеру"
+
+msgid "search_by_director_btn"
+msgstr "🎬 Поиск по режиссеру"
+
+# Common Buttons
+msgid "back_btn"
+msgstr "🔙 Назад"
+
+msgid "custom_name_btn"
+msgstr "✏️ Свое имя"
+
+msgid "set_preferences_btn"
+msgstr "⚙️ Настроить"
+
+msgid "maybe_later_btn"
+msgstr "❌ Возможно позже"
+
+msgid "continue_btn"
+msgstr "▶️ Продолжить"
+
+msgid "cancel_btn"
+msgstr "❌ Отменить"
+
+# Status Messages
+msgid "coming_soon"
+msgstr "🚀 Скоро появится!"
+
+msgid "feature_unavailable"
+msgstr "⚠️ Эта функция пока недоступна."
+
+msgid "processing"
+msgstr "⏳ Обработка..."
+
+msgid "please_wait"
+msgstr "⏳ Пожалуйста, подождите..."
+
+msgid "success"
+msgstr "✅ Успех!"
+
+msgid "error_occurred"
+msgstr "❌ Произошла ошибка."
+
+# Language Names
+msgid "lang_english"
+msgstr "🇺🇸 Английский"
+
+msgid "lang_ukrainian"
+msgstr "🇺🇦 Украинский"
+
+msgid "lang_russian"
+msgstr "🇷🇺 Русский"
+
+# Notifications
+msgid "recommendations_coming_soon"
+msgstr "💯 Умные рекомендации скоро появятся!"
+
+msgid "watch_history_coming_soon"
+msgstr "🧩 Ваша история просмотров скоро будет здесь!"
+
+msgid "favorites_coming_soon"
+msgstr "⭐ Ваши любимые фильмы будут сохранены здесь!"
+
+msgid "options_coming_soon"
+msgstr "⚙️ Меню настроек скоро появится!"
+
+msgid "download_coming_soon"
+msgstr "📥 Скачивание фильмов скоро появится!"
+
+# Error Messages
+msgid "network_error"
+msgstr "🌐 Ошибка сети. Попробуйте еще раз."
+
+msgid "backend_error"
+msgstr "🔧 Ошибка сервера. Попробуйте позже."
+
+msgid "invalid_input"
+msgstr "⚠️ Неправильный ввод. Попробуйте еще раз."
+
+msgid "user_not_found"
+msgstr "👤 Пользователь не найден."
+
+msgid "permission_denied"
+msgstr "🚫 Доступ запрещен."
+
+# Validation Messages
+msgid "name_too_long"
+msgstr "⚠️ Имя слишком длинное. Максимум 50 символов."
+
+msgid "name_too_short"
+msgstr "⚠️ Имя слишком короткое. Минимум 2 символа."
+
+msgid "invalid_name"
+msgstr "⚠️ Неправильное имя. Используйте только буквы и цифры."
+
+# Movie Related
+msgid "movie_found"
+msgstr "🎬 Фильм найден!"
+
+msgid "no_movies_found"
+msgstr "😔 Фильмы не найдены. Попробуйте другие поисковые термины."
+
+msgid "movie_details"
+msgstr "📝 Детали фильма"
+
+msgid "watch_movie"
+msgstr "▶️ Смотреть"
+
+msgid "download_movie"
+msgstr "📥 Скачать"
+
+msgid "add_to_favorites"
+msgstr "⭐ Добавить в избранное"
+
+msgid "remove_from_favorites"
+msgstr "💔 Удалить из избранного"

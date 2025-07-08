@@ -1,0 +1,191 @@
+# Ukrainian translations for Movie Bot
+# Language: Ukrainian
+# Charset: UTF-8
+
+msgid ""
+msgstr ""
+"Project-Id-Version: Movie Bot\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: 2024-01-01 00:00+0000\n"
+"Language: uk\n"
+"Language-Team: Ukrainian\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2)\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+# Welcome & Onboarding Messages
+msgid "welcome_message"
+msgstr "Привіт, я Джулі, твій бот-друг для фільмів! 🎬\n\nЯ можу допомогти знайти, подивитися та завантажити фільми!"
+
+msgid "onboarding_welcome"
+msgstr "Чудово! Лише 2 питання"
+
+msgid "onboarding_name_question"
+msgstr "Оберіть, як до вас звертатися:"
+
+msgid "onboarding_language_question"
+msgstr "Оберіть вашу бажану мову:"
+
+msgid "onboarding_completed"
+msgstr "✅ Чудово! Ваші налаштування збережено."
+
+msgid "onboarding_skipped"
+msgstr "✅ Зрозуміло! Ви завжди можете змінити налаштування пізніше в меню."
+
+msgid "preferences_suggestion"
+msgstr "💡 Хочете кращі фільми? Дайте відповідь на 2 питання"
+
+msgid "custom_name_prompt"
+msgstr "Будь ласка, напишіть та надішліть мені ваше бажане ім'я:"
+
+msgid "back_to_main_menu"
+msgstr "🏠 Ви повернулися до головного меню!"
+
+# Main Menu Buttons
+msgid "find_movie_btn"
+msgstr "🎬 Знайти фільм"
+
+msgid "recommend_btn"
+msgstr "💯 Ми рекомендуємо"
+
+msgid "download_btn"
+msgstr "📥 Завантажити фільм"
+
+msgid "watch_history_btn"
+msgstr "🧩 Історія переглядів"
+
+msgid "favorites_btn"
+msgstr "⭐ Улюблені"
+
+msgid "options_btn"
+msgstr "⚙️ Налаштування"
+
+# Search Interface
+msgid "search_type_question"
+msgstr "🎯 Як би ви хотіли шукати фільм?"
+
+msgid "search_by_name_btn"
+msgstr "🔤 Пошук за назвою"
+
+msgid "search_by_genre_btn"
+msgstr "🎭 Пошук за жанром"
+
+msgid "search_by_actor_btn"
+msgstr "🧑‍🎤 Пошук за актором"
+
+msgid "search_by_director_btn"
+msgstr "🎬 Пошук за режисером"
+
+# Common Buttons
+msgid "back_btn"
+msgstr "🔙 Назад"
+
+msgid "custom_name_btn"
+msgstr "✏️ Власне ім'я"
+
+msgid "set_preferences_btn"
+msgstr "⚙️ Налаштувати"
+
+msgid "maybe_later_btn"
+msgstr "❌ Можливо пізніше"
+
+msgid "continue_btn"
+msgstr "▶️ Продовжити"
+
+msgid "cancel_btn"
+msgstr "❌ Скасувати"
+
+# Status Messages
+msgid "coming_soon"
+msgstr "🚀 Скоро з'явиться!"
+
+msgid "feature_unavailable"
+msgstr "⚠️ Ця функція поки недоступна."
+
+msgid "processing"
+msgstr "⏳ Обробка..."
+
+msgid "please_wait"
+msgstr "⏳ Будь ласка, зачекайте..."
+
+msgid "success"
+msgstr "✅ Успіх!"
+
+msgid "error_occurred"
+msgstr "❌ Виникла помилка."
+
+# Language Names
+msgid "lang_english"
+msgstr "🇺🇸 Англійська"
+
+msgid "lang_ukrainian"
+msgstr "🇺🇦 Українська"
+
+msgid "lang_russian"
+msgstr "🇷🇺 Російська"
+
+# Notifications
+msgid "recommendations_coming_soon"
+msgstr "💯 Розумні рекомендації скоро з'являться!"
+
+msgid "watch_history_coming_soon"
+msgstr "🧩 Ваша історія переглядів скоро буде тут!"
+
+msgid "favorites_coming_soon"
+msgstr "⭐ Ваші улюблені фільми будуть збережені тут!"
+
+msgid "options_coming_soon"
+msgstr "⚙️ Меню налаштувань скоро з'явиться!"
+
+msgid "download_coming_soon"
+msgstr "📥 Завантаження фільмів скоро з'явиться!"
+
+# Error Messages
+msgid "network_error"
+msgstr "🌐 Помилка мережі. Спробуйте ще раз."
+
+msgid "backend_error"
+msgstr "🔧 Помилка сервера. Спробуйте пізніше."
+
+msgid "invalid_input"
+msgstr "⚠️ Неправильний ввід. Спробуйте ще раз."
+
+msgid "user_not_found"
+msgstr "👤 Користувач не знайдений."
+
+msgid "permission_denied"
+msgstr "🚫 Доступ заборонений."
+
+# Validation Messages
+msgid "name_too_long"
+msgstr "⚠️ Ім'я занадто довге. Максимум 50 символів."
+
+msgid "name_too_short"
+msgstr "⚠️ Ім'я занадто коротке. Мінімум 2 символи."
+
+msgid "invalid_name"
+msgstr "⚠️ Неправильне ім'я. Використовуйте тільки літери та цифри."
+
+# Movie Related
+msgid "movie_found"
+msgstr "🎬 Фільм знайдено!"
+
+msgid "no_movies_found"
+msgstr "😔 Фільми не знайдено. Спробуйте інші пошукові терміни."
+
+msgid "movie_details"
+msgstr "📝 Деталі фільму"
+
+msgid "watch_movie"
+msgstr "▶️ Дивитися"
+
+msgid "download_movie"
+msgstr "📥 Завантажити"
+
+msgid "add_to_favorites"
+msgstr "⭐ Додати до улюблених"
+
+msgid "remove_from_favorites"
+msgstr "💔 Видалити з улюблених"

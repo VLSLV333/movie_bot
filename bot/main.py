@@ -16,6 +16,7 @@ from bot.handlers.mirror_search_handler import router as mirror_search_router
 from bot.handlers.mirror_pagination_handler import router as mirror_pagination_router
 from bot.handlers.mirror_watch_download_handler import router as mirror_watch_download_router
 from bot.handlers.mirror_language_change_handler import router as mirror_language_change_router
+from bot.utils.i18n_setup import setup_i18n
 
 logger = Logger().get_logger()
 logger.info("Bot started and logging initialized ")
@@ -51,6 +52,12 @@ async def main():
     try:
         logger.info(" Starting bot...")
         await on_startup()
+
+        i18n_middleware = setup_i18n()
+        dp.message.middleware(i18n_middleware)
+        dp.callback_query.middleware(i18n_middleware)
+        logger.info("I18n middleware initialized!")
+
         await dp.start_polling(bot)
         logger.info("Bot is now running!")
     except Exception as e:

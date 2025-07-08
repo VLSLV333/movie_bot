@@ -24,3 +24,5 @@ requests
 pyrogram
 tgcrypto
 pymediainfo
+aiogram_i18n>=1.0.0
+babel>=2.12.0
