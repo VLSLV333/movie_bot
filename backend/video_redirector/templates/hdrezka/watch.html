@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Watch Movie</title>
+    <title data-i18n="page_title">Watch Movie</title>
     <link href="https://unpkg.com/video.js@7.20.3/dist/video-js.min.css" rel="stylesheet">
     <style>
         body { background: #111; color: #fff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; }
@@ -55,12 +55,12 @@
     </style>
 </head>
 <body>
-    <h1>🎬 Loading your movie...</h1>
+    <h1 data-i18n="loading_movie">🎬 Loading your movie...</h1>
     <div class="dub-buttons" id="dub-selector"></div>
     <div class="player-wrapper">
         <video id="player" class="video-js vjs-default-skin" controls preload="auto" crossorigin="anonymous"></video>
     </div>
-    <p><small>Note: Short ad plays first, then your movie starts automatically.</small></p>
+    <!-- <p><small data-i18n="ad_note">Note: Short ad plays first, then your movie starts automatically.</small></p> -->
 
     <script src="https://unpkg.com/video.js@7.20.3/dist/video.min.js"></script>
 
@@ -69,6 +69,126 @@
     <script src="https://cdn.jsdelivr.net/npm/videojs-http-source-selector@1.1.6/dist/videojs-http-source-selector.min.js"></script>
 
     <script>
+    // ========== I18N SYSTEM ==========
+    const translations = {
+      en: {
+        page_title: "Watch Movie",
+        loading_movie: "🎬 Loading your movie...",
+        ad_note: "Note: Short ad plays first, then your movie starts automatically.",
+        video_playback_error: "Video playback error. Please try switching to a different dub or reload the page.",
+        failed_to_start_playback: "Failed to start playback. Please reload the page.",
+        failed_to_load_movie: "❌ Failed to load movie. Please click \"▶️ Watch\" on movie card again",
+        failed_to_load_movie_report: "❌ Failed to load movie. Please report this case to admin and click \"▶️ Watch\" on movie card again",
+        loading_video_slow: "Loading video... Please wait it is because of slow internet.",
+        still_loading_slow: "Still loading... This is fine for slow internet.",
+        now_watching: "Now Watching: {0}",
+        loading_dub: "Loading: {0}...",
+        now_watching_dub: "🎬 Now Watching: {0}",
+        movie_fallback: "Movie"
+      },
+      ru: {
+        page_title: "Смотреть фильм",
+        loading_movie: "🎬 Загружаю ваш фильм...",
+        ad_note: "Примечание: Сначала короткая реклама, затем ваш фильм начинается автоматически.",
+        video_playback_error: "Ошибка воспроизведения видео. Попробуйте переключиться на другой дубляж или перезагрузите страницу.",
+        failed_to_start_playback: "Не удалось начать воспроизведение. Пожалуйста, перезагрузите страницу.",
+        failed_to_load_movie: "❌ Не удалось загрузить фильм. Пожалуйста, нажмите \"▶️ Смотреть\" на карточке фильма еще раз",
+        failed_to_load_movie_report: "❌ Не удалось загрузить фильм. Пожалуйста, сообщите об этом случае администратору и нажмите \"▶️ Смотреть\" на карточке фильма еще раз",
+        loading_video_slow: "Загрузка видео... Пожалуйста, подождите, это из-за медленного интернета.",
+        still_loading_slow: "Все еще загружается... Это нормально при медленном интернете.",
+        now_watching: "Сейчас смотрите: {0}",
+        loading_dub: "Загрузка: {0}...",
+        now_watching_dub: "🎬 Сейчас смотрите: {0}",
+        movie_fallback: "Фильм"
+      },
+      uk: {
+        page_title: "Дивитися кіно",
+        loading_movie: "🎬 Завантажую ваше кіно...",
+        ad_note: "Примітка: Спочатку коротка реклама, потім ваше кіно починається автоматично.",
+        video_playback_error: "Помилка відтворення відео. Спробуйте перемкнутися на інший дубляж або перезавантажте сторінку.",
+        failed_to_start_playback: "Не вдалося почати відтворення. Будь ласка, перезавантажте сторінку.",
+        failed_to_load_movie: "❌ Не вдалося завантажити кіно. Будь ласка, натисніть \"▶️ Дивитися\" на картці кіно ще раз",
+        failed_to_load_movie_report: "❌ Не вдалося завантажити кіно. Будь ласка, повідомте про цей випадок адміністратору і натисніть \"▶️ Дивитися\" на картці кіно ще раз",
+        loading_video_slow: "Завантаження відео... Будь ласка, зачекайте це через повільний інтернет.",
+        still_loading_slow: "Все ще завантажується... Це нормально при повільному з'єднанні.",
+        now_watching: "Зараз дивитеся: {0}",
+        loading_dub: "Завантаження: {0}...",
+        now_watching_dub: "🎬 Зараз дивитеся: {0}",
+        movie_fallback: "Кіно"
+      }
+    };
+
+    // Simple i18n system
+    const i18n = {
+      currentLanguage: 'en',
+      
+      // Initialize the i18n system
+      init() {
+        this.detectLanguage();
+        this.translatePage();
+      },
+      
+      // Detect language from URL parameter or browser settings
+      detectLanguage() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlLang = urlParams.get('lang');
+        
+        // Map language codes to our supported languages
+        const langMap = {
+          'en': 'en',
+          'ru': 'ru', 
+          'uk': 'uk',
+          'ua': 'uk', // Support both 'uk' and 'ua' for Ukrainian
+          'rus': 'ru',
+          'eng': 'en'
+        };
+        
+        // Priority: URL parameter > browser language > default (en)
+        if (urlLang && langMap[urlLang.toLowerCase()]) {
+          this.currentLanguage = langMap[urlLang.toLowerCase()];
+        } else {
+          const browserLang = navigator.language || navigator.userLanguage;
+          const browserLangCode = browserLang.split('-')[0].toLowerCase();
+          this.currentLanguage = langMap[browserLangCode] || 'en';
+        }
+      },
+      
+      // Get translated string with placeholder support
+      t(key, ...args) {
+        const translation = translations[this.currentLanguage] && translations[this.currentLanguage][key];
+        if (!translation) {
+          console.warn(`Translation missing for key: ${key} in language: ${this.currentLanguage}`);
+          return translations.en[key] || key;
+        }
+        
+        // Replace placeholders {0}, {1}, etc.
+        return translation.replace(/\{(\d+)\}/g, (match, index) => {
+          return args[index] !== undefined ? args[index] : match;
+        });
+      },
+      
+      // Update all elements with data-i18n attributes
+      translatePage() {
+        document.querySelectorAll('[data-i18n]').forEach(element => {
+          const key = element.getAttribute('data-i18n');
+          const translation = this.t(key);
+          
+          if (element.tagName === 'TITLE') {
+            element.textContent = translation;
+          } else {
+            element.innerHTML = translation;
+          }
+        });
+        
+        // Update HTML lang attribute
+        document.documentElement.lang = this.currentLanguage;
+      }
+    };
+
+    // Initialize i18n system
+    i18n.init();
+    
+    // ========== EXISTING MOVIE PLAYER CODE ==========
     const SHOW_AD = false; // Set to true to enable ad
     const urlParams = new URLSearchParams(window.location.search);
 
@@ -148,7 +268,7 @@
             loadDub(currentDubConfig.name, currentDubConfig.config, true, currentTime);
           }, 2000 * errorRetryCount);
         } else {
-          showErrorMessage("Video playback error. Please try switching to a different dub or reload the page.");
+          showErrorMessage(i18n.t('video_playback_error'));
         }
       });
 
@@ -235,17 +355,17 @@
           console.log(`Normal connection: ${loadDuration}ms initial load time`);
         }
         
-        showSuccessMessage(`Now Watching: ${currentDubConfig?.name || 'Movie'}`);
+        showSuccessMessage(i18n.t('now_watching', currentDubConfig?.name || i18n.t('movie_fallback')));
       });
 
       // Show loading message for slow connections
       player.on('loadstart', function() {
-        showSuccessMessage("Loading video... Please wait for slow connections.");
+        showSuccessMessage(i18n.t('loading_video_slow'));
         
         // Set a very long timeout for initial loading
         loadingTimeout = setTimeout(() => {
           if (isInitialLoad && player.paused()) {
-            showSuccessMessage("Still loading... This may take a while on slow connections.");
+            showSuccessMessage(i18n.t('still_loading_slow'));
           }
         }, 30000); // 30 seconds for very slow connections
       });
@@ -274,7 +394,7 @@
       const subtitles = config.subtitles || [];
 
       if (!isRetry) {
-        showSuccessMessage(`Loading: ${dubName}...`);
+        showSuccessMessage(i18n.t('loading_dub', dubName));
         isInitialLoad = true;
       }
 
@@ -329,7 +449,7 @@
         player.play().catch(e => {
           console.error('Failed to start playback:', e);
           if (!isRetry) {
-            showErrorMessage(`Failed to start playback. Please reload the page.`);
+            showErrorMessage(i18n.t('failed_to_start_playback'));
           }
         });
       });
@@ -338,7 +458,7 @@
       const activeBtn = Array.from(document.querySelectorAll(".dub-buttons button")).find(btn => btn.textContent === dubName);
       if (activeBtn) activeBtn.classList.add("active");
 
-      showSuccessMessage(`🎬 Now Watching: ${dubName}`);
+      showSuccessMessage(i18n.t('now_watching_dub', dubName));
     }
 
     async function initPlayer() {
@@ -363,7 +483,7 @@
           }
         } catch (e) {
           console.error("🛑 Frontend error loading config:", e);
-          showErrorMessage("❌ Failed to load movie. Please click \"▶️ Watch\" on movie card again");
+          showErrorMessage(i18n.t('failed_to_load_movie'));
           return;
         }
 
@@ -381,7 +501,7 @@
         loadDub(initialDub, langData[initialDub]);
 
       } catch (e) {
-        showErrorMessage("❌ Failed to load movie. Please report this case to admin and click \"▶️ Watch\" on movie card again");
+        showErrorMessage(i18n.t('failed_to_load_movie_report'));
         console.error(e);
       }
     }
