@@ -510,3 +510,13 @@ msgstr "📺 ТВ фильм"
 
 msgid "genre_music"
 msgstr "🎵 Музыкальный"
+
+# Search Context Messages
+msgid "search_context_looking_for_name"
+msgstr "🔍 Вы ищете: \"{}\""
+
+msgid "search_context_searching_by_genre"
+msgstr "🎭 Вы ищете по жанру"
+
+msgid "search_context_looking_for_genres"
+msgstr "🎭 Вы ищете: {}"

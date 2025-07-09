@@ -58,7 +58,7 @@ def render_navigation_panel(
             scroll_hint = ""
 
     try:
-        context_line = context.strategy.get_context_text()
+        context_line = context.strategy.get_context_text(i18n)
     except Exception as e:
         context_line = i18n.get(EXPLORING_MOVIES_DEFAULT)
         logger.error(f"error while getting search context text, error: {e}")

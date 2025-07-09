@@ -513,3 +513,13 @@ msgstr "📺 TV Movie"
 
 msgid "genre_music"
 msgstr "🎵 Music"
+
+# Search Context Messages
+msgid "search_context_looking_for_name"
+msgstr "🔍 You are looking for: \"{}\""
+
+msgid "search_context_searching_by_genre"
+msgstr "🎭 You are searching by genre"
+
+msgid "search_context_looking_for_genres"
+msgstr "🎭 You are looking for: {}"

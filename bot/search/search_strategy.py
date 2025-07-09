@@ -2,11 +2,17 @@ from typing import List
 from bot.services.tmdb_service import TMDBService
 from abc import ABC, abstractmethod
 from bot.keyboards.select_movie_genre_keyboard import GENRES
+from bot.locales.keys import (
+    EXPLORING_MOVIES_DEFAULT, SEARCH_CONTEXT_LOOKING_FOR_NAME,
+    SEARCH_CONTEXT_SEARCHING_BY_GENRE, SEARCH_CONTEXT_LOOKING_FOR_GENRES
+)
+from aiogram_i18n import I18nContext
 import logging
 
 logger = logging.getLogger(__name__)
 
-GENRE_ID_TO_NAME = {genre["id"]: genre["name"].split(" ", 1)[-1] for genre in GENRES}
+# Create a mapping from genre ID to translation key
+GENRE_ID_TO_KEY = {genre["id"]: genre["key"] for genre in GENRES}
 
 class SearchStrategy(ABC):
     """
@@ -30,13 +36,9 @@ class SearchStrategy(ABC):
         pass
 
     @abstractmethod
-    def get_context_text(self) -> str:
+    def get_context_text(self, i18n: I18nContext) -> str:
         """Returns a short string that describes the user's search intent."""
-        return "🔎 You're exploring movies..."
-
-    # Note: from_dict is implemented as a static method in each concrete strategy class
-    # Use strategy_from_dict() factory function to deserialize strategies
-
+        return i18n.get(EXPLORING_MOVIES_DEFAULT)
 
 class SearchByNameStrategy(SearchStrategy):
     def __init__(self, query: str, language: str):
@@ -56,8 +58,8 @@ class SearchByNameStrategy(SearchStrategy):
             "language": self.language
         }
 
-    def get_context_text(self) -> str:
-        return f'🔍 You are looking for: "{self.query}"'
+    def get_context_text(self, i18n: I18nContext) -> str:
+        return i18n.get(SEARCH_CONTEXT_LOOKING_FOR_NAME).format(self.query)
 
     @staticmethod
     def from_dict(data: dict) -> 'SearchByNameStrategy':
@@ -92,13 +94,23 @@ class SearchByGenreStrategy(SearchStrategy):
             "language": self.language
         }
 
-    def get_context_text(self) -> str:
+    def get_context_text(self, i18n: I18nContext) -> str:
         if not self.genres:
-            return "🎭 You are searching by genre"
+            return i18n.get(SEARCH_CONTEXT_SEARCHING_BY_GENRE)
 
-        # You can map IDs to names if you want — for now just show count
-        genre_names = [GENRE_ID_TO_NAME.get(gid, f"Genre {gid}") for gid in self.genres]
-        return f"🎭 You are looking for: {', '.join(genre_names)}"
+        # Get translated genre names
+        genre_names = []
+        for gid in self.genres:
+            if gid in GENRE_ID_TO_KEY:
+                genre_key = GENRE_ID_TO_KEY[gid]
+                # Extract just the name part without emoji (split after first space)
+                full_name = i18n.get(genre_key)
+                name_part = full_name.split(" ", 1)[-1] if " " in full_name else full_name
+                genre_names.append(name_part)
+            else:
+                genre_names.append(f"Genre {gid}")
+
+        return i18n.get(SEARCH_CONTEXT_LOOKING_FOR_GENRES).format(', '.join(genre_names))
 
     @staticmethod
     def from_dict(data: dict) -> 'SearchByGenreStrategy':

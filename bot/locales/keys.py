@@ -218,3 +218,8 @@ GENRE_SCIFI = "genre_scifi"
 GENRE_WAR = "genre_war"
 GENRE_TV_MOVIE = "genre_tv_movie"
 GENRE_MUSIC = "genre_music"
+
+# Search strategy context text keys
+SEARCH_CONTEXT_LOOKING_FOR_NAME = "search_context_looking_for_name"
+SEARCH_CONTEXT_SEARCHING_BY_GENRE = "search_context_searching_by_genre"
+SEARCH_CONTEXT_LOOKING_FOR_GENRES = "search_context_looking_for_genres"
