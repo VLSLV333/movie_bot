@@ -5,31 +5,25 @@ from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.utils.logger import Logger
 from bot.utils.notify_admin import notify_admin
 from aiogram_i18n import I18nContext
+from bot.locales.keys import (
+    DOWNLOAD_QUEUE_POSITION,
+    DOWNLOAD_EXTRACTING_DATA,
+    DOWNLOAD_CONVERTING_VIDEO,
+    DOWNLOAD_UPLOADING_TO_TELEGRAM,
+    DOWNLOAD_PROCESSING_STATUS,
+    DOWNLOAD_FAILED_START_AGAIN,
+    DOWNLOAD_TIMEOUT_TRY_LATER
+)
 
 logger = Logger().get_logger()
 
-# Mapping of status to animation URLs and caption templates
+# Animation URLs for different statuses
 STATUS_ANIMATIONS = {
-    "queued": {
-        "animation": "https://media.giphy.com/media/F99PZtJC8Hxm0/giphy.gif",
-        "caption": "⏳ You are in queue for download...\nYour position: {position}"
-    },
-    "extracting": {
-        "animation": "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
-        "caption": "🔍 Extracting movie data..."
-    },
-    "merging": {
-        "animation": "https://media.giphy.com/media/26ufnwz3wDUli7GU0/giphy.gif",
-        "caption": "⚙️ Download started, converting video\n{progress_bar} {percent}% {spinner}"
-    },
-    "uploading": {
-        "animation": "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
-        "caption": " Almost there🥰 Your content is ready and being uploaded to Telegram 📤"
-    },
-    "default": {
-        "animation": "https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
-        "caption": "⏳ Processing... (Status: {status})"
-    }
+    "queued": "https://media.giphy.com/media/F99PZtJC8Hxm0/giphy.gif",
+    "extracting": "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
+    "merging": "https://media.giphy.com/media/26ufnwz3wDUli7GU0/giphy.gif",
+    "uploading": "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
+    "default": "https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif"
 }
 
 SPINNER_FRAMES = ['|', '/', '-', '\\']
@@ -66,16 +60,15 @@ async def poll_download_until_ready(user_id: int, i18n: I18nContext, task_id: st
                     animation_url = None
 
                     # Determine which animation/caption to use
-                    status_info = STATUS_ANIMATIONS.get(status, STATUS_ANIMATIONS["default"])
-                    animation_url = status_info["animation"]
-                    caption_template = status_info["caption"]
-
                     if status == "queued":
+                        animation_url = STATUS_ANIMATIONS["queued"]
                         position = data.get("queue_position") or '...'
-                        new_text = caption_template.format(position=position)
+                        new_text = i18n.get(DOWNLOAD_QUEUE_POSITION).format(position)
                     elif status == "extracting":
-                        new_text = caption_template
+                        animation_url = STATUS_ANIMATIONS["extracting"]
+                        new_text = i18n.get(DOWNLOAD_EXTRACTING_DATA)
                     elif status == "merging":
+                        animation_url = STATUS_ANIMATIONS["merging"]
                         # Fetch progress from merge_progress endpoint
                         try:
                             async with session.get(f"https://moviebot.click/hd/status/merge_progress/{task_id}") as merge_resp:
@@ -83,14 +76,17 @@ async def poll_download_until_ready(user_id: int, i18n: I18nContext, task_id: st
                                     merge_data = await merge_resp.json()
                                     percent = int(merge_data.get("progress", 0))
                                     progress_bar = make_progress_bar(percent)
-                                    new_text = f"⚙️ Download started, converting video\n{progress_bar} {percent}%"
+                                    new_text = i18n.get(DOWNLOAD_CONVERTING_VIDEO).format(progress_bar=progress_bar,percent=percent)
                                 else:
-                                    new_text = f"⚙️ Download started, converting video\n{make_progress_bar(0)} 0%"
+                                    progress_bar = make_progress_bar(0)
+                                    new_text = i18n.get(DOWNLOAD_CONVERTING_VIDEO).format(progress_bar=progress_bar,percent=0)
                         except Exception as e:
                             logger.error(f"[User {user_id}] Could not fetch merge progress: {e}")
-                            new_text = f"⚙️ Download started, converting video\n{make_progress_bar(0)} 0%"
+                            progress_bar = make_progress_bar(0)
+                            new_text = i18n.get(DOWNLOAD_CONVERTING_VIDEO).format(progress_bar=progress_bar,percent=0)
                     elif status == "uploading":
-                        new_text = caption_template
+                        animation_url = STATUS_ANIMATIONS["uploading"]
+                        new_text = i18n.get(DOWNLOAD_UPLOADING_TO_TELEGRAM)
                     elif status == "done":
                         result = data.get("result")
                         if result:
@@ -120,12 +116,14 @@ async def poll_download_until_ready(user_id: int, i18n: I18nContext, task_id: st
                                 logger.error(f"[User {user_id}] Could not delete last text message: {err}")
 
                         logger.error(f"[User {user_id}].❌ Download failed: {error_text}")
-                        await query.message.answer(f"❌ Download failed:( Pls start from begining",
-                                                   reply_markup=get_main_menu_keyboard())
+                        await query.message.answer(
+                            i18n.get(DOWNLOAD_FAILED_START_AGAIN),
+                            reply_markup=get_main_menu_keyboard(i18n=i18n)
+                        )
                         return None
                     else:
-                        new_text = STATUS_ANIMATIONS["default"]["caption"].format(status=status)
-                        animation_url = STATUS_ANIMATIONS["default"]["animation"]
+                        animation_url = STATUS_ANIMATIONS["default"]
+                        new_text = i18n.get(DOWNLOAD_PROCESSING_STATUS).format(status=status)
 
                     # If status changed, delete old animation and send new one, and update text message
                     if status != last_status:
@@ -198,8 +196,10 @@ async def poll_download_until_ready(user_id: int, i18n: I18nContext, task_id: st
     except Exception as e:
         logger.warning(f"[User {user_id}] Could not delete loading message: {e}")
     try:
-        await query.message.answer("⚠️ Sorry, this is taking too long. Please try again later.",
-                                   reply_markup=get_main_menu_keyboard())
+        await query.message.answer(
+            i18n.get(DOWNLOAD_TIMEOUT_TRY_LATER),
+            reply_markup=get_main_menu_keyboard(i18n=i18n)
+        )
     except Exception as e:
         logger.error(f"[User {user_id}] Could not send timeout message: {e}")
     await notify_admin(f"[User {user_id}] Waited in queue longer than 60 min and did not get a result!")

@@ -523,3 +523,37 @@ msgstr "🎭 You are searching by genre"
 
 msgid "search_context_looking_for_genres"
 msgstr "🎭 You are looking for: {}"
+
+# Utils polling and download messages
+msgid "poll_error_occurred_watch_again"
+msgstr "😭 An error occurred. Please click \"▶️ Watch\" again on movie card"
+
+msgid "poll_movie_config_missing"
+msgstr "😭 Something got broken. Please click \"▶️ Watch\" again on movie card"
+
+msgid "poll_still_working_wait"
+msgstr "😮‍💨 I am still working, everything is fine, sorry you are waiting... Just a few more moments 🥰"
+
+msgid "poll_taking_too_long_watch_again"
+msgstr "😭 It is taking too long. Please click \"▶️ Watch\" again on movie card"
+
+msgid "download_queue_position"
+msgstr "⏳ You are in queue for download...\nYour position: {position}"
+
+msgid "download_extracting_data"
+msgstr "🔍 Extracting movie data..."
+
+msgid "download_converting_video"
+msgstr "⚙️ Download started, converting video\n{progress_bar} {percent}%"
+
+msgid "download_uploading_to_telegram"
+msgstr "😎 Almost there! Soon you will watch your content 🥰"
+
+msgid "download_processing_status"
+msgstr "⏳ Processing... (Status: {status})"
+
+msgid "download_failed_start_again"
+msgstr "😭 Download failed. Please, try again from the beginning 🥹"
+
+msgid "download_timeout_try_later"
+msgstr "😭 Sorry, this is taking too long. Please, try again from the beginning 🥹"
