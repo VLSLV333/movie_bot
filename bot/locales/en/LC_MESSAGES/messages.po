@@ -17,13 +17,13 @@ msgstr ""
 
 # Welcome & Onboarding Messages
 msgid "welcome_message"
-msgstr "Hi, I am Juli your movie friend bot! 🎬\n\nI can help you find, watch and download movies!"
+msgstr "Hi, I am Juli, your movie friend bot! 🎬\n\nI can help you find, watch and download movies!"
 
 msgid "onboarding_welcome"
 msgstr "Awesome! Only 2 questions"
 
 msgid "onboarding_name_question"
-msgstr "Choose how to call you:"
+msgstr "Choose your nickname:"
 
 msgid "onboarding_language_question"
 msgstr "{user_name}, please select your preferred language:"
@@ -35,7 +35,7 @@ msgid "onboarding_skipped"
 msgstr "✅ Okay! You can always change your preferences later in the settings."
 
 msgid "preferences_suggestion"
-msgstr "💡 Want to get better experience? Answer 2 questions"
+msgstr "💡 Want to get a better experience? Answer 2 questions"
 
 msgid "custom_name_prompt"
 msgstr "Please type and send me your preferred name:"
@@ -128,7 +128,7 @@ msgstr "🇷🇺 Russian"
 
 # Notifications
 msgid "recommendations_coming_soon"
-msgstr "💯 Smart suggestions coming soon!"
+msgstr "💯 Smart suggestions are coming soon!"
 
 msgid "watch_history_coming_soon"
 msgstr "🧩 Your watch history will be here soon!"
@@ -203,7 +203,7 @@ msgid "no_matches_found_try_new_search"
 msgstr "😕 No matches found. Try a new search!"
 
 msgid "fallback_menu_prompt"
-msgstr "Use the menu below to find movies, get movies suggestions, or download movies 🎬👇"
+msgstr "Use the menu below to find movies, get movie suggestions, or download movies 🎬👇"
 
 msgid "select_language_for_movies"
 msgstr "🌍 Select your preferred language for watching movies:"
@@ -212,16 +212,16 @@ msgid "error_cannot_show_language_options"
 msgstr "❌ Error: Cannot show language options"
 
 msgid "language_updated_successfully"
-msgstr "✅ Language set to: {language}\n\nPress “Watch” or “Download” — the movie will be in the selected language."
+msgstr "✅ Language set to: {language}\n\nPress ▶️Watch or 💾Download — the movie will be in the selected language."
 
 msgid "error_update_language_failed"
 msgstr "❌ Couldn't update language, please try later"
 
 msgid "session_expired_restart_search"
-msgstr "😅 I already forgot what we were searching! Pls start a new search 👇"
+msgstr "😅 I already forgot what we were searching! Please start a new search 👇"
 
 msgid "no_more_matches_start_new_search"
-msgstr "🤝 That's it, no more matches! Pls start a new search 👇"
+msgstr "🤝 That's it, no more matches! Please start a new search 👇"
 
 msgid "cast_crew_coming_soon"
 msgstr "🕵️ Real cast/crew coming soon!"
@@ -233,7 +233,7 @@ msgid "related_movies_coming_soon"
 msgstr "🎬 Related movies feature coming soon!"
 
 msgid "favorites_storage_coming_soon"
-msgstr "⭐️ favorites coming soon!"
+msgstr "⭐️ Favorites coming soon!"
 
 msgid "watchlist_storage_coming_soon"
 msgstr "🕰️ Watch later coming soon!"
@@ -248,13 +248,13 @@ msgid "no_btn"
 msgstr "❌ No"
 
 msgid "confirm_report_movie_not_found"
-msgstr "Are you sure you want to report to admin that you can not find this movie?"
+msgstr "Are you sure you want to report to admin that you cannot find this movie?"
 
 msgid "report_thanks_message"
-msgstr "Thanks for your report, we will try to find this movie, so you can watch later ❤️"
+msgstr "Thanks for your report, we will try to find this movie, so you can watch it later ❤️"
 
 msgid "end_onboarding_success"
-msgstr "✅ Perfect! Your preferences have been saved.\n\n🎬 You are set to start finding amazing movies!️"
+msgstr "✅ Perfect! Your preferences have been saved.\n\n🎬 You are set to start finding amazing movies!"
 
 msgid "end_onboarding_fail"
 msgstr "❌ Sorry, there was an issue saving your preferences. You can try again later in settings."
@@ -263,22 +263,22 @@ msgid "search_by_name_prompt"
 msgstr "🎬 I'm ready! Just type the name of the movie you're looking for 👇"
 
 msgid "no_search_results_try_again"
-msgstr "🧐 Hmm, I couldn't find anything matching. Try searching something else👇\n\nOr press Back to return."
+msgstr "🧐 Hmm, I couldn't find anything matching. Try searching for something else👇\n\nOr press Back to return."
 
 msgid "movie_link_no_longer_valid"
 msgstr "❌ This movie link is no longer valid. Please re-search from the main menu."
 
 msgid "lost_movie_data_research"
-msgstr "I lost movie somewhere along the way😭\n Please re-search from the main menu."
+msgstr "I lost the movie somewhere along the way😭\n Please re-search from the main menu."
 
 msgid "preparing_movie_dubs_watch"
 msgstr "🎬 Preparing all available dubs for selected movie... You will watch in 1-2 minutes ❤️"
 
 msgid "sorry_couldnt_extract_movie_try_again"
-msgstr "😭 Sorry, I couldn't extract the movie.\nTry again pls."
+msgstr "😭 Sorry, I couldn't extract the movie.\nPlease try again."
 
 msgid "start_watching_btn"
-msgstr "▶️Start watching"
+msgstr "▶️ Start watching"
 
 msgid "movie_ready_to_watch"
 msgstr "🎬 Your {movie_title} is ready:"
@@ -302,52 +302,52 @@ msgid "checking_downloaded_versions_dubs"
 msgstr "🔍 Checking downloaded versions & dubs..."
 
 msgid "try_searching_from_beginning"
-msgstr "☹️ Try searching movie from beginning pls, or watch online. We will fix this🥰"
+msgstr "☹️ Try searching for the movie from the beginning please, or watch online. I will fix this 🥰"
 
 msgid "no_dubs_available_in_language"
-msgstr "️😢 No dubs available in your language for this movie, we are sorry! Will try to find this content and upload😇"
+msgstr "😢 No dubs available in your language for this movie, I am sorry! I will try to find this content and upload it 😇"
 
 msgid "download_default_dub"
-msgstr "️✅ Download default dub"
+msgstr "✅ Download default dub"
 
 msgid "movie_has_only_default_dub"
-msgstr "️🎙 This movie has only one default dub:"
+msgstr "🎙 This movie has only one default dub:"
 
 msgid "already_available_dubs"
-msgstr "️📁 Already available dubs:"
+msgstr "📁 Already available dubs:"
 
 msgid "available_to_download"
-msgstr "️📥 Available to download:"
+msgstr "📥 Available to download:"
 
 msgid "choose_dub_to_download_or_watch"
-msgstr "️🎙 Choose a dub to download (or fast watch one we already have in Delivery Bot):"
+msgstr "🎙 Choose a dub to download (or fast watch one we already have in Delivery Bot):"
 
 msgid "movie_ready_to_watch_delivery"
-msgstr "️🎬 Your {movie_title} is ready to watch!"
+msgstr "🎬 Your {movie_title} is ready to watch!"
 
 msgid "get_movie_from_delivery_bot"
-msgstr "️🎁 Get movie from Delivery Bot"
+msgstr "🎁 Get movie from Delivery Bot"
 
 msgid "dub_selection_expired"
-msgstr "️😖 This dub selection expired. Please start again from the beginning 🤗"
+msgstr "😖 This dub selection expired. Please start again from the beginning 🤗"
 
 msgid "could_not_process_dub_info"
-msgstr "️🤯 Could not process dub info, sorry! Please start again from the beginning 🤗"
+msgstr "🤯 Could not process dub info, sorry! Please start again from the beginning 🤗"
 
 msgid "added_to_download_queue"
-msgstr "️🫡 I have added you to queue for download...\nThis may take 5–10 minutes 😉"
+msgstr "🫡 I have added you to the queue for download...\nThis may take 5–10 minutes 😉"
 
 msgid "failed_to_trigger_download"
-msgstr "️😖 Failed to trigger download, sorry! Please start again from the beginning 🤗"
+msgstr "😖 Failed to trigger download, sorry! Please start again from the beginning 🤗"
 
 msgid "movie_ready_start_delivery_bot"
-msgstr "️🎬 Your {movie_title} is ready!\n\n📦 To receive it, start delivery bot👇"
+msgstr "🎬 Your {movie_title} is ready!\n\n📦 To receive it, start the delivery bot👇"
 
 msgid "open_delivery_bot"
-msgstr "️🎁 Open Delivery Bot"
+msgstr "🎁 Open Delivery Bot"
 
 msgid "unexpected_error_during_download"
-msgstr "️🤯 Unexpected error during download. Please start again from the beginning 🤗"
+msgstr "🤯 Unexpected error during download. Please start again from the beginning 🤗"
 
 msgid "download_limit"
 msgstr "😮 You are already downloading the maximum number of movies allowed at once ({user_limit}). Please wait for your current download(s) to finish and then download another video 🥰"
@@ -356,7 +356,7 @@ msgid "duplicate_download"
 msgstr "🎬 You're already downloading this movie in this dub. Please wait for it to finish and you will enjoy your content 🥰"
 
 msgid "wait_cards_updating"
-msgstr "Wait pls, some cards are still updating 🥰"
+msgstr "Please wait, some cards are still updating 🥰"
 
 msgid "no_more_mirror_results_try_another_movie"
 msgstr "🥲 No more results found on mirrors. Try another movie."
@@ -368,10 +368,10 @@ msgid "searching_in_progress"
 msgstr "⏳ Searching..."
 
 msgid "failed_to_search_mirrors_try_again"
-msgstr "😖 Failed to search mirrors. Please, try again from beginning 🤗"
+msgstr "😖 Failed to search mirrors. Please, try again from the beginning 🤗"
 
 msgid "unexpected_error_mirror_search_try_again"
-msgstr "🥲 Unexpected error during mirror search. Please, try again from beginning 🤗"
+msgstr "🥲 Unexpected error during mirror search. Please, try again from the beginning 🤗"
 
 msgid "no_mirror_results_try_another_movie"
 msgstr "😔 No results found. Try another movie 🥰"
