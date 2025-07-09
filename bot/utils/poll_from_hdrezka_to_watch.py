@@ -1,6 +1,6 @@
 import asyncio
 from aiohttp import ClientSession
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram_i18n import I18nContext
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.utils.logger import Logger
 
@@ -13,6 +13,7 @@ async def poll_watch_until_ready(
     status_url: str,
     loading_gif_msg,
     query,
+    i18n: I18nContext,
     max_attempts: int = 150, #300 secs
     poll_interval: float = 2.0,
 ) -> dict | None:
@@ -41,7 +42,7 @@ async def poll_watch_until_ready(
             logger.error(f"[{user_id}] Extraction failed: {error_msg}")
             logger.debug(f"[{user_id}] Full error response: {status_data}")
 
-            keyboard = get_main_menu_keyboard()
+            keyboard = get_main_menu_keyboard(i18n=i18n)
 
             await loading_gif_msg.delete()
             await query.message.answer(
@@ -67,7 +68,7 @@ async def poll_watch_until_ready(
             error_msg = status_data.get("error", "Unknown error.")
             logger.error(f"[{user_id}] Extraction failed: {error_msg}")
 
-            keyboard = get_main_menu_keyboard()
+            keyboard = get_main_menu_keyboard(i18n=i18n)
 
             await loading_gif_msg.delete()
             await query.message.answer(
@@ -81,7 +82,7 @@ async def poll_watch_until_ready(
             await query.message.answer("⏳ Bot is still working, everything is fine, sorry you are waiting... Just a bit more!")
 
     logger.error(f"[{user_id}] Timed out after {max_attempts * poll_interval:.0f}s – no success or failure.")
-    keyboard = get_main_menu_keyboard()
+    keyboard = get_main_menu_keyboard(i18n=i18n)
 
     await loading_gif_msg.delete()
     await query.message.answer(

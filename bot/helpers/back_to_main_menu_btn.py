@@ -1,4 +1,5 @@
 from aiogram import types
+from aiogram_i18n import I18nContext
 
 def get_back_to_main_menu_keyboard() -> types.InlineKeyboardMarkup:
     """Returns a keyboard with just the 'Back to Main Menu' button."""
@@ -7,7 +8,7 @@ def get_back_to_main_menu_keyboard() -> types.InlineKeyboardMarkup:
     ])
 
 
-def add_back_to_main_menu_button(existing_keyboard: types.InlineKeyboardMarkup, source: str = "generic") -> types.InlineKeyboardMarkup:
+def add_back_to_main_menu_button(existing_keyboard: types.InlineKeyboardMarkup, i18n: I18nContext , source: str = "generic") -> types.InlineKeyboardMarkup:
     """
     Appends a context-aware 'Back to Main Menu' button as a new row in an existing keyboard.
     Returns a new InlineKeyboardMarkup with the extra button.

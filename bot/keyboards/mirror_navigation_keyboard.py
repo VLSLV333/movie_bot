@@ -1,4 +1,5 @@
 from aiogram import types
+from aiogram_i18n import I18nContext
 from bot.search.mirror_search_session import MirrorSearchSession
 from typing import Tuple
 from bot.utils.logger import Logger
@@ -7,7 +8,7 @@ import json
 
 logger = Logger().get_logger()
 
-async def get_mirror_navigation_keyboard(session: MirrorSearchSession, position: str = "bottom",click_source: str | None = None) -> Tuple[str, types.InlineKeyboardMarkup]:
+async def get_mirror_navigation_keyboard(session: MirrorSearchSession, i18n: I18nContext, position: str = "bottom",click_source: str | None = None) -> Tuple[str, types.InlineKeyboardMarkup]:
     """
     Create top/bottom navigation panel with message text and buttons.
     """

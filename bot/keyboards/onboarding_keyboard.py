@@ -1,6 +1,6 @@
 from aiogram import types
 
-def get_name_selection_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
+def get_name_selection_keyboard(user: types.User, i18n) -> types.InlineKeyboardMarkup:
     """Create keyboard for name selection"""
     keyboard = []
     
@@ -24,7 +24,7 @@ def get_name_selection_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
     
     return types.InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_language_selection_keyboard(user_lang: str) -> types.InlineKeyboardMarkup:
+def get_language_selection_keyboard(user_lang: str, i18n) -> types.InlineKeyboardMarkup:
     """Create keyboard for language selection"""
     # Map language codes to display names
     lang_names = {

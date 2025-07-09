@@ -1,5 +1,6 @@
 from aiogram import types
 from typing import Tuple, Optional
+from aiogram_i18n import I18nContext
 import json
 from bot.utils.redis_client import RedisClient
 from bot.utils.logger import Logger
@@ -17,7 +18,7 @@ def truncate_text(text: str, max_length: int = 200) -> str:
         return text
     return text[:max_length].rstrip() + "..."
 
-async def render_movie_card(movie: dict, is_expanded: bool = False) -> Tuple[str, types.InlineKeyboardMarkup, Optional[str]]:
+async def render_movie_card(movie: dict, i18n: I18nContext, is_expanded: bool = False) -> Tuple[str, types.InlineKeyboardMarkup, Optional[str]]:
     """
     Generate the movie card text, buttons, and poster URL.
     :param movie: Movie data dictionary from TMDB

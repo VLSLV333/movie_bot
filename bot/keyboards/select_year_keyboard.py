@@ -1,8 +1,9 @@
 from aiogram import types
 from typing import List
 from bot.helpers.back_button import add_back_button
+from aiogram_i18n import I18nContext
 
-def get_select_year_keyboard(year_list: List[int], selected_years: List[int]) -> types.InlineKeyboardMarkup:
+def get_select_year_keyboard(year_list: List[int], selected_years: List[int], i18n: I18nContext) -> types.InlineKeyboardMarkup:
     """
     Generate a keyboard for selecting years with dynamic range logic:
     - Selecting one year highlights just that year

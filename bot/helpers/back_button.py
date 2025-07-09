@@ -1,6 +1,7 @@
 from aiogram import types
+from aiogram_i18n import I18nContext
 
-def get_back_button_keyboard(destination: str) -> types.InlineKeyboardMarkup:
+def get_back_button_keyboard(destination: str, i18n: I18nContext) -> types.InlineKeyboardMarkup:
     """
     Creates an inline keyboard with a single "Back" button.
     :param destination: where the back button should go (e.g., 'main', 'search', etc.)

@@ -1,9 +1,13 @@
 import aiohttp
 from aiogram import Router, types, F
+from aiogram_i18n import I18nContext
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import CommandStart
 from aiogram.types import Message
+from bot.locales.keys import WELCOME_MESSAGE, PREFERENCES_SUGGESTION, SET_PREFERENCES_BTN, MAYBE_LATER_BTN, \
+    ONBOARDING_WELCOME, ONBOARDING_NAME_QUESTION, ONBOARDING_SKIPPED, CUSTOM_NAME_PROMPT, NAME_TOO_LONG, INVALID_NAME, \
+    END_ONBOARDING_SUCCESS, END_ONBOARDING_FAIL
 from bot.utils.logger import Logger
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.keyboards.onboarding_keyboard import get_name_selection_keyboard, get_language_selection_keyboard
@@ -69,7 +73,7 @@ async def update_user_onboarding_backend(telegram_id: int, custom_name: Optional
     return await call_backend_api("/users/onboarding", "POST", data)
 
 @router.message(CommandStart())
-async def start_handler(message: types.Message):
+async def start_handler(message: types.Message, i18n: I18nContext):
     """Main start handler - Immediate Service + Optional Onboarding"""
     if not message.from_user:
         logger.error("Message from_user is None")
@@ -90,10 +94,10 @@ async def start_handler(message: types.Message):
     )
 
     # ALWAYS show main menu immediately (Immediate Service)
-    keyboard = get_main_menu_keyboard()
+    keyboard = get_main_menu_keyboard(i18n)
     await message.answer_animation(
         animation=WELCOME_GIF_URL,
-        caption="Hi, I am Juli your movie friend bot! 🎬\n\nI can help you find, watch and download movies!",
+        caption=i18n.get(WELCOME_MESSAGE),
         reply_markup=keyboard
     )
 
@@ -104,15 +108,15 @@ async def start_handler(message: types.Message):
     # Optionally suggest onboarding if not completed (Optional Onboarding)
     if not user_data or not user_data.get("is_onboarded", False):
         await message.answer(
-            "💡 Want to get better movies? Answer 2 questions",
+            i18n.get(PREFERENCES_SUGGESTION),
             reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="⚙️ Set Preferences", callback_data="start_onboarding")],
-                [types.InlineKeyboardButton(text="❌ Maybe Later", callback_data="skip_onboarding")]
+                [types.InlineKeyboardButton(text=i18n.get(SET_PREFERENCES_BTN), callback_data="start_onboarding")],
+                [types.InlineKeyboardButton(text=i18n.get(MAYBE_LATER_BTN), callback_data="skip_onboarding")]
             ])
         )
 
 @router.callback_query(F.data == "start_onboarding")
-async def start_onboarding_handler(query: types.CallbackQuery):
+async def start_onboarding_handler(query: types.CallbackQuery, i18n: I18nContext):
     """Start the onboarding process"""
     #TODO: when premium users will be available we can propose becoming premium here or here
     if not query.from_user:
@@ -121,24 +125,22 @@ async def start_onboarding_handler(query: types.CallbackQuery):
     user_id = query.from_user.id
     logger.info(f"[User {user_id}] Started onboarding")
 
-    # Show welcome GIF and name selection
     if query.message:
         await query.message.answer_animation(
             animation=ONBOARDING_GIF_URL,
-            caption="Awesome! Only 2 questions"
+            caption=i18n.get(ONBOARDING_WELCOME)
         )
         
-        # Show name selection keyboard
-        keyboard = get_name_selection_keyboard(query.from_user)
+        keyboard = get_name_selection_keyboard(query.from_user, i18n)
         await query.message.answer(
-            "Choose how to call you:",
+            i18n.get(ONBOARDING_NAME_QUESTION),
             reply_markup=keyboard
         )
     
     await query.answer()
 
 @router.callback_query(F.data == "skip_onboarding")
-async def skip_onboarding_handler(query: types.CallbackQuery):
+async def skip_onboarding_handler(query: types.CallbackQuery, i18n: I18nContext):
     """Skip onboarding and continue with default settings"""
     if not query.from_user:
         return
@@ -149,12 +151,12 @@ async def skip_onboarding_handler(query: types.CallbackQuery):
     # Use smart edit or send utility
     await smart_edit_or_send(
         message=query,
-        text="✅ Got it! You can always change your preferences later in the settings."
+        text=i18n.get(ONBOARDING_SKIPPED)
     )
     await query.answer()
 
 @router.callback_query(F.data.startswith("select_name:"))
-async def select_name_handler(query: types.CallbackQuery, state: FSMContext):
+async def select_name_handler(query: types.CallbackQuery, state: FSMContext, i18n: I18nContext):
     """Handle name selection"""
     if not query.from_user or not query.data:
         return
@@ -169,11 +171,11 @@ async def select_name_handler(query: types.CallbackQuery, state: FSMContext):
     
     # Show language selection
     if query.message and isinstance(query.message, Message):
-        await show_language_selection(query.message, selected_name)
+        await show_language_selection(query.message, selected_name, i18n)
     await query.answer()
 
 @router.callback_query(F.data == "custom_name")
-async def custom_name_handler(query: types.CallbackQuery, state: FSMContext):
+async def custom_name_handler(query: types.CallbackQuery, state: FSMContext, i18n: I18nContext):
     """Handle custom name input"""
     if not query.from_user:
         return
@@ -186,12 +188,12 @@ async def custom_name_handler(query: types.CallbackQuery, state: FSMContext):
     # Use smart edit or send utility
     await smart_edit_or_send(
         message=query,
-        text="Please type and send me your preferred name:"
+        text=i18n.get(CUSTOM_NAME_PROMPT)
     )
     await query.answer()
 
 @router.message(OnboardingStates.waiting_for_custom_name)
-async def handle_custom_name_input(message: types.Message, state: FSMContext):
+async def handle_custom_name_input(message: types.Message, state: FSMContext, i18n: I18nContext):
     """Handle custom name text input"""
     if not message.from_user or not message.text:
         return
@@ -200,11 +202,11 @@ async def handle_custom_name_input(message: types.Message, state: FSMContext):
     custom_name = message.text.strip()
     
     if len(custom_name) > 50:
-        await message.answer("Name is too long. Please use a shorter name (max 50 characters).")
+        await message.answer(i18n.get(NAME_TOO_LONG))
         return
     
     if not custom_name:
-        await message.answer("Please provide a valid name.")
+        await message.answer(i18n.get(INVALID_NAME))
         return
     
     logger.info(f"[User {user_id}] Entered custom name: {custom_name}")
@@ -213,9 +215,9 @@ async def handle_custom_name_input(message: types.Message, state: FSMContext):
     await state.update_data(custom_name=custom_name)
     
     # Show language selection
-    await show_language_selection(message, custom_name)
+    await show_language_selection(message, custom_name, i18n)
 
-async def show_language_selection(message: types.Message, user_name: str):
+async def show_language_selection(message: types.Message, user_name: str, i18n: I18nContext):
     """Show language selection keyboard"""
     if not message.from_user:
         return
@@ -223,15 +225,14 @@ async def show_language_selection(message: types.Message, user_name: str):
     # Use Telegram language code directly
     user_lang = message.from_user.language_code or 'en'
     
-    keyboard = get_language_selection_keyboard(user_lang)
+    keyboard = get_language_selection_keyboard(user_lang,i18n)
     
-    await message.answer(
-        f"Great {user_name}! In what language do you watch movies?",
+    await message.answer(i18n.get(INVALID_NAME).format(user_name),
         reply_markup=keyboard
     )
 
 @router.callback_query(F.data.startswith("select_lang:"))
-async def select_language_handler(query: types.CallbackQuery, state: FSMContext):
+async def select_language_handler(query: types.CallbackQuery, state: FSMContext, i18n: I18nContext):
     """Handle language selection"""
     if not query.from_user or not query.data:
         return
@@ -239,35 +240,30 @@ async def select_language_handler(query: types.CallbackQuery, state: FSMContext)
     user_id = query.from_user.id
     selected_language = query.data.split(":", 1)[1]
     
-    # Get the custom name from state
     state_data = await state.get_data()
     custom_name = state_data.get("custom_name")
     
     logger.info(f"[User {user_id}] Selected language: {selected_language}, custom_name: {custom_name}")
     
-    # Update user onboarding in backend with both custom name and language
-    # custom_name can be None if user didn't provide one, which is fine
     user_data = await update_user_onboarding_backend(
         telegram_id=user_id,
-        custom_name=custom_name,  # This can be None, backend handles it
+        custom_name=custom_name,
         preferred_language=selected_language
     )
     
-    # Clear the state
     await state.clear()
     
-    # Use smart edit or send utility with main menu keyboard
-    keyboard = get_main_menu_keyboard()
+    keyboard = get_main_menu_keyboard(i18n)
     if user_data:
         await smart_edit_or_send(
             message=query,
-            text=f"✅ Perfect! Your preferences have been saved.\n\n🎬 You're all set to start finding amazing movies!",
+            text=i18n.get(END_ONBOARDING_SUCCESS),
             reply_markup=keyboard
         )
     else:
         await smart_edit_or_send(
             message=query,
-            text="❌ Sorry, there was an issue saving your preferences. You can try again later in settings.",
+            text=i18n.get(END_ONBOARDING_FAIL),
             reply_markup=keyboard
         )
 

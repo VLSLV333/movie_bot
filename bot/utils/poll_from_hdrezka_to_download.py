@@ -4,6 +4,7 @@ from aiogram import types
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.utils.logger import Logger
 from bot.utils.notify_admin import notify_admin
+from aiogram_i18n import I18nContext
 
 logger = Logger().get_logger()
 
@@ -37,7 +38,7 @@ def make_progress_bar(percent, length=10):
     filled = int(percent / 100 * length)
     return "█" * filled + "-" * (length - filled)
 
-async def poll_download_until_ready(user_id: int, task_id: str, status_url: str, loading_msg: types.Message,
+async def poll_download_until_ready(user_id: int, i18n: I18nContext, task_id: str, status_url: str, loading_msg: types.Message,
                                     query: types.CallbackQuery, bot):
     """
     Polls the backend for download status and updates the user with animation and caption.

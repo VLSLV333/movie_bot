@@ -1,4 +1,7 @@
 from aiogram import Router, types, F
+from aiogram_i18n import I18nContext
+
+from bot.locales.keys import SEARCH_BY_NAME_PROMPT, NO_SEARCH_RESULTS_TRY_AGAIN
 from bot.utils.logger import Logger
 from bot.utils.session_manager import SessionManager
 from bot.helpers.back_button import get_back_button_keyboard
@@ -25,26 +28,26 @@ class SearchInputStateFilter(Filter):
 
 
 @router.callback_query(F.data == "search_by_name")
-async def search_by_name_handler(query: types.CallbackQuery):
+async def search_by_name_handler(query: types.CallbackQuery, i18n: I18nContext):
     user_id = query.from_user.id
     logger.info(f"[User {user_id}] Selected 'Search by Name'")
 
     await SessionManager.clear_state(user_id)
     await SessionManager.set_state(user_id, "search_by_name:waiting")
 
-    keyboard = get_back_button_keyboard("search")
+    keyboard = get_back_button_keyboard("search",i18n=i18n)
 
     # Use smart edit or send utility
     await smart_edit_or_send(
         message=query,
-        text="🎬 I'm ready! Just type the name of the movie you're looking for 👇\n\nOr press Back",
+        text=i18n.get(SEARCH_BY_NAME_PROMPT),
         reply_markup=keyboard
     )
 
     await query.answer()
 
 @router.message(F.text, SearchInputStateFilter())
-async def handle_user_search_text_input(message: types.Message):
+async def handle_user_search_text_input(message: types.Message, i18n: I18nContext):
     # Here we handle only input with state state == "search_by_name:waiting"
     user_id = message.from_user.id
     await SessionManager.clear_state(user_id)
@@ -57,9 +60,9 @@ async def handle_user_search_text_input(message: types.Message):
     strategy = SearchByNameStrategy(query=query, language=user_lang)
     context = UserSearchContext(strategy=strategy, language=user_lang)
 
-    await process_search(context, message)
+    await process_search(context, message,i18n=i18n)
 
-async def process_search(context: UserSearchContext, message: types.Message):
+async def process_search(context: UserSearchContext, message: types.Message, i18n: I18nContext):
     context = context
     message_ids = []
     pagination_message_id = None
@@ -71,17 +74,17 @@ async def process_search(context: UserSearchContext, message: types.Message):
         if not movies:
             await SessionManager.set_state(message.from_user.id, "search_by_name:waiting")
             logger.info(f"[User {message.from_user.id}] Prompted to input movie name in bot.handlers.search process_search (state set: search_by_name:waiting)")
-            keyboard = get_back_button_keyboard('search')
+            keyboard = get_back_button_keyboard('search',i18n=i18n)
             await message.answer(
-                "🧐 Hmm, I couldn't find anything matching. Try searching something else👇\n\nOr press Back to return.",
+                i18n.get(NO_SEARCH_RESULTS_TRY_AGAIN),
                 reply_markup=keyboard
             )
             return
 
         # Top navigation panel
         try:
-            nav_text_top, nav_keyboard_top = render_navigation_panel(context, position="top", click_source=None)
-            nav_keyboard_top = add_back_to_main_menu_button(nav_keyboard_top)
+            nav_text_top, nav_keyboard_top = render_navigation_panel(context, position="top", click_source=None,i18n=i18n)
+            nav_keyboard_top = add_back_to_main_menu_button(nav_keyboard_top,i18n=i18n)
             top_nav_msg = await message.answer(nav_text_top, reply_markup=nav_keyboard_top)
             top_pagination_message_id = top_nav_msg.message_id
         except TelegramBadRequest as e:
@@ -91,7 +94,7 @@ async def process_search(context: UserSearchContext, message: types.Message):
 
         # Movie cards
         for movie in movies:
-            text, keyboard, poster_url = await render_movie_card(movie, is_expanded=False)
+            text, keyboard, poster_url = await render_movie_card(movie, is_expanded=False,i18n=i18n)
             try:
                 movie_card =  await message.answer_photo(
                     photo=poster_url,
@@ -106,8 +109,8 @@ async def process_search(context: UserSearchContext, message: types.Message):
 
         # Bottom navigation panel
         try:
-            nav_text, nav_keyboard = render_navigation_panel(context, position="bottom", click_source=None)
-            nav_keyboard = add_back_to_main_menu_button(nav_keyboard)
+            nav_text, nav_keyboard = render_navigation_panel(context, position="bottom", click_source=None,i18n=i18n)
+            nav_keyboard = add_back_to_main_menu_button(nav_keyboard,i18n=i18n)
             bottom_nav_msg = await message.answer(nav_text, reply_markup=nav_keyboard)
             pagination_message_id = bottom_nav_msg.message_id
         except TelegramBadRequest as e:
@@ -120,7 +123,6 @@ async def process_search(context: UserSearchContext, message: types.Message):
     finally:
         if context.current_results:
             try:
-                logger.debug(f"[User {message.from_user.id}] Saving session context...")
                 await SessionManager.save_context(
                     user_id=message.from_user.id,
                     context=context,

@@ -2,16 +2,17 @@ from aiogram import types
 from typing import Tuple, Optional
 from bot.config import BATCH_SIZE
 from bot.search.user_search_context import UserSearchContext
-from bot.search.search_strategy import SearchStrategy
 from bot.utils.logger import Logger
+from aiogram_i18n import I18nContext
 
 logger = Logger().get_logger()
 
 def render_navigation_panel(
     context: UserSearchContext,
+    i18n: I18nContext,
     position: str = "bottom",  # "top" or "bottom"
     batch_size: int = BATCH_SIZE,
-    click_source: Optional[str] = None
+    click_source: Optional[str] = None,
 ) -> Tuple[str, types.InlineKeyboardMarkup]:
     """
     Build navigation panel text and buttons.

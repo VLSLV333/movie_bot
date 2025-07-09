@@ -1,8 +1,9 @@
 from aiogram import types
 from bot.helpers.back_button import add_back_button
+from aiogram_i18n import I18nContext
 
 
-def get_search_type_keyboard() -> types.InlineKeyboardMarkup:
+def get_search_type_keyboard(i18n: I18nContext) -> types.InlineKeyboardMarkup:
     keyboard = types.InlineKeyboardMarkup(inline_keyboard = [
         [
             types.InlineKeyboardButton(text="🔤 Search by Name", callback_data="search_by_name"),

@@ -1,8 +1,10 @@
 from aiogram import Router, types, F
+from aiogram_i18n import I18nContext
 from aiogram.exceptions import TelegramBadRequest
-from aiohttp import ClientSession
-
 from bot.utils.session_manager import SessionManager
+from bot.locales.keys import (
+    NO_MORE_MIRROR_RESULTS_TRY_ANOTHER_MOVIE, SESSION_EXPIRED_RESTART_SEARCH
+)
 from bot.search.mirror_search_session import MirrorSearchSession
 from bot.keyboards.mirror_navigation_keyboard import get_mirror_navigation_keyboard
 from bot.helpers.render_mirror_card import render_mirror_card_batch, store_message_id_in_redis
@@ -10,6 +12,7 @@ from bot.utils.logger import Logger
 from bot.handlers.mirror_search_handler import fetch_next_mirror_results
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.utils.user_service import UserService
+from bot.keyboards.search_type_keyboard import get_search_type_keyboard
 
 router = Router()
 logger = Logger().get_logger()
@@ -42,19 +45,11 @@ async def safely_delete_navigation(query: types.CallbackQuery, nav_message_id: i
         logger.warning(f"[User {query.from_user.id}] Could not delete bottom nav panel: {ex}")
         return False
 
-async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSearchSession, click_source: str):
+async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSearchSession, click_source: str, i18n: I18nContext):
 
     user_id = query.from_user.id
     mirror_data = session.mirrors_search_results.get(session.current_mirror_index, {})
     results = mirror_data.get("results", [])
-
-    logger.debug(f"[User {user_id}] Full results from session: {results}")
-    logger.debug(f"[User {user_id}] Current result index: {session.current_result_index}")
-
-    logger.debug(f"[User {user_id}] Mirrors keys: {list(session.mirrors_search_results.keys())}")
-    logger.debug(f"[User {user_id}] Mirror data: {mirror_data}")
-    logger.debug(f"[User {user_id}] Mirror results count: {len(mirror_data.get('results', []))}")
-    logger.debug(f"[User {user_id}] Result index: {session.current_result_index}")
 
     start = session.current_result_index
     end = min(start + BATCH_SIZE, len(results))
@@ -80,8 +75,8 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
             current_batch = results[start:end]
         else:
             # 🛑 No more mirrors → display fallback and stop pagination
-            await query.message.answer("❌ No more results found on mirrors. Try another movie.",
-                                       reply_markup=get_main_menu_keyboard())
+            await query.message.answer(i18n.get(NO_MORE_MIRROR_RESULTS_TRY_ANOTHER_MOVIE),
+                                       reply_markup=get_main_menu_keyboard(i18n))
             session.card_message_ids = []
             await SessionManager.update_data(user_id, {"mirror_session": session.to_dict()})
             return
@@ -90,7 +85,7 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
     logger.debug(f"[User {user_id}] Current batch titles: {[r.get('title') for r in results[start:end]]}")
 
     # 1. Update top panel
-    top_text, top_keyboard = await get_mirror_navigation_keyboard(session, position="top", click_source=click_source)
+    top_text, top_keyboard = await get_mirror_navigation_keyboard(session, position="top", click_source=click_source,i18n=i18n)
     try:
         await query.bot.edit_message_text(
             chat_id=query.message.chat.id,
@@ -106,13 +101,7 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
             logger.warning(f"[User {user_id}] Could not update top nav panel: {e}")
 
     # 2. Update movie cards
-    logger.debug(
-        f"[User {user_id}] Retrieved {len(results)} total results from mirror index {session.current_mirror_index}")
-    logger.debug(
-        f"[User {user_id}] Current pagination index: {session.current_result_index} → showing results {start}:{end}")
-    logger.debug(f"[User {user_id}] Titles in current batch: {[r.get('title') for r in current_batch]}")
-
-    cards = await render_mirror_card_batch(current_batch, tmdb_id=session.movie_id, user_lang=await UserService.get_user_preferred_language(user_id))
+    cards = await render_mirror_card_batch(current_batch, tmdb_id=session.movie_id, user_lang=await UserService.get_user_preferred_language(user_id),i18n=i18n)
     updated_ids = []
     navigation_deleted = False
 
@@ -165,14 +154,12 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
     # 3. Update bottom panel
     await safely_delete_navigation(query, session.bottom_nav_message_id)
 
-    bottom_text, bottom_keyboard = await get_mirror_navigation_keyboard(session, position="bottom", click_source=click_source)
+    bottom_text, bottom_keyboard = await get_mirror_navigation_keyboard(session, position="bottom", click_source=click_source,i18n=i18n)
     try:
         panel = await query.message.answer(bottom_text, reply_markup=bottom_keyboard)
         session.bottom_nav_message_id = panel.message_id
     except Exception as e:
         logger.error(f"[User {user_id}] Failed to resend bottom nav panel: {e}")
-
-    logger.debug(f"[User {user_id}] Showing results {start} to {end} (mirror {session.current_mirror_index})")
 
     # Save session
     session.card_message_ids = updated_ids
@@ -181,38 +168,27 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
         f"[User {user_id}] Saved pagination session: top_panel={session.top_nav_message_id}, bottom_panel={session.bottom_nav_message_id}, cards={session.card_message_ids}")
 
 @router.callback_query(F.data == "next_mirror_result")
-async def next_mirror_result(query: types.CallbackQuery):
+async def next_mirror_result(query: types.CallbackQuery, i18n: I18nContext):
     user_id = query.from_user.id
     session_data = await SessionManager.get_data(user_id)
     if not session_data:
-        #TODO: ADD "ADD "😅 I already forgot what we were searching! Pls start a new search 👇" + keyboard"
-        await query.answer("Session expired", show_alert=True)
+        await query.message.answer(text=i18n.get(SESSION_EXPIRED_RESTART_SEARCH), reply_markup=get_search_type_keyboard(i18n))
         return
-
-    logger.info(f"[User {user_id}] Triggered pagination:  'next' ")
 
     session = MirrorSearchSession.from_dict(session_data.get("mirror_session"))
     session.current_result_index += BATCH_SIZE
     click_source = detect_click_source(session.__dict__, query.message.message_id)
 
-    logger.debug(f"[User {user_id}] Session mirror results keys: {list(session.mirrors_search_results.keys())}")
-    logger.debug(
-        f"[User {user_id}] Total results for current mirror: {len(session.mirrors_search_results[session.current_mirror_index]['results'])}")
-
-    await update_mirror_results_ui(query, session, click_source)
+    await update_mirror_results_ui(query, session, click_source, i18n)
     await query.answer()
 
-
 @router.callback_query(F.data == "previous_mirror_result")
-async def previous_mirror_result(query: types.CallbackQuery):
+async def previous_mirror_result(query: types.CallbackQuery, i18n: I18nContext):
     user_id = query.from_user.id
     session_data = await SessionManager.get_data(user_id)
     if not session_data:
-        #TODO: ADD "ADD "😅 I already forgot what we were searching! Pls start a new search 👇" + keyboard"
-        await query.answer("Session expired", show_alert=True)
+        await query.message.answer(text=i18n.get(SESSION_EXPIRED_RESTART_SEARCH), reply_markup=get_search_type_keyboard(i18n))
         return
-
-    logger.info(f"[User {user_id}] Triggered pagination: 'previous'")
 
     session = MirrorSearchSession.from_dict(session_data.get("mirror_session"))
 
@@ -229,6 +205,5 @@ async def previous_mirror_result(query: types.CallbackQuery):
 
     click_source = detect_click_source(session.__dict__, query.message.message_id)
 
-    await update_mirror_results_ui(query, session, click_source)
+    await update_mirror_results_ui(query, session, click_source, i18n)
     await query.answer()
-

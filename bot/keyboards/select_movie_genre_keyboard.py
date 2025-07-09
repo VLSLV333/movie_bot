@@ -1,5 +1,6 @@
 from aiogram import types
 from bot.helpers.back_button import add_back_button
+from aiogram_i18n import I18nContext
 
 # ✅ List of genres with TMDB IDs — we use this for both buttons and API later
 GENRES = [
@@ -24,7 +25,7 @@ GENRES = [
 ]
 
 
-def get_movie_genre_keyboard(selected_genres: list[int]) -> types.InlineKeyboardMarkup:
+def get_movie_genre_keyboard(selected_genres: list[int], i18n: I18nContext) -> types.InlineKeyboardMarkup:
     """
     Returns an inline keyboard with selectable genres. Selected genres are visually highlighted.
     """

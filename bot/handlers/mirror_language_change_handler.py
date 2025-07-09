@@ -1,14 +1,17 @@
 from aiogram import Router, types, F
+from aiogram_i18n import I18nContext
 from aiohttp import ClientSession
+from bot.locales.keys import SELECT_LANGUAGE_FOR_MOVIES, ERROR_CANNOT_SHOW_LANGUAGE_OPTIONS, \
+    LANGUAGE_UPDATED_SUCCESSFULLY, ERROR_UPDATE_LANGUAGE_FAILED
 from bot.utils.logger import Logger
-from bot.helpers.render_mirror_card import get_mirror_language_selection_keyboard, get_language_display_name, render_mirror_card, get_message_id_from_redis
+from bot.helpers.render_mirror_card import get_mirror_language_selection_keyboard, get_language_display_name
 from bot.utils.redis_client import RedisClient
 
 router = Router()
 logger = Logger().get_logger()
 
 @router.callback_query(F.data.startswith("CLM:"))
-async def change_language_mirror_handler(query: types.CallbackQuery):
+async def change_language_mirror_handler(query: types.CallbackQuery, i18n: I18nContext):
     """Handle 'Change language' button click on mirror card"""
     if query is None or query.data is None:
         logger.error("CallbackQuery or its data is None in change_language_mirror_handler")
@@ -28,11 +31,11 @@ async def change_language_mirror_handler(query: types.CallbackQuery):
         logger.warning(f"[User {user_id}] Failed to store stream_id for language change: {e}")
     
     # Show language selection keyboard in a new message
-    keyboard = get_mirror_language_selection_keyboard()
+    keyboard = get_mirror_language_selection_keyboard(i18n)
     
     if query.message is not None:
         lang_selection_msg = await query.message.answer(
-            "🌍 Select your preferred language for watching movies:",
+            i18n.get(SELECT_LANGUAGE_FOR_MOVIES),
             reply_markup=keyboard
         )
         # Store the language selection message ID for later deletion
@@ -40,11 +43,11 @@ async def change_language_mirror_handler(query: types.CallbackQuery):
         return lang_selection_msg
     else:
         logger.error("query.message is None, cannot send language selection message")
-        await query.answer("❌ Error: Cannot show language options")
+        await query.answer(i18n.get(ERROR_CANNOT_SHOW_LANGUAGE_OPTIONS))
         return None
 
 @router.callback_query(F.data.startswith("mirror_select_lang:"))
-async def mirror_select_language_handler(query: types.CallbackQuery):
+async def mirror_select_language_handler(query: types.CallbackQuery, i18n: I18nContext):
     """Handle language selection in mirror context"""
     if query is None or query.data is None:
         logger.error("CallbackQuery or its data is None in mirror_select_language_handler")
@@ -79,19 +82,17 @@ async def mirror_select_language_handler(query: types.CallbackQuery):
                     # Get the language display name
                     language_display = get_language_display_name(selected_language)
 
-                    await query.message.answer(f"✅ Language updated to: {language_display}\n\nPress 'Watch' or 'Download' - language will be as you just selected")
+                    await query.message.answer(i18n.get(LANGUAGE_UPDATED_SUCCESSFULLY).format(language=language_display))
                     return
 
                 else:
                     logger.error(f"[User {user_id}] Failed to update language: {resp.status}")
-                    # Send error message
                     if query.message is not None:
-                        await query.message.answer("❌ Couldn't update language, please try later")
+                        await query.message.answer(i18n.get(ERROR_UPDATE_LANGUAGE_FAILED))
                             
     except Exception as e:
         logger.error(f"[User {user_id}] Exception during language update: {e}")
-        # Send error message
         if query.message is not None:
-            await query.message.answer("❌ Couldn't update language, please try later")
+            await query.message.answer(i18n.get(ERROR_UPDATE_LANGUAGE_FAILED))
     
     await query.answer() 

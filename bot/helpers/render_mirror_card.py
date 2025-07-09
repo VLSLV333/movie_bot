@@ -1,5 +1,6 @@
 import re
 import json
+from aiogram_i18n import I18nContext
 
 from bot.utils.redis_client import RedisClient
 from aiogram import types
@@ -39,7 +40,7 @@ def get_language_display_name(lang_code: str) -> str:
     
     return lang_names.get(lang_code.lower(), f"🌍 {lang_code.upper()}")
 
-def get_mirror_language_selection_keyboard() -> types.InlineKeyboardMarkup:
+def get_mirror_language_selection_keyboard(i18n: I18nContext) -> types.InlineKeyboardMarkup:
     """
     Create keyboard for language selection in mirror context.
     Shows only the 3 main supported languages.
@@ -134,7 +135,7 @@ def render_mirror_card(result: dict, user_lang: str, add_wrong_movie_btn: bool =
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
     return text, keyboard, poster, stream_id
 
-async def render_mirror_card_batch(results: list[dict], tmdb_id, user_lang: str, add_wrong_movie_btn: bool = False) -> list[Tuple[str, types.InlineKeyboardMarkup, str, str]]:
+async def render_mirror_card_batch(results: list[dict], tmdb_id, user_lang: str,i18n: I18nContext, add_wrong_movie_btn: bool = False) -> list[Tuple[str, types.InlineKeyboardMarkup, str, str]]:
     redis = RedisClient.get_client()
     rendered = []
 
