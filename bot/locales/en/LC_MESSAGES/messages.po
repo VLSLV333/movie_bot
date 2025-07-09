@@ -384,3 +384,132 @@ msgstr "🥲 No available dubs found for selected language"
 
 msgid "no_ua_dubs"
 msgstr "🎙️ Sorry, no Ukrainian dubs available for this movie"
+
+# Helper-specific Messages
+msgid "preferred_language_to_watch"
+msgstr "Preferred language to watch:"
+
+msgid "change_language_btn"
+msgstr "🌍 Change language"
+
+msgid "wrong_movie_btn"
+msgstr "❌ Wrong movie"
+
+msgid "no_title_fallback"
+msgstr "🤯 No Title"
+
+msgid "default_overview_fallback"
+msgstr "This is a default overview for some movies. Probably good movie 🫡"
+
+msgid "good_movie_fallback"
+msgstr "Good movie 🫡"
+
+msgid "imdb_rating_prefix"
+msgstr "⭐ IMDb · "
+
+msgid "select_btn"
+msgstr "✅ Select"
+
+msgid "collapse_card_btn"
+msgstr "🔼 Collapse card"
+
+msgid "expand_card_btn"
+msgstr "⬇️ Expand"
+
+msgid "scroll_down_hint"
+msgstr "👇 Scroll down to see all {batch_size} movies!"
+
+msgid "press_next_hint"
+msgstr "➡️ Press 'Next' to see more movies!"
+
+msgid "scroll_up_hint"
+msgstr "👆 Scroll up to see all {batch_size} movies!"
+
+msgid "exploring_movies_default"
+msgstr "🔎 You're exploring movies..."
+
+msgid "showing_movies_range"
+msgstr "🎬 Showing movies {global_start}–{global_end} of {total_results}"
+
+msgid "previous_movies_btn"
+msgstr "⬅️ {batch_size} Previous Movies"
+
+msgid "next_movies_btn"
+msgstr "➡️ {batch_size} Next Movies"
+
+msgid "can_not_find_btn"
+msgstr "❌ Can not find"
+
+msgid "watch_later_btn"
+msgstr "🕓 Watch Later"
+
+# Keyboard-specific Messages
+msgid "mirror_selection_hint"
+msgstr "Click ➡ Next if you don't see '{movie_title}'"
+
+msgid "mirror_select_title"
+msgstr "🎬 Select '{movie_title}' and start watching"
+
+msgid "previous_btn"
+msgstr "⬅ Previous"
+
+msgid "next_btn"
+msgstr "➡ Next"
+
+msgid "confirm_btn"
+msgstr "✅ Confirm"
+
+# Genre Names
+msgid "genre_action"
+msgstr "🔫 Action"
+
+msgid "genre_comedy"
+msgstr "😂 Comedy"
+
+msgid "genre_adventure"
+msgstr "😎 Adventure"
+
+msgid "genre_thriller"
+msgstr "🤯 Thriller"
+
+msgid "genre_romance"
+msgstr "❤️ Romance"
+
+msgid "genre_drama"
+msgstr "😭 Drama"
+
+msgid "genre_fantasy"
+msgstr "🧙 Fantasy"
+
+msgid "genre_mystery"
+msgstr "😱 Mystery"
+
+msgid "genre_family"
+msgstr "🤗 Family"
+
+msgid "genre_animation"
+msgstr "🌞 Animation"
+
+msgid "genre_crime"
+msgstr "🕵️ Crime"
+
+msgid "genre_documentary"
+msgstr "📚 Documentary"
+
+msgid "genre_history"
+msgstr "🏰 History"
+
+msgid "genre_horror"
+msgstr "👻 Horror"
+
+msgid "genre_scifi"
+msgstr "🚀 Sci-Fi"
+
+msgid "genre_war"
+msgstr "⚔️ War"
+
+msgid "genre_tv_movie"
+msgstr "📺 TV Movie"
+
+msgid "genre_music"
+msgstr "🎵 Music"

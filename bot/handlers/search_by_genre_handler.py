@@ -69,7 +69,7 @@ async def confirm_selected_genres(query: types.CallbackQuery, i18n: I18nContext)
     logger.info(f"[User {user_id}] Confirmed genres: {selected}")
     await SessionManager.set_state(user_id, "search_by_genre:year_range")
 
-    keyboard = get_year_range_keyboard()
+    keyboard = get_year_range_keyboard(i18n=i18n)
     await query.message.edit_text(i18n.get(YEAR_RANGE_SELECTION_PROMPT), reply_markup=keyboard)
     await query.answer()
 

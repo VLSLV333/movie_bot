@@ -1,4 +1,5 @@
 from aiogram import types
+from bot.locales.keys import CUSTOM_NAME_BTN, LANG_ENGLISH, LANG_UKRAINIAN, LANG_RUSSIAN
 
 def get_name_selection_keyboard(user: types.User, i18n) -> types.InlineKeyboardMarkup:
     """Create keyboard for name selection"""
@@ -18,7 +19,7 @@ def get_name_selection_keyboard(user: types.User, i18n) -> types.InlineKeyboardM
         )])
     
     keyboard.append([types.InlineKeyboardButton(
-        text="✏️ Custom name", 
+        text=i18n.get(CUSTOM_NAME_BTN), 
         callback_data="custom_name"
     )])
     
@@ -26,11 +27,11 @@ def get_name_selection_keyboard(user: types.User, i18n) -> types.InlineKeyboardM
 
 def get_language_selection_keyboard(user_lang: str, i18n) -> types.InlineKeyboardMarkup:
     """Create keyboard for language selection"""
-    # Map language codes to display names
-    lang_names = {
-        "uk": "🇺🇦 Ukrainian",
-        "en": "🇺🇸 English", 
-        "ru": "🇷🇺 Russian",
+    # Map language codes to translation keys
+    lang_keys = {
+        "uk": LANG_UKRAINIAN,
+        "en": LANG_ENGLISH, 
+        "ru": LANG_RUSSIAN,
         # "es": "🇪🇸 Spanish",
         # "fr": "🇫🇷 French",
         # "de": "🇩🇪 German"
@@ -39,22 +40,22 @@ def get_language_selection_keyboard(user_lang: str, i18n) -> types.InlineKeyboar
     keyboard = []
     
     # Show user's Telegram language first if it's supported
-    if user_lang in lang_names:
+    if user_lang in lang_keys:
         keyboard.append([types.InlineKeyboardButton(
-            text=f"{lang_names[user_lang]}",
+            text=i18n.get(lang_keys[user_lang]),
             callback_data=f"select_lang:{user_lang}"
         )])
     else:
         keyboard.append([types.InlineKeyboardButton(
-            text=f"{lang_names['en']}",
+            text=i18n.get(lang_keys['en']),
             callback_data="select_lang:en"
         )])
     
     # Add other supported languages
-    for lang_code, lang_name in lang_names.items():
+    for lang_code, lang_key in lang_keys.items():
         if lang_code != user_lang:
             keyboard.append([types.InlineKeyboardButton(
-                text=lang_name, 
+                text=i18n.get(lang_key), 
                 callback_data=f"select_lang:{lang_code}"
             )])
     

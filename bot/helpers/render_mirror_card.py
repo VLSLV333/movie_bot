@@ -1,29 +1,41 @@
 import re
 import json
 from aiogram_i18n import I18nContext
-
 from bot.utils.redis_client import RedisClient
 from aiogram import types
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional
 from bot.utils.logger import Logger
+from bot.locales.keys import (
+    LANG_ENGLISH, LANG_UKRAINIAN, LANG_RUSSIAN,
+    WATCH_MOVIE, DOWNLOAD_MOVIE, CHANGE_LANGUAGE_BTN, 
+    WRONG_MOVIE_BTN, PREFERRED_LANGUAGE_TO_WATCH
+)
 
 DEFAULT_POSTER_FILE_ID = "AgACAgIAAxkBAAICNGf7lNhs16ESonKa5G8X-Nl7LV7gAAJv8jEbd87hS9GxbYmnDY9ZAQADAgADeQADNgQ"
 logger = Logger().get_logger()
 
-def get_language_display_name(lang_code: str) -> str:
+def get_language_display_name(lang_code: str, i18n: I18nContext) -> str:
     """
     Convert language code to user-friendly display name with flag.
     
     Args:
         lang_code: Language code (e.g., "uk", "en", "ru")
+        i18n: I18n context for translation
         
     Returns:
         User-friendly language name with flag (e.g., "🇺🇦 Ukrainian", "🇺🇸 English")
     """
-    lang_names = {
-        "uk": "🇺🇦 Ukrainian",
-        "en": "🇺🇸 English", 
-        "ru": "🇷🇺 Russian",
+    lang_keys = {
+        "uk": LANG_UKRAINIAN,
+        "en": LANG_ENGLISH, 
+        "ru": LANG_RUSSIAN
+    }
+    
+    if lang_code.lower() in lang_keys:
+        return i18n.get(lang_keys[lang_code.lower()])
+    
+    # Fallback for unsupported languages
+    fallback_names = {
         "es": "🇪🇸 Spanish",
         "fr": "🇫🇷 French",
         "de": "🇩🇪 German",
@@ -38,25 +50,25 @@ def get_language_display_name(lang_code: str) -> str:
         "zh": "🇨🇳 Chinese"
     }
     
-    return lang_names.get(lang_code.lower(), f"🌍 {lang_code.upper()}")
+    return fallback_names.get(lang_code.lower(), f"🌍 {lang_code.upper()}")
 
 def get_mirror_language_selection_keyboard(i18n: I18nContext) -> types.InlineKeyboardMarkup:
     """
     Create keyboard for language selection in mirror context.
     Shows only the 3 main supported languages.
     """
-    lang_names = {
-        "uk": "🇺🇦 Ukrainian",
-        "en": "🇺🇸 English", 
-        "ru": "🇷🇺 Russian"
+    lang_keys = {
+        "uk": LANG_UKRAINIAN,
+        "en": LANG_ENGLISH, 
+        "ru": LANG_RUSSIAN
     }
     
     keyboard = []
     
     # Add all three languages
-    for lang_code, lang_name in lang_names.items():
+    for lang_code, lang_key in lang_keys.items():
         keyboard.append([types.InlineKeyboardButton(
-            text=lang_name, 
+            text=i18n.get(lang_key), 
             callback_data=f"mirror_select_lang:{lang_code}"
         )])
     
@@ -100,7 +112,7 @@ async def get_message_id_from_redis(stream_id: str, user_id: int) -> Optional[in
         logger.warning(f"[User {user_id}] Failed to get message ID from Redis: {e}")
     return None
 
-def render_mirror_card(result: dict, user_lang: str, add_wrong_movie_btn: bool = False, tmdb_id: int = None) -> Tuple[str, types.InlineKeyboardMarkup, str, str]:
+def render_mirror_card(result: dict, user_lang: str, i18n: I18nContext, add_wrong_movie_btn: bool = False, tmdb_id: int = None) -> Tuple[str, types.InlineKeyboardMarkup, str, str]:
     """
     Renders a mirror movie result into a Telegram card.
     Expects structure: { "title": ..., "poster": ..., "url": ... }
@@ -108,6 +120,7 @@ def render_mirror_card(result: dict, user_lang: str, add_wrong_movie_btn: bool =
     Args:
         result: Movie data dictionary
         user_lang: User's preferred language
+        i18n: I18n context for translation
         add_wrong_movie_btn: If True, add a 'Wrong movie' button
         tmdb_id: TMDB movie id (required if add_wrong_movie_btn is True)
     """
@@ -119,23 +132,23 @@ def render_mirror_card(result: dict, user_lang: str, add_wrong_movie_btn: bool =
     clean_title = re.sub(r"</?b>", "", title)
 
     # Get user-friendly language name with flag
-    language_display = get_language_display_name(user_lang)
+    language_display = get_language_display_name(user_lang, i18n)
 
     # Wrap clean title in bold and add preferred dub info
-    text = f"<b>{clean_title}</b>\n\nPreferred language to watch: {language_display}"
+    text = f"<b>{clean_title}</b>\n\n{i18n.get(PREFERRED_LANGUAGE_TO_WATCH)} {language_display}"
 
     buttons = [
-        [types.InlineKeyboardButton(text="▶️ Watch", callback_data=f"watch_mirror:{stream_id}")],
-        [types.InlineKeyboardButton(text="💾 Download", callback_data=f"download_mirror:{stream_id}")],
-        [types.InlineKeyboardButton(text="🌍 Change language", callback_data=f"CLM:{stream_id}")]
+        [types.InlineKeyboardButton(text=i18n.get(WATCH_MOVIE), callback_data=f"watch_mirror:{stream_id}")],
+        [types.InlineKeyboardButton(text=i18n.get(DOWNLOAD_MOVIE), callback_data=f"download_mirror:{stream_id}")],
+        [types.InlineKeyboardButton(text=i18n.get(CHANGE_LANGUAGE_BTN), callback_data=f"CLM:{stream_id}")]
     ]
     if add_wrong_movie_btn and tmdb_id is not None:
-        buttons.append([types.InlineKeyboardButton(text="❌ Wrong movie", callback_data=f"select_movie_card:{tmdb_id}:y")])
+        buttons.append([types.InlineKeyboardButton(text=i18n.get(WRONG_MOVIE_BTN), callback_data=f"select_movie_card:{tmdb_id}:y")])
 
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
     return text, keyboard, poster, stream_id
 
-async def render_mirror_card_batch(results: list[dict], tmdb_id, user_lang: str,i18n: I18nContext, add_wrong_movie_btn: bool = False) -> list[Tuple[str, types.InlineKeyboardMarkup, str, str]]:
+async def render_mirror_card_batch(results: list[dict], tmdb_id, user_lang: str, i18n: I18nContext, add_wrong_movie_btn: bool = False) -> list[Tuple[str, types.InlineKeyboardMarkup, str, str]]:
     redis = RedisClient.get_client()
     rendered = []
 
@@ -154,6 +167,6 @@ async def render_mirror_card_batch(results: list[dict], tmdb_id, user_lang: str,
             except Exception as e:
                 logger.warning(f"[MirrorCard] Failed to cache URL for {stream_id}: {e}")
 
-        rendered.append(render_mirror_card(result, user_lang, add_wrong_movie_btn, tmdb_id))
+        rendered.append(render_mirror_card(result, user_lang, i18n, add_wrong_movie_btn, tmdb_id))
 
     return rendered

@@ -83,7 +83,7 @@ msgid "back_btn"
 msgstr "🔙 Назад"
 
 msgid "custom_name_btn"
-msgstr "✏️ Власне ім'я"
+msgstr "✏️ Власний нік"
 
 msgid "set_preferences_btn"
 msgstr "⚙️ Налаштувати"
@@ -381,3 +381,132 @@ msgstr "🥲 Не знайдено доступних дубляжів для о
 
 msgid "no_ua_dubs"
 msgstr "🎙️ Вибачте, українські дубляжі для цього кіно недоступні"
+
+# Helper-specific Messages
+msgid "preferred_language_to_watch"
+msgstr "Бажана мова для перегляду:"
+
+msgid "change_language_btn"
+msgstr "🌍 Змінити мову"
+
+msgid "wrong_movie_btn"
+msgstr "❌ Не те кіно"
+
+msgid "no_title_fallback"
+msgstr "🤯 Немає назви"
+
+msgid "default_overview_fallback"
+msgstr "Це стандартний опис для деяких фільмів. Ймовірно, хороше кіно 🫡"
+
+msgid "good_movie_fallback"
+msgstr "Хороше кіно 🫡"
+
+msgid "imdb_rating_prefix"
+msgstr "⭐ IMDb · "
+
+msgid "select_btn"
+msgstr "✅ Обрати"
+
+msgid "collapse_card_btn"
+msgstr "🔼 Згорнути картку"
+
+msgid "expand_card_btn"
+msgstr "⬇️ Розгорнути"
+
+msgid "scroll_down_hint"
+msgstr "👇 Прокрутіть вниз, щоб побачити всі {batch_size}!"
+
+msgid "press_next_hint"
+msgstr "➡️ Натисніть 'Далі', щоб побачити більше кіно!"
+
+msgid "scroll_up_hint"
+msgstr "👆 Прокрутіть вгору, щоб побачити всі {batch_size}!"
+
+msgid "exploring_movies_default"
+msgstr "🔎 Ви досліджуєте кіно..."
+
+msgid "showing_movies_range"
+msgstr "🎬 Показано кіно {global_start}–{global_end} з {total_results}"
+
+msgid "previous_movies_btn"
+msgstr "⬅️ {batch_size} попередніх"
+
+msgid "next_movies_btn"
+msgstr "➡️ {batch_size} наступних"
+
+msgid "can_not_find_btn"
+msgstr "❌ Не можу знайти"
+
+msgid "watch_later_btn"
+msgstr "🕓 Переглянути пізніше"
+
+# Keyboard-specific Messages
+msgid "mirror_selection_hint"
+msgstr "Натисніть ➡ Далі, якщо не бачите '{movie_title}'"
+
+msgid "mirror_select_title"
+msgstr "🎬 Оберіть '{movie_title}' і почніть перегляд"
+
+msgid "previous_btn"
+msgstr "⬅ Попереднє"
+
+msgid "next_btn"
+msgstr "➡ Наступне"
+
+msgid "confirm_btn"
+msgstr "✅ Підтвердити"
+
+# Genre Names
+msgid "genre_action"
+msgstr "🔫 Бойовик"
+
+msgid "genre_comedy"
+msgstr "😂 Комедія"
+
+msgid "genre_adventure"
+msgstr "😎 Пригоди"
+
+msgid "genre_thriller"
+msgstr "🤯 Трилер"
+
+msgid "genre_romance"
+msgstr "❤️ Романтика"
+
+msgid "genre_drama"
+msgstr "😭 Драма"
+
+msgid "genre_fantasy"
+msgstr "🧙 Фентезі"
+
+msgid "genre_mystery"
+msgstr "😱 Містика"
+
+msgid "genre_family"
+msgstr "🤗 Сімейний"
+
+msgid "genre_animation"
+msgstr "🌞 Анімація"
+
+msgid "genre_crime"
+msgstr "🕵️ Кримінал"
+
+msgid "genre_documentary"
+msgstr "📚 Документальний"
+
+msgid "genre_history"
+msgstr "🏰 Історичний"
+
+msgid "genre_horror"
+msgstr "👻 Жахи"
+
+msgid "genre_scifi"
+msgstr "🚀 Фантастика"
+
+msgid "genre_war"
+msgstr "⚔️ Військовий"
+
+msgid "genre_tv_movie"
+msgstr "📺 ТВ фільм"
+
+msgid "genre_music"
+msgstr "🎵 Музичний"

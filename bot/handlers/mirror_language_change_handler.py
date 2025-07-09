@@ -80,7 +80,7 @@ async def mirror_select_language_handler(query: types.CallbackQuery, i18n: I18nC
                     logger.info(f"[User {user_id}] Successfully updated language to: {selected_language}")
 
                     # Get the language display name
-                    language_display = get_language_display_name(selected_language)
+                    language_display = get_language_display_name(selected_language,i18n=i18n)
 
                     await query.message.answer(i18n.get(LANGUAGE_UPDATED_SUCCESSFULLY).format(language=language_display))
                     return

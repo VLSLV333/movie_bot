@@ -1,7 +1,8 @@
 from aiogram import types
 from bot.helpers.back_button import add_back_button
+from aiogram_i18n import I18nContext
 
-def get_year_range_keyboard() -> types.InlineKeyboardMarkup:
+def get_year_range_keyboard(i18n: I18nContext) -> types.InlineKeyboardMarkup:
     """
     Returns an inline keyboard with selectable year ranges.
     Each button leads to a specific year selection set.
@@ -34,4 +35,4 @@ def get_year_range_keyboard() -> types.InlineKeyboardMarkup:
     if row:
         keyboard.append(row)
 
-    return add_back_button(types.InlineKeyboardMarkup(inline_keyboard=keyboard),source='select_genre',index=0)
+    return add_back_button(types.InlineKeyboardMarkup(inline_keyboard=keyboard),source='select_genre',index=0,i18n=i18n)

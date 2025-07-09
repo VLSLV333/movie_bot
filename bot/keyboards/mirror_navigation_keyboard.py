@@ -4,6 +4,7 @@ from bot.search.mirror_search_session import MirrorSearchSession
 from typing import Tuple
 from bot.utils.logger import Logger
 from bot.utils.redis_client import RedisClient
+from bot.locales.keys import MIRROR_SELECTION_HINT, MIRROR_SELECT_TITLE, PREVIOUS_BTN, NEXT_BTN
 import json
 
 logger = Logger().get_logger()
@@ -33,9 +34,9 @@ async def get_mirror_navigation_keyboard(session: MirrorSearchSession, i18n: I18
     except Exception as e:
         logger.error(f"Unexpected error while getting movie title: {e}")
 
-    hint = f"Click ➡ Next if you don't see '{movie_title}'"
+    hint = i18n.get(MIRROR_SELECTION_HINT).format(movie_title)
 
-    text = f"🎬 Select '{movie_title}' and start watching"
+    text = i18n.get(MIRROR_SELECT_TITLE).format(movie_title)
     if hint:
         text += f"\n\n{hint}"
 
@@ -43,11 +44,11 @@ async def get_mirror_navigation_keyboard(session: MirrorSearchSession, i18n: I18
     buttons = []
     show_previous = session.current_result_index > 0
     if show_previous:
-        buttons.append(types.InlineKeyboardButton(text="⬅ Previous", callback_data="previous_mirror_result"))
+        buttons.append(types.InlineKeyboardButton(text=i18n.get(PREVIOUS_BTN), callback_data="previous_mirror_result"))
 
     buttons.append(
         types.InlineKeyboardButton(
-            text="➡ Next",
+            text=i18n.get(NEXT_BTN),
             callback_data="next_mirror_result"
         )
     )

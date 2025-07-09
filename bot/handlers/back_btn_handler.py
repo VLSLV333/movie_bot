@@ -55,7 +55,7 @@ async def handle_back_btn(query: types.CallbackQuery, i18n: I18nContext):
         logger.info(f"[User {user_id}] Navigated back to year range selection menu via Back button.")
 
         await SessionManager.clear_state(user_id)
-        keyboard = get_year_range_keyboard()
+        keyboard = get_year_range_keyboard(i18n=i18n)
         await query.message.edit_text(i18n.get(YEAR_RANGE_SELECTION_PROMPT), reply_markup=keyboard)
 
     await query.answer()
