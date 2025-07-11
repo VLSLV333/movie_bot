@@ -134,12 +134,27 @@ def setup_i18n() -> MovieBotI18nMiddleware:
                     logger.warning(f"  -> Error reading contents: {e}")
         
         # Create FluentRuntimeCore for .ftl files
-        # The container runs from /app/bot, so "locales" resolves to /app/bot/locales
-        path_pattern = "locales/{locale}/messages.ftl"
+        # The aiogram_i18n library expects LC_MESSAGES directory structure
+        path_pattern = "locales/{locale}/LC_MESSAGES"
         logger.info(f"Using path pattern: {path_pattern}")
         
-        # Let's try to check file permissions and content
+        # Check what's in LC_MESSAGES directories
         for locale in ["en", "uk", "ru"]:
+            lc_messages_path = Path(f"locales/{locale}/LC_MESSAGES")
+            if lc_messages_path.exists() and lc_messages_path.is_dir():
+                try:
+                    contents = list(lc_messages_path.iterdir())
+                    logger.info(f"LC_MESSAGES/{locale} contents: {[str(c.name) for c in contents]}")
+                    
+                    # Look for .ftl files in LC_MESSAGES
+                    for item in contents:
+                        if item.name.endswith('.ftl'):
+                            logger.info(f"Found .ftl file in LC_MESSAGES: {item}")
+                        
+                except Exception as e:
+                    logger.error(f"Error reading LC_MESSAGES/{locale}: {e}")
+            
+            # Check if .ftl file exists in parent directory
             file_path = Path(f"locales/{locale}/messages.ftl")
             if file_path.exists():
                 stat = file_path.stat()
@@ -153,9 +168,27 @@ def setup_i18n() -> MovieBotI18nMiddleware:
                 except Exception as e:
                     logger.error(f"  -> Error reading file: {e}")
         
-        core = FluentRuntimeCore(
-            path=path_pattern
-        )
+        # Try different path patterns
+        path_patterns_to_try = [
+            "locales/{locale}/LC_MESSAGES",
+            "locales/{locale}/messages.ftl", 
+            "locales/{locale}",
+        ]
+        
+        core = None
+        for pattern in path_patterns_to_try:
+            logger.info(f"Trying path pattern: {pattern}")
+            try:
+                core = FluentRuntimeCore(path=pattern)
+                logger.info(f"Successfully created FluentRuntimeCore with pattern: {pattern}")
+                break
+            except Exception as e:
+                logger.error(f"Failed with pattern {pattern}: {e}")
+                continue
+        
+        if core is None:
+            logger.error("All path patterns failed, using default pattern")
+            core = FluentRuntimeCore(path="locales/{locale}/messages.ftl")
         
         # Create our custom middleware with FluentRuntimeCore
         middleware = MovieBotI18nMiddleware(
