@@ -93,13 +93,31 @@ def setup_i18n() -> MovieBotI18nMiddleware:
         current_dir = os.getcwd()
         logger.info(f"Current working directory: {current_dir}")
         
-        # Test various possible paths
+        # Dynamic path detection based on environment
+        # Docker: working_dir is /app/bot, so locales/ is correct
+        # Local: working_dir is project root, so bot/locales/ is correct
+        possible_locales_bases = [
+            "locales",           # Docker environment (/app/bot -> locales)
+            "bot/locales",       # Local development (project_root -> bot/locales)
+            "/app/bot/locales"   # Docker fallback (absolute path)
+        ]
+        
+        # Find the correct locales base path
+        locales_base = None
+        for base in possible_locales_bases:
+            test_path = Path(base)
+            if test_path.exists() and test_path.is_dir():
+                locales_base = base
+                logger.info(f"Found locales directory at: {test_path.absolute()}")
+                break
+        
+        if not locales_base:
+            raise FileNotFoundError(f"Could not find locales directory in any of: {possible_locales_bases}")
+        
+        # Test .ftl file existence with found base
         test_paths = [
-            "locales/{locale}/messages.ftl",
-            "bot/locales/{locale}/messages.ftl",
-            "/app/bot/locales/{locale}/messages.ftl",
-            "./locales/{locale}/messages.ftl",
-            "../locales/{locale}/messages.ftl"
+            f"{locales_base}/{{locale}}/messages.ftl",
+            f"{locales_base}/{{locale}}/LC_MESSAGES/messages.ftl"
         ]
         
         for test_path in test_paths:
@@ -112,35 +130,28 @@ def setup_i18n() -> MovieBotI18nMiddleware:
                 logger.info(f"  -> Full path: {full_path.absolute()}")
         
         # Check what's in the locales directory
-        locales_paths = [
-            Path("locales"),
-            Path("bot/locales"),
-            Path("/app/bot/locales")
-        ]
-        
-        for locales_path in locales_paths:
-            if locales_path.exists():
-                logger.info(f"Found locales directory: {locales_path.absolute()}")
-                try:
-                    contents = list(locales_path.iterdir())
-                    logger.info(f"  -> Contents: {[str(c.name) for c in contents]}")
-                    
-                    # Check each locale subdirectory
-                    for locale_dir in contents:
-                        if locale_dir.is_dir():
-                            locale_contents = list(locale_dir.iterdir())
-                            logger.info(f"  -> {locale_dir.name} contents: {[str(c.name) for c in locale_contents]}")
-                except Exception as e:
-                    logger.warning(f"  -> Error reading contents: {e}")
+        locales_path = Path(locales_base)
+        logger.info(f"Found locales directory: {locales_path.absolute()}")
+        try:
+            contents = list(locales_path.iterdir())
+            logger.info(f"  -> Contents: {[str(c.name) for c in contents]}")
+            
+            # Check each locale subdirectory
+            for locale_dir in contents:
+                if locale_dir.is_dir():
+                    locale_contents = list(locale_dir.iterdir())
+                    logger.info(f"  -> {locale_dir.name} contents: {[str(c.name) for c in locale_contents]}")
+        except Exception as e:
+            logger.warning(f"  -> Error reading contents: {e}")
         
         # Create FluentRuntimeCore for .ftl files
         # The aiogram_i18n library expects LC_MESSAGES directory structure
-        path_pattern = "locales/{locale}/LC_MESSAGES"
+        path_pattern = f"{locales_base}/{{locale}}/LC_MESSAGES"
         logger.info(f"Using path pattern: {path_pattern}")
         
         # Check what's in LC_MESSAGES directories
         for locale in ["en", "uk", "ru"]:
-            lc_messages_path = Path(f"locales/{locale}/LC_MESSAGES")
+            lc_messages_path = Path(f"{locales_base}/{locale}/LC_MESSAGES")
             if lc_messages_path.exists() and lc_messages_path.is_dir():
                 try:
                     contents = list(lc_messages_path.iterdir())
@@ -155,7 +166,7 @@ def setup_i18n() -> MovieBotI18nMiddleware:
                     logger.error(f"Error reading LC_MESSAGES/{locale}: {e}")
             
             # Check if .ftl file exists in parent directory
-            file_path = Path(f"locales/{locale}/messages.ftl")
+            file_path = Path(f"{locales_base}/{locale}/messages.ftl")
             if file_path.exists():
                 stat = file_path.stat()
                 logger.info(f"File {file_path}: size={stat.st_size}, mode={oct(stat.st_mode)}")
@@ -175,7 +186,6 @@ def setup_i18n() -> MovieBotI18nMiddleware:
         
         import shutil
         
-        locales_path = Path("locales")
         cleanup_items = []
         
         for item in locales_path.iterdir():
@@ -207,7 +217,7 @@ def setup_i18n() -> MovieBotI18nMiddleware:
             # Validate that all required .ftl files exist
             missing_files = []
             for locale in supported_locales:
-                ftl_path = Path(f"locales/{locale}/LC_MESSAGES/messages.ftl")
+                ftl_path = Path(f"{locales_base}/{locale}/LC_MESSAGES/messages.ftl")
                 if not ftl_path.exists():
                     missing_files.append(str(ftl_path))
             
@@ -216,14 +226,14 @@ def setup_i18n() -> MovieBotI18nMiddleware:
                 raise FileNotFoundError(f"Missing .ftl files: {missing_files}")
             
             # Create the core with clean directory structure
-            core = FluentRuntimeCore(path="locales/{locale}/LC_MESSAGES")
+            core = FluentRuntimeCore(path=f"{locales_base}/{{locale}}/LC_MESSAGES")
             logger.info("Successfully created FluentRuntimeCore after runtime cleanup")
             
         except Exception as e:
             logger.error(f"Failed to create FluentRuntimeCore even after cleanup: {e}")
             logger.info("Trying fallback pattern")
             try:
-                core = FluentRuntimeCore(path="locales/{locale}/messages.ftl")
+                core = FluentRuntimeCore(path=f"{locales_base}/{{locale}}/messages.ftl")
                 logger.info("Successfully created FluentRuntimeCore with fallback pattern")
             except Exception as fallback_error:
                 logger.error(f"Fallback also failed: {fallback_error}")
