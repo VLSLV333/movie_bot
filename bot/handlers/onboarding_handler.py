@@ -38,20 +38,42 @@ class OnboardingInputStateFilter(Filter):
 async def call_backend_api(endpoint: str, method: str = "GET", data: Optional[dict] = None) -> Optional[dict]:
     """Helper function to call backend API"""
     url = f"{BACKEND_API_URL}{endpoint}"
+    logger.info(f"[BackendAPI] Making {method} request to {url} with data: {data}")
     
     try:
         async with aiohttp.ClientSession() as session:
             if method == "GET":
                 async with session.get(url) as response:
-                    return await response.json() if response.status == 200 else None
+                    logger.info(f"[BackendAPI] GET response status: {response.status}")
+                    if response.status == 200:
+                        result = await response.json()
+                        logger.info(f"[BackendAPI] GET response data: {result}")
+                        return result
+                    else:
+                        logger.error(f"[BackendAPI] GET request failed with status {response.status}")
+                        return None
             elif method == "POST":
                 async with session.post(url, json=data) as response:
-                    return await response.json() if response.status == 200 else None
+                    logger.info(f"[BackendAPI] POST response status: {response.status}")
+                    if response.status == 200:
+                        result = await response.json()
+                        logger.info(f"[BackendAPI] POST response data: {result}")
+                        return result
+                    else:
+                        logger.error(f"[BackendAPI] POST request failed with status {response.status}")
+                        return None
             elif method == "PUT":
                 async with session.put(url, json=data) as response:
-                    return await response.json() if response.status == 200 else None
+                    logger.info(f"[BackendAPI] PUT response status: {response.status}")
+                    if response.status == 200:
+                        result = await response.json()
+                        logger.info(f"[BackendAPI] PUT response data: {result}")
+                        return result
+                    else:
+                        logger.error(f"[BackendAPI] PUT request failed with status {response.status}")
+                        return None
     except Exception as e:
-        logger.error(f"Backend API call failed: {e}")
+        logger.error(f"[BackendAPI] Backend API call failed: {e}")
         return None
 
 async def get_or_create_user_backend(telegram_id: int, user_tg_lang: str, first_name: Optional[str] = None, last_name: Optional[str] = None) -> Optional[dict]:
@@ -83,7 +105,14 @@ async def update_user_onboarding_backend(telegram_id: int, custom_name: Optional
         "bot_lang": bot_lang,  # Set bot interface language
         "is_premium": False
     }
-    return await call_backend_api("/users/onboarding", "POST", data)
+    
+    logger.info(f"[OnboardingBackend] Sending data to backend: {data}")
+    
+    result = await call_backend_api("/users/onboarding", "POST", data)
+    
+    logger.info(f"[OnboardingBackend] Backend response: {result}")
+    
+    return result
 
 @router.message(CommandStart())
 async def start_handler(message: types.Message, i18n: I18nContext):
@@ -288,11 +317,21 @@ async def select_language_handler(query: types.CallbackQuery, i18n: I18nContext)
     
     logger.info(f"[User {user_id}] Selected language: {selected_language}, custom_name: {custom_name}")
     
+    # Debug: Log what we're about to send to backend
+    logger.info(f"[User {user_id}] About to call backend with bot_lang: {selected_language}")
+    
     user_data = await update_user_onboarding_backend(
         telegram_id=user_id,
         custom_name=custom_name,
         bot_lang=selected_language
     )
+    
+    # Debug: Log what we received from backend
+    if user_data:
+        logger.info(f"[User {user_id}] Backend response: {user_data}")
+        logger.info(f"[User {user_id}] Backend returned bot_lang: {user_data.get('bot_lang')}")
+    else:
+        logger.error(f"[User {user_id}] Backend returned None/empty response!")
     
     # Clear all onboarding data
     await SessionManager.clear_data(user_id)

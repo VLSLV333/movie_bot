@@ -20,11 +20,13 @@ class UserService:
             Dict with user data or None if failed
         """
         try:
+            logger.info(f"[UserService] Making request to get user info for {user_id}")
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"{BACKEND_API_URL}/users/{user_id}") as resp:
+                    logger.info(f"[UserService] Backend response status for user {user_id}: {resp.status}")
                     if resp.status == 200:
                         user_data = await resp.json()
-                        logger.debug(f"[UserService] Retrieved user data for {user_id}")
+                        logger.info(f"[UserService] Retrieved user data for {user_id}: {user_data}")
                         return user_data
                     else:
                         logger.warning(f"[UserService] Failed to get user {user_id}: {resp.status}")
@@ -52,9 +54,18 @@ class UserService:
         Returns:
             User's bot language or default
         """
+        logger.info(f"[UserService] Getting bot language for user {user_id}")
         user_data = await UserService.get_user_info(user_id)
-        if user_data and user_data.get("bot_lang"):
-            return user_data.get("bot_lang", default)
+        if user_data:
+            bot_lang = user_data.get("bot_lang")
+            logger.info(f"[UserService] User {user_id} data contains bot_lang: {bot_lang}")
+            if bot_lang:
+                logger.info(f"[UserService] Returning bot_lang: {bot_lang} for user {user_id}")
+                return bot_lang
+            else:
+                logger.warning(f"[UserService] User {user_id} has no bot_lang set, using default: {default}")
+        else:
+            logger.warning(f"[UserService] No user data found for user {user_id}")
         
         await notify_admin(f'tried to get user info for id:{user_id} to get bot language but was not found and provided default lang')
         return default

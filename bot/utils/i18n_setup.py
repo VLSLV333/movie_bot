@@ -50,12 +50,16 @@ class MovieBotI18nMiddleware(I18nMiddleware):
         
         # Try to get user's preferred bot language from backend
         try:
+            logger.info(f"[I18n] Attempting to get bot language for user {user.id}")
             bot_lang = await UserService.get_user_bot_language(user.id)
+            logger.info(f"[I18n] UserService returned bot_lang: {bot_lang} for user {user.id}")
             if bot_lang and bot_lang in ['en', 'uk', 'ru']:
-                logger.debug(f"User {user.id} bot language from backend: {bot_lang}")
+                logger.info(f"[I18n] User {user.id} bot language from backend: {bot_lang}")
                 return bot_lang
+            else:
+                logger.warning(f"[I18n] User {user.id} bot language invalid or empty: {bot_lang}")
         except Exception as e:
-            logger.warning(f"Failed to get user bot language from backend: {e}")
+            logger.warning(f"[I18n] Failed to get user bot language from backend: {e}")
         
         # Fallback to Telegram user language
         telegram_lang = getattr(user, 'language_code', None)
@@ -70,11 +74,11 @@ class MovieBotI18nMiddleware(I18nMiddleware):
                 'kk': 'ru',  # Kazakh -> Russian
             }
             mapped_lang = lang_mapping.get(telegram_lang.lower(), 'en')
-            logger.debug(f"User {user.id} language from Telegram: {telegram_lang} -> {mapped_lang}")
+            logger.info(f"[I18n] User {user.id} language from Telegram: {telegram_lang} -> {mapped_lang}")
             return mapped_lang
         
         # Ultimate fallback
-        logger.debug(f"User {user.id} using default language: en")
+        logger.info(f"[I18n] User {user.id} using default language: en")
         return "en"
 
 
