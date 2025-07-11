@@ -54,8 +54,7 @@ async def main():
         await on_startup()
 
         i18n_middleware = setup_i18n()
-        dp.message.middleware(i18n_middleware)
-        dp.callback_query.middleware(i18n_middleware)
+        i18n_middleware.setup(dispatcher=dp)
         logger.info("I18n middleware initialized!")
 
         await dp.start_polling(bot)

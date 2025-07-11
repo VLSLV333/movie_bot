@@ -1,21 +1,22 @@
 """
-I18n setup and configuration for the movie bot.
-This module provides the aiogram-i18n middleware setup and user locale detection.
+I18n setup and configuration for the movie bot using aiogram_i18n.
+This module provides Fluent-based internationalization with custom locale detection.
 """
 
 from typing import Any, Dict
 from aiogram import types
-from aiogram.utils.i18n import I18n, SimpleI18nMiddleware
+from aiogram_i18n import I18nMiddleware
+from aiogram_i18n.cores.fluent_runtime_core import FluentRuntimeCore
 from bot.utils.user_service import UserService
 from bot.utils.logger import Logger
 
 logger = Logger().get_logger()
 
 
-class MovieBotI18nMiddleware(SimpleI18nMiddleware):
+class MovieBotI18nMiddleware(I18nMiddleware):
     """
-    Custom I18n middleware that extends SimpleI18nMiddleware
-    with backend integration for user language preferences.
+    Custom I18n middleware that extends aiogram_i18n I18nMiddleware
+    with backend integration and custom locale detection.
     """
     
     async def get_locale(self, event: types.TelegramObject, data: Dict[str, Any]) -> str:
@@ -85,18 +86,19 @@ def setup_i18n() -> MovieBotI18nMiddleware:
         Configured MovieBotI18nMiddleware instance
     """
     try:
-        # Create I18n instance for gettext (.po/.mo files)
+        # Create FluentRuntimeCore for .ftl files
         # The container runs from /app/bot, so "locales" resolves to /app/bot/locales
-        i18n = I18n(
-            path="locales", 
-            default_locale="en", 
-            domain="messages"
+        core = FluentRuntimeCore(
+            path="locales/{locale}/messages.ftl"
         )
         
-        # Create our custom middleware
-        middleware = MovieBotI18nMiddleware(i18n)
+        # Create our custom middleware with FluentRuntimeCore
+        middleware = MovieBotI18nMiddleware(
+            core=core,
+            default_locale="en"
+        )
         
-        logger.info("I18n middleware configured successfully")
+        logger.info("I18n middleware configured successfully with Fluent support")
         return middleware
     except Exception as e:
         logger.error(f"Failed to setup I18n middleware: {e}")
