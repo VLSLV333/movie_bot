@@ -3,6 +3,7 @@ from bot.utils.redis_client import RedisClient
 
 import asyncio
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
 from bot.config import BOT_TOKEN
 from bot.handlers.onboarding_handler import router as onboarding_router
 from bot.handlers.main_menu_btns_handler import router as main_menu_router
@@ -22,7 +23,8 @@ logger = Logger().get_logger()
 logger.info("Bot started and logging initialized ")
 
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+# Create dispatcher with FSM storage
+dp = Dispatcher(storage=MemoryStorage())
 
 def setup_routers(disp: Dispatcher):
     disp.include_router(onboarding_router)

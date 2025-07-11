@@ -72,45 +72,18 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
             return self._default_locale
         
         user_id = user.id
+        logger.debug(f"[I18n] Processing locale for user {user_id}")
         
-        # Try to get FSM context from data
-        # In aiogram 3, the FSM context might be available in different ways
-        fsm_context = data.get("state") or data.get("fsm_context")
+        # In aiogram 3, FSM context should be available in middleware data
+        # Look for FSM context in the data
+        fsm_context = data.get("state")
         
-        # If no direct FSM context, try to get it from the event data
         if not fsm_context:
-            # Try to access FSM context through the event
-            try:
-                from aiogram.fsm.context import FSMContext
-                # Check if we have access to bot and chat info to get FSM context
-                bot = data.get("bot")
-                if bot:
-                    # Try to get chat_id from different event types
-                    chat_id = user_id  # Default to user_id
-                    if hasattr(event, 'chat'):
-                        chat = getattr(event, 'chat', None)
-                        if chat and hasattr(chat, 'id'):
-                            chat_id = chat.id
-                    elif hasattr(event, 'message'):
-                        message = getattr(event, 'message', None)
-                        if message and hasattr(message, 'chat'):
-                            chat = getattr(message, 'chat', None)
-                            if chat and hasattr(chat, 'id'):
-                                chat_id = chat.id
-                    # Try to get FSM context directly
-                    try:
-                        # Access through dispatcher's FSM
-                        dispatcher = data.get("dispatcher")
-                        if dispatcher and hasattr(dispatcher, 'fsm'):
-                            fsm_context = await dispatcher.fsm.get_context(
-                                bot=bot,
-                                chat_id=chat_id,
-                                user_id=user_id
-                            )
-                    except Exception as e:
-                        logger.debug(f"[I18n] Could not get FSM context for user {user_id}: {e}")
-            except Exception as e:
-                logger.debug(f"[I18n] FSM context retrieval failed for user {user_id}: {e}")
+            # Try alternative keys that might contain FSM context
+            for key in ["fsm_context", "context", "state_context"]:
+                if key in data:
+                    fsm_context = data[key]
+                    break
         
         # Try to get language from FSM first
         if fsm_context:
@@ -125,17 +98,22 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
             except Exception as e:
                 logger.warning(f"[I18n] Failed to get language from FSM for user {user_id}: {e}")
         else:
-            logger.debug(f"[I18n] No FSM context available for user {user_id}")
+            logger.debug(f"[I18n] No FSM context available for user {user_id} in middleware data")
+            # Log available keys for debugging
+            available_keys = list(data.keys())
+            logger.debug(f"[I18n] Available middleware data keys: {available_keys}")
         
         # Fallback to backend
         try:
             bot_lang = await UserService.get_user_bot_language(user_id)
             if bot_lang and bot_lang in SUPPORTED_LANGUAGES:
                 logger.info(f"[I18n] User {user_id} language from backend: {bot_lang}")
-                # Sync to FSM if available
+                # Try to sync to FSM if available
                 if fsm_context:
                     try:
-                        await fsm_context.set_data({self.fsm_key: bot_lang})
+                        current_data = await fsm_context.get_data()
+                        current_data[self.fsm_key] = bot_lang
+                        await fsm_context.set_data(current_data)
                         logger.debug(f"[I18n] Synced backend language to FSM for user {user_id}")
                     except Exception as e:
                         logger.warning(f"[I18n] Failed to sync language to FSM for user {user_id}: {e}")
@@ -157,10 +135,12 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
             mapped_lang = lang_mapping.get(telegram_lang.lower(), self._default_locale)
             logger.info(f"[I18n] User {user_id} language from Telegram: {telegram_lang} -> {mapped_lang}")
             
-            # Sync to FSM if available
+            # Try to sync to FSM if available
             if fsm_context:
                 try:
-                    await fsm_context.set_data({self.fsm_key: mapped_lang})
+                    current_data = await fsm_context.get_data()
+                    current_data[self.fsm_key] = mapped_lang
+                    await fsm_context.set_data(current_data)
                     logger.debug(f"[I18n] Synced Telegram language to FSM for user {user_id}")
                 except Exception as e:
                     logger.warning(f"[I18n] Failed to sync language to FSM for user {user_id}: {e}")
