@@ -59,7 +59,7 @@ class SearchByNameStrategy(SearchStrategy):
         }
 
     def get_context_text(self, i18n: I18nContext) -> str:
-        return i18n.get(SEARCH_CONTEXT_LOOKING_FOR_NAME).format(self.query)
+        return i18n.get(SEARCH_CONTEXT_LOOKING_FOR_NAME, query=self.query)
 
     @staticmethod
     def from_dict(data: dict) -> 'SearchByNameStrategy':
@@ -110,7 +110,7 @@ class SearchByGenreStrategy(SearchStrategy):
             else:
                 genre_names.append(f"Genre {gid}")
 
-        return i18n.get(SEARCH_CONTEXT_LOOKING_FOR_GENRES).format(', '.join(genre_names))
+        return i18n.get(SEARCH_CONTEXT_LOOKING_FOR_GENRES, genres=', '.join(genre_names))
 
     @staticmethod
     def from_dict(data: dict) -> 'SearchByGenreStrategy':

@@ -286,9 +286,9 @@ search_by_name_btn = 🔤 Поиск по названию
 
 search_by_name_prompt = 🎬 Я готова! Просто введите название фильма, который вы ищете 👇
 
-search_context_looking_for_genres = 🎭 Вы ищете: {}
+search_context_looking_for_genres = 🎭 Вы ищете: { $genres }
 
-search_context_looking_for_name = 🔍 Вы ищете: \\\"{}\\\"
+search_context_looking_for_name = 🔍 Вы ищете: \\\"{$query}\\\"
 
 search_context_searching_by_genre = 🎭 Вы ищете по жанру
 

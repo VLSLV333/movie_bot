@@ -42,7 +42,7 @@ def render_navigation_panel(
 
     # Build text hint
     if click_source == "top" and position == "top":
-        scroll_hint = i18n.get(SCROLL_DOWN_HINT).format(batch_size)
+        scroll_hint = i18n.get(SCROLL_DOWN_HINT, batch_size=batch_size)
     elif click_source == "top" and position == "bottom":
         scroll_hint = i18n.get(PRESS_NEXT_HINT)
     elif click_source == "bottom" and position == "top":

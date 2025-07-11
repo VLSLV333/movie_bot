@@ -291,9 +291,9 @@ search_by_name_btn = 🔤 Search by Name
 
 search_by_name_prompt = 🎬 I'm ready! Just type the name of the movie you're looking for 👇
 
-search_context_looking_for_genres = 🎭 You are looking for: {}
+search_context_looking_for_genres = 🎭 You are looking for: { $genres }
 
-search_context_looking_for_name = 🔍 You are looking for: \\\"{}\\\"
+search_context_looking_for_name = 🔍 You are looking for: \\\"{$query}\\\"
 
 search_context_searching_by_genre = 🎭 You are searching by genre
 

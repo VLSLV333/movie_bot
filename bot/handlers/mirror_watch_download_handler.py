@@ -165,12 +165,12 @@ async def watch_mirror_handler(query: types.CallbackQuery, i18n: I18nContext):
         logger.error(f"Error while deleting gif: {e}")
 
     if query.message is not None:
-        await query.message.answer(i18n.get(MOVIE_READY_TO_WATCH).format(movie_title), reply_markup=markup)
+        await query.message.answer(i18n.get(MOVIE_READY_TO_WATCH, movie_title=movie_title), reply_markup=markup)
     else:
         if query is not None and getattr(query, 'bot', None) is not None:
             await query.bot.send_message(  # type: ignore
                 chat_id=query.from_user.id,
-                text=i18n.get(MOVIE_READY_TO_WATCH).format(movie_title),
+                text=i18n.get(MOVIE_READY_TO_WATCH, movie_title=movie_title),
                 reply_markup=markup
             )
         else:
@@ -264,7 +264,7 @@ async def download_mirror_handler(query: types.CallbackQuery, i18n: I18nContext)
             display_dub = translate_dub_to_ua(dub) if user_lang == 'uk' else dub
             kb.append([
                 types.InlineKeyboardButton(
-                    text=i18n.get(TEXT_DUBS_READY_TO_DOWNLOAD).format(emoji=emoji,display_dub=display_dub),
+                    text=i18n.get(TEXT_DUBS_READY_TO_DOWNLOAD, emoji=emoji, display_dub=display_dub),
                     callback_data=f"watch_downloaded:{token}"
                 )
             ])
@@ -301,12 +301,12 @@ async def download_mirror_handler(query: types.CallbackQuery, i18n: I18nContext)
             )
         ]])
         if query.message is not None:
-            await query.message.answer(i18n.get(MOVIE_NEVER_DOWNLOADED_BEFORE).format(title=movie_data['title']), reply_markup=markup)
+            await query.message.answer(i18n.get(MOVIE_NEVER_DOWNLOADED_BEFORE, title=movie_data['title']), reply_markup=markup)
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(MOVIE_NEVER_DOWNLOADED_BEFORE).format(title=movie_data['title']),
+                    text=i18n.get(MOVIE_NEVER_DOWNLOADED_BEFORE, title=movie_data['title']),
                     reply_markup=markup
                 )
             else:
@@ -527,7 +527,7 @@ async def watch_downloaded_handler(query: types.CallbackQuery, i18n: I18nContext
     delivery_bot_link = f"https://t.me/deliv3ry_bot?start=2_{signed}"
 
     await query.message.answer(
-        i18n.get(MOVIE_READY_TO_WATCH_DELIVERY).format(movie_title=movie_title),
+        i18n.get(MOVIE_READY_TO_WATCH_DELIVERY, movie_title=movie_title),
         reply_markup=types.InlineKeyboardMarkup(
             inline_keyboard=[
                 [types.InlineKeyboardButton(text=i18n.get(GET_MOVIE_FROM_DELIVERY_BOT), url=delivery_bot_link)]
@@ -625,7 +625,7 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
                         await loading_msg.delete()
                     #TODO: when premium users functionality is ready - we need to suggest here user to become premium and download more at once
                     if backend_response.get('status') == "limit_reached":
-                        error_msg = i18n.get(DOWNLOAD_LIMIT).format(user_limit=backend_response.get('user_limit'))
+                        error_msg = i18n.get(DOWNLOAD_LIMIT, user_limit=backend_response.get('user_limit'))
                     if query.message is not None:
                         await query.message.answer(error_msg)
                     else:
@@ -707,7 +707,7 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
             delivery_bot_link = f"https://t.me/deliv3ry_bot?start=1_{signed_task_id}"
             if query.message is not None:
                 await query.message.answer(
-                    i18n.get(MOVIE_READY_START_DELIVERY_BOT).format(movie_title=movie_title),
+                    i18n.get(MOVIE_READY_START_DELIVERY_BOT, movie_title=movie_title),
                     reply_markup=types.InlineKeyboardMarkup(
                         inline_keyboard=[
                             [types.InlineKeyboardButton(text=i18n.get(OPEN_DELIVERY_BOT), url=delivery_bot_link)]
@@ -718,7 +718,7 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
                 if query is not None and getattr(query, 'bot', None) is not None:
                     await query.bot.send_message(  # type: ignore
                         chat_id=query.from_user.id,
-                        text=i18n.get(MOVIE_READY_START_DELIVERY_BOT).format(movie_title=movie_title),
+                        text=i18n.get(MOVIE_READY_START_DELIVERY_BOT, movie_title=movie_title),
                         reply_markup=types.InlineKeyboardMarkup(
                             inline_keyboard=[
                                 [types.InlineKeyboardButton(text=i18n.get(OPEN_DELIVERY_BOT), url=delivery_bot_link)]

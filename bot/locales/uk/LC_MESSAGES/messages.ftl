@@ -286,9 +286,9 @@ search_by_name_btn = 🔤 Пошук за назвою
 
 search_by_name_prompt = 🎬 Я готова! Просто введіть назву кіно, котре ви шукаєте 👇
 
-search_context_looking_for_genres = 🎭 Ви шукаєте: {}
+search_context_looking_for_genres = 🎭 Ви шукаєте: { $genres }
 
-search_context_looking_for_name = 🔍 Ви шукаєте: \\\"{}\\\"
+search_context_looking_for_name = 🔍 Ви шукаєте: \\\"{$query}\\\"
 
 search_context_searching_by_genre = 🎭 Ви шукаєте за жанром
 
