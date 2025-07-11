@@ -138,6 +138,21 @@ def setup_i18n() -> MovieBotI18nMiddleware:
         path_pattern = "locales/{locale}/messages.ftl"
         logger.info(f"Using path pattern: {path_pattern}")
         
+        # Let's try to check file permissions and content
+        for locale in ["en", "uk", "ru"]:
+            file_path = Path(f"locales/{locale}/messages.ftl")
+            if file_path.exists():
+                stat = file_path.stat()
+                logger.info(f"File {file_path}: size={stat.st_size}, mode={oct(stat.st_mode)}")
+                
+                # Try to read a small portion to ensure it's readable
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        first_line = f.readline().strip()
+                        logger.info(f"  -> First line: {first_line[:50]}...")
+                except Exception as e:
+                    logger.error(f"  -> Error reading file: {e}")
+        
         core = FluentRuntimeCore(
             path=path_pattern
         )
