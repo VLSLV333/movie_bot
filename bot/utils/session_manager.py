@@ -57,14 +57,18 @@ class SessionManager:
     async def set_state(user_id: int, state: str):
         client = RedisClient.get_client()
         await client.set(f"user_state:{user_id}", state, ex=STATE_EXPIRATION_SECONDS)
+        logger.debug(f"[User {user_id}] State set in Redis: '{state}' with expiry {STATE_EXPIRATION_SECONDS}s")
 
     @staticmethod
     async def get_state(user_id: int) -> str | None:
         client = RedisClient.get_client()
         state = await client.get(f"user_state:{user_id}")
         if not state:
+            logger.debug(f"[User {user_id}] No state found in Redis")
             return None
-        return state.decode() if isinstance(state, bytes) else state
+        decoded_state = state.decode() if isinstance(state, bytes) else state
+        logger.debug(f"[User {user_id}] State retrieved from Redis: '{decoded_state}' (type: {type(state)})")
+        return decoded_state
 
     @staticmethod
     async def clear_state(user_id: int):

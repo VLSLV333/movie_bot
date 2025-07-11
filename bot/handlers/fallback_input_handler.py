@@ -10,6 +10,9 @@ logger = Logger().get_logger()
 
 @router.message()
 async def fallback_input_handler(message: types.Message, i18n: I18nContext):
+    if not message.from_user:
+        return
+        
     user_id = message.from_user.id
     state = await SessionManager.get_state(user_id)
     

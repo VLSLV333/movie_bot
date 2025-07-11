@@ -32,6 +32,7 @@ class OnboardingInputStateFilter(Filter):
         if not message.from_user:
             return False
         state = await SessionManager.get_state(message.from_user.id)
+        logger.info(f"[User {message.from_user.id}] OnboardingInputStateFilter: state='{state}', expected='onboarding:waiting_for_custom_name', match={state == 'onboarding:waiting_for_custom_name'}")
         return state == "onboarding:waiting_for_custom_name"
 
 
@@ -199,6 +200,10 @@ async def custom_name_handler(query: types.CallbackQuery, i18n: I18nContext):
     await SessionManager.set_state(user_id, "onboarding:waiting_for_custom_name")
     logger.info(f"[User {user_id}] SessionManager state set to: onboarding:waiting_for_custom_name")
     
+    # Verify state was set correctly
+    verify_state = await SessionManager.get_state(user_id)
+    logger.info(f"[User {user_id}] VERIFICATION - State after setting: '{verify_state}'")
+    
     # Use smart edit or send utility
     await smart_edit_or_send(
         message=query,
@@ -206,7 +211,7 @@ async def custom_name_handler(query: types.CallbackQuery, i18n: I18nContext):
     )
     await query.answer()
 
-@router.message(F.text, OnboardingInputStateFilter())
+@router.message(F.text)
 async def handle_custom_name_input(message: types.Message, i18n: I18nContext):
     """Handle custom name text input"""
     if not message.from_user:
@@ -215,6 +220,11 @@ async def handle_custom_name_input(message: types.Message, i18n: I18nContext):
     user_id = message.from_user.id
     current_state = await SessionManager.get_state(user_id)
     logger.info(f"[User {user_id}] ONBOARDING HANDLER REACHED with message: '{message.text}', SessionManager state: {current_state}")
+    
+    # Only process if we're in the correct state
+    if current_state != "onboarding:waiting_for_custom_name":
+        logger.info(f"[User {user_id}] Not in onboarding state, skipping")
+        return
     
     # Handle non-text messages (photos, stickers, voice, etc.)
     if not message.text:
