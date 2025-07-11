@@ -150,6 +150,7 @@ async def start_onboarding_handler(query: types.CallbackQuery, i18n: I18nContext
             i18n.get(ONBOARDING_NAME_QUESTION),
             reply_markup=keyboard
         )
+        logger.info(f"[User {user_id}] Sent name selection keyboard")
     
     await query.answer()
 
@@ -209,6 +210,7 @@ async def custom_name_handler(query: types.CallbackQuery, i18n: I18nContext):
         message=query,
         text=i18n.get(CUSTOM_NAME_PROMPT)
     )
+    logger.info(f"[User {user_id}] Sent custom name prompt")
     await query.answer()
 
 @router.message(F.text)
@@ -219,12 +221,13 @@ async def handle_custom_name_input(message: types.Message, i18n: I18nContext):
         
     user_id = message.from_user.id
     current_state = await SessionManager.get_state(user_id)
-    logger.info(f"[User {user_id}] ONBOARDING HANDLER REACHED with message: '{message.text}', SessionManager state: {current_state}")
     
     # Only process if we're in the correct state
     if current_state != "onboarding:waiting_for_custom_name":
-        logger.info(f"[User {user_id}] Not in onboarding state, skipping")
+        # Not in onboarding state, let other handlers process this
         return
+    
+    logger.info(f"[User {user_id}] ONBOARDING HANDLER PROCESSING custom name input: '{message.text}'")
     
     # Handle non-text messages (photos, stickers, voice, etc.)
     if not message.text:
