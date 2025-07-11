@@ -41,10 +41,11 @@ RUN pip install -r requirements.txt
 RUN echo "✅ Python dependencies installed"
 
 # Clean up locales directory to prevent aiogram_i18n scanning issues
+# Note: Keep keys.py as it's needed by the application
 RUN find bot/locales -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 RUN find bot/locales -name "*.pot" -delete 2>/dev/null || true
 RUN find bot/locales -name "*.pyc" -delete 2>/dev/null || true
-RUN find bot/locales -maxdepth 1 -type f -delete 2>/dev/null || true
-RUN echo "✅ Locales directory cleaned for aiogram_i18n compatibility"
+RUN rm -f bot/locales/messages.pot 2>/dev/null || true
+RUN echo "✅ Locales directory cleaned for aiogram_i18n compatibility (keeping keys.py)"
 
 CMD ["sleep", "infinity"]
