@@ -3,6 +3,7 @@ from aiogram import Router, types, F
 from aiogram_i18n import I18nContext
 from aiogram.filters import CommandStart, Filter
 from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
 from bot.locales.keys import WELCOME_MESSAGE, PREFERENCES_SUGGESTION, SET_PREFERENCES_BTN, MAYBE_LATER_BTN, \
     ONBOARDING_WELCOME, ONBOARDING_NAME_QUESTION, ONBOARDING_SKIPPED, CUSTOM_NAME_PROMPT, NAME_TOO_LONG, \
     END_ONBOARDING_SUCCESS, END_ONBOARDING_FAIL, ONBOARDING_LANGUAGE_QUESTION, NAME_TOO_SHORT
@@ -12,6 +13,7 @@ from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.keyboards.onboarding_keyboard import get_name_selection_keyboard, get_language_selection_keyboard
 from bot.utils.notify_admin import notify_admin
 from bot.utils.message_utils import smart_edit_or_send
+from bot.utils.i18n_setup import initialize_user_language, set_user_language
 from typing import Optional
 
 router = Router()
@@ -115,7 +117,7 @@ async def update_user_onboarding_backend(telegram_id: int, custom_name: Optional
     return result
 
 @router.message(CommandStart())
-async def start_handler(message: types.Message, i18n: I18nContext):
+async def start_handler(message: types.Message, i18n: I18nContext, state: FSMContext):
     """Main start handler - Immediate Service + Optional Onboarding"""
     if not message.from_user:
         logger.error("Message from_user is None")
@@ -126,6 +128,9 @@ async def start_handler(message: types.Message, i18n: I18nContext):
 
     # Use Telegram language code directly
     user_lang = message.from_user.language_code or 'en'
+
+    # Initialize user language in FSM (backend → FSM sync)
+    await initialize_user_language(user_id, state, user_lang)
 
     # Ensure user exists in backend database
     user_data = await get_or_create_user_backend(
@@ -303,7 +308,7 @@ async def show_language_selection(message: types.Message, user_name: str, i18n: 
     )
 
 @router.callback_query(F.data.startswith("select_lang:"))
-async def select_language_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def select_language_handler(query: types.CallbackQuery, i18n: I18nContext, state: FSMContext):
     """Handle language selection"""
     if not query.from_user or not query.data:
         return
@@ -317,34 +322,46 @@ async def select_language_handler(query: types.CallbackQuery, i18n: I18nContext)
     
     logger.info(f"[User {user_id}] Selected language: {selected_language}, custom_name: {custom_name}")
     
-    # Debug: Log what we're about to send to backend
-    logger.info(f"[User {user_id}] About to call backend with bot_lang: {selected_language}")
+    # Update user language in both FSM and backend using new helper function
+    success = await set_user_language(user_id, selected_language, state)
     
-    user_data = await update_user_onboarding_backend(
-        telegram_id=user_id,
-        custom_name=custom_name,
-        bot_lang=selected_language
-    )
-    
-    # Debug: Log what we received from backend
-    if user_data:
-        logger.info(f"[User {user_id}] Backend response: {user_data}")
-        logger.info(f"[User {user_id}] Backend returned bot_lang: {user_data.get('bot_lang')}")
-    else:
-        logger.error(f"[User {user_id}] Backend returned None/empty response!")
-    
-    # Clear all onboarding data
-    await SessionManager.clear_data(user_id)
-    await SessionManager.clear_state(user_id)
-    
-    keyboard = get_main_menu_keyboard(i18n)
-    if user_data:
-        await smart_edit_or_send(
-            message=query,
-            text=i18n.get(END_ONBOARDING_SUCCESS),
-            reply_markup=keyboard
+    if success:
+        logger.info(f"[User {user_id}] Successfully updated language to: {selected_language}")
+        
+        # Update backend with onboarding completion
+        user_data = await update_user_onboarding_backend(
+            telegram_id=user_id,
+            custom_name=custom_name,
+            bot_lang=selected_language
         )
+        
+        # Debug: Log what we received from backend
+        if user_data:
+            logger.info(f"[User {user_id}] Backend response: {user_data}")
+            logger.info(f"[User {user_id}] Backend returned bot_lang: {user_data.get('bot_lang')}")
+        else:
+            logger.error(f"[User {user_id}] Backend returned None/empty response!")
+        
+        # Clear all onboarding data
+        await SessionManager.clear_data(user_id)
+        await SessionManager.clear_state(user_id)
+        
+        keyboard = get_main_menu_keyboard(i18n)
+        if user_data:
+            await smart_edit_or_send(
+                message=query,
+                text=i18n.get(END_ONBOARDING_SUCCESS),
+                reply_markup=keyboard
+            )
+        else:
+            await smart_edit_or_send(
+                message=query,
+                text=i18n.get(END_ONBOARDING_FAIL),
+                reply_markup=keyboard
+            )
     else:
+        logger.error(f"[User {user_id}] Failed to update language to: {selected_language}")
+        keyboard = get_main_menu_keyboard(i18n)
         await smart_edit_or_send(
             message=query,
             text=i18n.get(END_ONBOARDING_FAIL),

@@ -38,8 +38,6 @@ def setup_routers(disp: Dispatcher):
     disp.include_router(mirror_language_change_router)
     disp.include_router(fallback_input_handler_router)
 
-setup_routers(dp)
-
 async def on_startup():
     await RedisClient.init()
     logger.info(" Redis client initialized!")
@@ -53,9 +51,14 @@ async def main():
         logger.info(" Starting bot...")
         await on_startup()
 
+        # Setup I18n middleware BEFORE registering routers
         i18n_middleware = setup_i18n()
         i18n_middleware.setup(dispatcher=dp)
         logger.info("I18n middleware initialized!")
+
+        # Setup routers AFTER I18n middleware
+        setup_routers(dp)
+        logger.info("Routers registered!")
 
         await dp.start_polling(bot)
         logger.info("Bot is now running!")
