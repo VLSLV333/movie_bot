@@ -85,11 +85,61 @@ def setup_i18n() -> MovieBotI18nMiddleware:
     Returns:
         Configured MovieBotI18nMiddleware instance
     """
+    import os
+    from pathlib import Path
+    
     try:
+        # Debug: Show current working directory and expected paths
+        current_dir = os.getcwd()
+        logger.info(f"Current working directory: {current_dir}")
+        
+        # Test various possible paths
+        test_paths = [
+            "locales/{locale}/messages.ftl",
+            "bot/locales/{locale}/messages.ftl",
+            "/app/bot/locales/{locale}/messages.ftl",
+            "./locales/{locale}/messages.ftl",
+            "../locales/{locale}/messages.ftl"
+        ]
+        
+        for test_path in test_paths:
+            # Check for English locale as example
+            resolved_path = test_path.replace("{locale}", "en")
+            full_path = Path(resolved_path)
+            exists = full_path.exists()
+            logger.info(f"Testing path: {resolved_path} -> exists: {exists}")
+            if exists:
+                logger.info(f"  -> Full path: {full_path.absolute()}")
+        
+        # Check what's in the locales directory
+        locales_paths = [
+            Path("locales"),
+            Path("bot/locales"),
+            Path("/app/bot/locales")
+        ]
+        
+        for locales_path in locales_paths:
+            if locales_path.exists():
+                logger.info(f"Found locales directory: {locales_path.absolute()}")
+                try:
+                    contents = list(locales_path.iterdir())
+                    logger.info(f"  -> Contents: {[str(c.name) for c in contents]}")
+                    
+                    # Check each locale subdirectory
+                    for locale_dir in contents:
+                        if locale_dir.is_dir():
+                            locale_contents = list(locale_dir.iterdir())
+                            logger.info(f"  -> {locale_dir.name} contents: {[str(c.name) for c in locale_contents]}")
+                except Exception as e:
+                    logger.warning(f"  -> Error reading contents: {e}")
+        
         # Create FluentRuntimeCore for .ftl files
         # The container runs from /app/bot, so "locales" resolves to /app/bot/locales
+        path_pattern = "locales/{locale}/messages.ftl"
+        logger.info(f"Using path pattern: {path_pattern}")
+        
         core = FluentRuntimeCore(
-            path="locales/{locale}/messages.ftl"
+            path=path_pattern
         )
         
         # Create our custom middleware with FluentRuntimeCore
