@@ -1,4 +1,6 @@
 from aiogram import Router, types
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram_i18n import I18nContext
 from bot.locales.keys import FALLBACK_MENU_PROMPT
 from bot.utils.session_manager import SessionManager
@@ -7,6 +9,35 @@ from bot.utils.logger import Logger
 
 router = Router()
 logger = Logger().get_logger()
+
+@router.message(Command("test_locale"))
+async def test_locale_handler(message: types.Message, state: FSMContext, i18n: I18nContext):
+    """Test command to check current locale detection."""
+    if not message.from_user:
+        return
+    user_id = message.from_user.id
+    logger.info(f"[TestLocale] User {user_id} requested locale test")
+    
+    # Get current locale from I18n context
+    current_locale = i18n.locale
+    logger.info(f"[TestLocale] I18n context locale: {current_locale}")
+    
+    # Get FSM data
+    try:
+        fsm_data = await state.get_data()
+        fsm_locale = fsm_data.get("user_locale", "NOT_SET")
+        logger.info(f"[TestLocale] FSM locale: {fsm_locale}")
+    except Exception as e:
+        logger.error(f"[TestLocale] Failed to get FSM data: {e}")
+        fsm_locale = "ERROR"
+    
+    # Send response
+    test_msg = f"🔍 Locale Test Results:\n"
+    test_msg += f"• I18n Context: {current_locale}\n"
+    test_msg += f"• FSM Storage: {fsm_locale}\n"
+    test_msg += f"• User ID: {user_id}"
+    
+    await message.answer(test_msg)
 
 @router.message()
 async def fallback_input_handler(message: types.Message, i18n: I18nContext):

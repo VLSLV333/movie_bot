@@ -42,6 +42,17 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
         self._default_locale = default_locale
         logger.info(f"[I18n] Initialized MovieBotFSMI18nMiddleware with default_locale: {default_locale}")
     
+    async def __call__(self, handler, event, data):
+        """Override the middleware call to add logging."""
+        logger.info(f"[I18n] Middleware called for event: {type(event).__name__}")
+        try:
+            result = await super().__call__(handler, event, data)
+            logger.info(f"[I18n] Middleware completed successfully for event: {type(event).__name__}")
+            return result
+        except Exception as e:
+            logger.error(f"[I18n] Middleware error for event {type(event).__name__}: {e}")
+            raise
+    
     async def get_locale(self, event: types.TelegramObject, data: Dict[str, Any]) -> str:
         """
         Get user's preferred language from FSM, with fallback to backend and Telegram.
@@ -53,6 +64,8 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
         Returns:
             User's preferred language code
         """
+        logger.info(f"[I18n] get_locale() called with event type: {type(event).__name__}")
+        
         # Extract user from different event types
         user = None
         
@@ -68,11 +81,15 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
                 user = getattr(callback_query, 'from_user')
         
         if not user:
-            logger.warning("[I18n] Could not extract user from event, defaulting to default language")
+            logger.warning(f"[I18n] Could not extract user from event {type(event).__name__}, defaulting to default language")
             return self._default_locale
         
         user_id = user.id
-        logger.debug(f"[I18n] Processing locale for user {user_id}")
+        logger.info(f"[I18n] Processing locale for user {user_id}, event: {type(event).__name__}")
+        
+        # Log available middleware data keys
+        available_keys = list(data.keys())
+        logger.info(f"[I18n] Available middleware data keys: {available_keys}")
         
         # In aiogram 3, FSM context should be available in middleware data
         # Look for FSM context in the data
@@ -83,28 +100,31 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
             for key in ["fsm_context", "context", "state_context"]:
                 if key in data:
                     fsm_context = data[key]
+                    logger.info(f"[I18n] Found FSM context in key: {key}")
                     break
+        
+        if fsm_context:
+            logger.info(f"[I18n] FSM context found for user {user_id}: {type(fsm_context).__name__}")
+        else:
+            logger.warning(f"[I18n] No FSM context available for user {user_id} in middleware data")
         
         # Try to get language from FSM first
         if fsm_context:
             try:
                 fsm_data = await fsm_context.get_data()
+                logger.info(f"[I18n] FSM data for user {user_id}: {fsm_data}")
                 fsm_lang = fsm_data.get(self.fsm_key)
                 if fsm_lang and fsm_lang in SUPPORTED_LANGUAGES:
                     logger.info(f"[I18n] User {user_id} language from FSM: {fsm_lang}")
                     return fsm_lang
                 else:
-                    logger.debug(f"[I18n] No valid language in FSM for user {user_id}: {fsm_lang}")
+                    logger.warning(f"[I18n] No valid language in FSM for user {user_id}: {fsm_lang}")
             except Exception as e:
-                logger.warning(f"[I18n] Failed to get language from FSM for user {user_id}: {e}")
-        else:
-            logger.debug(f"[I18n] No FSM context available for user {user_id} in middleware data")
-            # Log available keys for debugging
-            available_keys = list(data.keys())
-            logger.debug(f"[I18n] Available middleware data keys: {available_keys}")
+                logger.error(f"[I18n] Failed to get language from FSM for user {user_id}: {e}")
         
         # Fallback to backend
         try:
+            logger.info(f"[I18n] Falling back to backend for user {user_id}")
             bot_lang = await UserService.get_user_bot_language(user_id)
             if bot_lang and bot_lang in SUPPORTED_LANGUAGES:
                 logger.info(f"[I18n] User {user_id} language from backend: {bot_lang}")
@@ -114,12 +134,14 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
                         current_data = await fsm_context.get_data()
                         current_data[self.fsm_key] = bot_lang
                         await fsm_context.set_data(current_data)
-                        logger.debug(f"[I18n] Synced backend language to FSM for user {user_id}")
+                        logger.info(f"[I18n] Synced backend language to FSM for user {user_id}")
                     except Exception as e:
-                        logger.warning(f"[I18n] Failed to sync language to FSM for user {user_id}: {e}")
+                        logger.error(f"[I18n] Failed to sync language to FSM for user {user_id}: {e}")
                 return bot_lang
+            else:
+                logger.warning(f"[I18n] Backend returned invalid language for user {user_id}: {bot_lang}")
         except Exception as e:
-            logger.warning(f"[I18n] Failed to get language from backend for user {user_id}: {e}")
+            logger.error(f"[I18n] Failed to get language from backend for user {user_id}: {e}")
         
         # Fallback to Telegram user language
         telegram_lang = getattr(user, 'language_code', None)
@@ -141,14 +163,14 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
                     current_data = await fsm_context.get_data()
                     current_data[self.fsm_key] = mapped_lang
                     await fsm_context.set_data(current_data)
-                    logger.debug(f"[I18n] Synced Telegram language to FSM for user {user_id}")
+                    logger.info(f"[I18n] Synced Telegram language to FSM for user {user_id}")
                 except Exception as e:
-                    logger.warning(f"[I18n] Failed to sync language to FSM for user {user_id}: {e}")
+                    logger.error(f"[I18n] Failed to sync language to FSM for user {user_id}: {e}")
             
             return mapped_lang
         
         # Ultimate fallback
-        logger.info(f"[I18n] User {user_id} using default language: {self._default_locale}")
+        logger.warning(f"[I18n] User {user_id} using default language: {self._default_locale}")
         return self._default_locale
 
 
