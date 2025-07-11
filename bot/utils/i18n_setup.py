@@ -20,18 +20,22 @@ class MovieBotLocaleManager(BaseManager):
     This class extends BaseManager to provide proper type safety.
     """
     
-    async def get_locale(self, event: types.TelegramObject, data: Dict[str, Any]) -> str:
+    async def get_locale(self, **kwargs) -> str:
         """
         Get user's preferred language for i18n (bot interface language).
         This method is called by aiogram-i18n middleware.
         
-        Args:
-            event: Telegram event object (message, callback_query, etc.)
-            data: Additional data from middleware
-            
         Returns:
             User's preferred language code ('en', 'uk', 'ru')
         """
+        # Extract event and data from kwargs
+        event = kwargs.get('event')
+        data = kwargs.get('data', {})
+        
+        if not event:
+            logger.warning("No event provided to get_locale, defaulting to English")
+            return "en"
+        
         # Extract user from different event types
         user = None
         
@@ -80,16 +84,22 @@ class MovieBotLocaleManager(BaseManager):
         logger.debug(f"User {user.id} using default language: en")
         return "en"
 
-    async def set_locale(self, locale: str, event: types.TelegramObject, data: Dict[str, Any]) -> None:
+    async def set_locale(self, locale: str, **kwargs) -> None:
         """
         Set user's preferred language for i18n (bot interface language).
         This method is called when we want to change user's language preference.
         
         Args:
             locale: Language code to set ('en', 'uk', 'ru')
-            event: Telegram event object (message, callback_query, etc.)
-            data: Additional data from middleware
         """
+        # Extract event and data from kwargs
+        event = kwargs.get('event')
+        data = kwargs.get('data', {})
+        
+        if not event:
+            logger.warning("No event provided to set_locale")
+            return
+        
         # Extract user from different event types
         user = None
         
@@ -178,4 +188,4 @@ async def get_user_locale(event: types.TelegramObject, data: Dict[str, Any]) -> 
     Kept for backward compatibility.
     """
     manager = MovieBotLocaleManager()
-    return await manager.get_locale(event, data)
+    return await manager.get_locale(event=event, data=data)
