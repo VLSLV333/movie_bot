@@ -8,7 +8,7 @@ from aiogram import types
 from aiogram_i18n import I18nMiddleware
 from aiogram_i18n.cores import FluentRuntimeCore
 from aiogram_i18n.managers import BaseManager
-from bot.utils.user_language_service import get_user_language_from_backend
+from bot.utils.user_service import UserService
 from bot.utils.logger import Logger
 
 logger = Logger().get_logger()
@@ -22,7 +22,7 @@ class MovieBotLocaleManager(BaseManager):
     
     async def get_locale(self, event: types.TelegramObject, data: Dict[str, Any]) -> str:
         """
-        Get user's preferred language for i18n.
+        Get user's preferred language for i18n (bot interface language).
         This method is called by aiogram-i18n middleware.
         
         Args:
@@ -46,14 +46,14 @@ class MovieBotLocaleManager(BaseManager):
             logger.warning("Could not extract user from event, defaulting to English")
             return "en"
         
-        # Try to get user's preferred language from backend
+        # Try to get user's preferred bot language from backend
         try:
-            backend_lang = await get_user_language_from_backend(user.id)
-            if backend_lang and backend_lang in ['en', 'uk', 'ru']:
-                logger.debug(f"User {user.id} language from backend: {backend_lang}")
-                return backend_lang
+            bot_lang = await UserService.get_user_bot_language(user.id)
+            if bot_lang and bot_lang in ['en', 'uk', 'ru']:
+                logger.debug(f"User {user.id} bot language from backend: {bot_lang}")
+                return bot_lang
         except Exception as e:
-            logger.warning(f"Failed to get user language from backend: {e}")
+            logger.warning(f"Failed to get user bot language from backend: {e}")
         
         # Fallback to Telegram user language
         telegram_lang = user.language_code

@@ -21,7 +21,9 @@ class User(Base):
     first_name = Column(String(100))
     last_name = Column(String(100))
     custom_name = Column(String(100))
-    preferred_language = Column(String(10))
+    user_tg_lang = Column(String(10))  # User's default language from Telegram
+    movies_lang = Column(String(10))   # Language for movie content/dubs
+    bot_lang = Column(String(10))      # Language for bot interface
     is_onboarded = Column(Boolean, default=False)
     is_premium = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

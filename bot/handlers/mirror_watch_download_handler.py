@@ -52,7 +52,7 @@ async def watch_mirror_handler(query: types.CallbackQuery, i18n: I18nContext):
     await query.answer()
     
     # Get user's preferred language
-    user_lang = await UserService.get_user_preferred_language(user_id)
+    user_lang = await UserService.get_user_movies_language(user_id)
     
     stream_id = query.data.split("watch_mirror:")[1]
 
@@ -185,7 +185,7 @@ async def download_mirror_handler(query: types.CallbackQuery, i18n: I18nContext)
     await query.answer()
     
     # Get user's preferred language
-    user_lang = await UserService.get_user_preferred_language(user_id)
+    user_lang = await UserService.get_user_movies_language(user_id)
     
     stream_id = query.data.split("download_mirror:")[1]
 
@@ -328,7 +328,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery, i18n: I18nContext):
     user_id = query.from_user.id
     
     # Get user's preferred language
-    user_lang = await UserService.get_user_preferred_language(user_id)
+    user_lang = await UserService.get_user_movies_language(user_id)
     
     stream_id = query.data.split("fetch_dubs:")[1]
 

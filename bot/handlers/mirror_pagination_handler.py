@@ -57,7 +57,7 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
 
     if start >= len(results):
         searched = [v["mirror"] for v in session.mirrors_search_results.values() if "mirror" in v]
-        user_lang = await UserService.get_user_preferred_language(user_id)
+        user_lang = await UserService.get_user_movies_language(user_id)
         next_mirror = await fetch_next_mirror_results(
             query=session.original_query,
             lang=user_lang,
@@ -101,7 +101,7 @@ async def update_mirror_results_ui(query: types.CallbackQuery, session: MirrorSe
             logger.warning(f"[User {user_id}] Could not update top nav panel: {e}")
 
     # 2. Update movie cards
-    cards = await render_mirror_card_batch(current_batch, tmdb_id=session.movie_id, user_lang=await UserService.get_user_preferred_language(user_id),i18n=i18n)
+    cards = await render_mirror_card_batch(current_batch, tmdb_id=session.movie_id, user_lang=await UserService.get_user_movies_language(user_id),i18n=i18n)
     updated_ids = []
     navigation_deleted = False
 

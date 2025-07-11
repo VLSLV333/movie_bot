@@ -6,8 +6,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from bot.locales.keys import WELCOME_MESSAGE, PREFERENCES_SUGGESTION, SET_PREFERENCES_BTN, MAYBE_LATER_BTN, \
-    ONBOARDING_WELCOME, ONBOARDING_NAME_QUESTION, ONBOARDING_SKIPPED, CUSTOM_NAME_PROMPT, NAME_TOO_LONG, INVALID_NAME, \
-    END_ONBOARDING_SUCCESS, END_ONBOARDING_FAIL
+    ONBOARDING_WELCOME, ONBOARDING_NAME_QUESTION, ONBOARDING_SKIPPED, CUSTOM_NAME_PROMPT, NAME_TOO_LONG, \
+    END_ONBOARDING_SUCCESS, END_ONBOARDING_FAIL, ONBOARDING_LANGUAGE_QUESTION, NAME_TOO_SHORT
 from bot.utils.logger import Logger
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.keyboards.onboarding_keyboard import get_name_selection_keyboard, get_language_selection_keyboard
@@ -50,24 +50,33 @@ async def call_backend_api(endpoint: str, method: str = "GET", data: Optional[di
         logger.error(f"Backend API call failed: {e}")
         return None
 
-async def get_or_create_user_backend(telegram_id: int, preferred_language: str, first_name: Optional[str] = None, last_name: Optional[str] = None) -> Optional[dict]:
-    """Get or create user in backend database"""
+async def get_or_create_user_backend(telegram_id: int, user_tg_lang: str, first_name: Optional[str] = None, last_name: Optional[str] = None) -> Optional[dict]:
+    """Get or create user in backend with proper language setup"""
     data = {
         "telegram_id": telegram_id,
+        "user_tg_lang": user_tg_lang,  # Set Telegram language
+        "movies_lang": user_tg_lang,   # Default movies language to Telegram language
+        "bot_lang": user_tg_lang,      # Default bot language to Telegram language
         "first_name": first_name,
         "last_name": last_name,
-        "preferred_language": preferred_language,
         "is_premium": False
     }
     return await call_backend_api("/users/get-or-create", "POST", data)
 
-async def update_user_onboarding_backend(telegram_id: int, custom_name: Optional[str] = None, preferred_language: Optional[str] = None) -> Optional[dict]:
-    """Update user onboarding in backend database"""
-    #TODO: when premium users will be available we can propose becoming premium here or here
+async def update_user_onboarding_backend(telegram_id: int, custom_name: Optional[str] = None, bot_lang: Optional[str] = None) -> Optional[dict]:
+    # TODO: when premium users will be available we can propose becoming premium here or here
+    """Update user onboarding information with bot language"""
+    
+    # Get user's Telegram language for the required field
+    # For now, we'll use the bot_lang as the user_tg_lang since we don't have it stored
+    # In a real scenario, you'd want to get this from the user data
+    user_tg_lang = bot_lang or "en"
+    
     data = {
         "telegram_id": telegram_id,
+        "user_tg_lang": user_tg_lang,  # Required by API
         "custom_name": custom_name,
-        "preferred_language": preferred_language,
+        "bot_lang": bot_lang,  # Set bot interface language
         "is_premium": False
     }
     return await call_backend_api("/users/onboarding", "POST", data)
@@ -90,7 +99,7 @@ async def start_handler(message: types.Message, i18n: I18nContext):
         telegram_id=user_id,
         first_name=message.from_user.first_name,
         last_name=message.from_user.last_name,
-        preferred_language=user_lang
+        user_tg_lang=user_lang
     )
 
     # ALWAYS show main menu immediately (Immediate Service)
@@ -103,7 +112,7 @@ async def start_handler(message: types.Message, i18n: I18nContext):
 
     if not user_data:
         logger.error(f"[User {user_id}] Failed to create/get user from backend")
-        await notify_admin(f"[User {user_id}] Failed to create/get user from backend, first name: {message.from_user.first_name}, last name: {message.from_user.last_name}, preferred_language: {user_lang}")
+        await notify_admin(f"[User {user_id}] Failed to create/get user from backend, first name: {message.from_user.first_name}, last name: {message.from_user.last_name}, user_tg_lang: {user_lang}")
 
     # Optionally suggest onboarding if not completed (Optional Onboarding)
     if not user_data or not user_data.get("is_onboarded", False):
@@ -195,18 +204,26 @@ async def custom_name_handler(query: types.CallbackQuery, state: FSMContext, i18
 @router.message(OnboardingStates.waiting_for_custom_name)
 async def handle_custom_name_input(message: types.Message, state: FSMContext, i18n: I18nContext):
     """Handle custom name text input"""
-    if not message.from_user or not message.text:
+    if not message.from_user:
         return
         
     user_id = message.from_user.id
-    custom_name = message.text.strip()
     
-    if len(custom_name) > 50:
-        await message.answer(i18n.get(NAME_TOO_LONG))
+    # Handle non-text messages (photos, stickers, voice, etc.)
+    if not message.text:
+        await message.answer(i18n.get(CUSTOM_NAME_PROMPT))
         return
     
+    custom_name = message.text.strip()
+    
+    # Check if name is empty
     if not custom_name:
-        await message.answer(i18n.get(INVALID_NAME))
+        await message.answer(i18n.get(NAME_TOO_SHORT))
+        return
+    
+    # Check maximum length only
+    if len(custom_name) > 50:
+        await message.answer(i18n.get(NAME_TOO_LONG))
         return
     
     logger.info(f"[User {user_id}] Entered custom name: {custom_name}")
@@ -227,7 +244,7 @@ async def show_language_selection(message: types.Message, user_name: str, i18n: 
     
     keyboard = get_language_selection_keyboard(user_lang,i18n)
     
-    await message.answer(i18n.get(INVALID_NAME).format(user_name),
+    await message.answer(i18n.get(ONBOARDING_LANGUAGE_QUESTION).format(user_name=user_name),
         reply_markup=keyboard
     )
 
@@ -248,7 +265,7 @@ async def select_language_handler(query: types.CallbackQuery, state: FSMContext,
     user_data = await update_user_onboarding_backend(
         telegram_id=user_id,
         custom_name=custom_name,
-        preferred_language=selected_language
+        bot_lang=selected_language
     )
     
     await state.clear()

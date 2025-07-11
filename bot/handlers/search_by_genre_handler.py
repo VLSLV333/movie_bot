@@ -136,7 +136,7 @@ async def confirm_selected_years(query: types.CallbackQuery, i18n: I18nContext):
     logger.info(f"[User {user_id}] Ready to search with genres: {selected_genres} and years: {selected_years}")
 
     # Get user's preferred language dynamically
-    user_lang = await UserService.get_user_preferred_language(user_id)
+    user_lang = await UserService.get_user_movies_language(user_id)
 
     strategy = SearchByGenreStrategy(
         genres=selected_genres,

@@ -54,8 +54,8 @@ async def handle_user_search_text_input(message: types.Message, i18n: I18nContex
     query = message.text.strip()
     logger.info(f"[User {user_id}] Text input received: '{query}' (state: search_by_name:waiting)")
 
-    # Get user's preferred language dynamically
-    user_lang = await UserService.get_user_preferred_language(user_id)
+    # Get user's preferred language for movie content dynamically
+    user_lang = await UserService.get_user_movies_language(user_id)
 
     strategy = SearchByNameStrategy(query=query, language=user_lang)
     context = UserSearchContext(strategy=strategy, language=user_lang)

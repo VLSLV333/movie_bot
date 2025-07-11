@@ -82,7 +82,7 @@ async def handle_mirror_search(query: types.CallbackQuery, i18n: I18nContext):
         return
 
     # Get user's preferred language from backend
-    user_lang = await UserService.get_user_preferred_language(query.from_user.id)
+    user_lang = await UserService.get_user_movies_language(query.from_user.id)
 
     # Only do DB lookup if not skipping
     if not skip_db_lookup:

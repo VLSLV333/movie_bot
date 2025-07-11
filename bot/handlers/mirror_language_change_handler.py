@@ -65,19 +65,19 @@ async def mirror_select_language_handler(query: types.CallbackQuery, i18n: I18nC
         except Exception as e:
             logger.warning(f"[User {user_id}] Failed to delete language selection message: {e}")
     
-    # Update user's preferred language in backend
+    # Update user's preferred language for movie content in backend
     try:
         async with ClientSession() as session:
             async with session.put(
-                "https://moviebot.click/users/language",
+                "https://moviebot.click/users/movies-language",
                 json={
                     "telegram_id": user_id,
-                    "preferred_language": selected_language
+                    "movies_lang": selected_language
                 }
             ) as resp:
                 if resp.status == 200:
                     user_data = await resp.json()
-                    logger.info(f"[User {user_id}] Successfully updated language to: {selected_language}")
+                    logger.info(f"[User {user_id}] Successfully updated movies language to: {selected_language}")
 
                     # Get the language display name
                     language_display = get_language_display_name(selected_language,i18n=i18n)
@@ -86,12 +86,12 @@ async def mirror_select_language_handler(query: types.CallbackQuery, i18n: I18nC
                     return
 
                 else:
-                    logger.error(f"[User {user_id}] Failed to update language: {resp.status}")
+                    logger.error(f"[User {user_id}] Failed to update movies language: {resp.status}")
                     if query.message is not None:
                         await query.message.answer(i18n.get(ERROR_UPDATE_LANGUAGE_FAILED))
                             
     except Exception as e:
-        logger.error(f"[User {user_id}] Exception during language update: {e}")
+        logger.error(f"[User {user_id}] Exception during movies language update: {e}")
         if query.message is not None:
             await query.message.answer(i18n.get(ERROR_UPDATE_LANGUAGE_FAILED))
     

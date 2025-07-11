@@ -26,7 +26,7 @@ msgid "onboarding_name_question"
 msgstr "Choose your nickname:"
 
 msgid "onboarding_language_question"
-msgstr "{user_name}, please select your preferred language:"
+msgstr "{user_name}, what language should I use when talking with you? 😇"
 
 msgid "onboarding_completed"
 msgstr "✅ Great! Your preferences have been saved."
@@ -163,10 +163,10 @@ msgid "name_too_long"
 msgstr "⚠️ Name is too long. Maximum 50 characters."
 
 msgid "name_too_short"
-msgstr "⚠️ Name is too short. Minimum 2 characters."
+msgstr "⚠️ Please enter a name. It cannot be empty."
 
 msgid "invalid_name"
-msgstr "⚠️ Invalid name. Please use only letters and numbers."
+msgstr "⚠️ Invalid name. Please use only letters, numbers, spaces, and basic punctuation (- _ .)."
 
 # Movie Related
 msgid "movie_found"

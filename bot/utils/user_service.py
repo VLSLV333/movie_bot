@@ -41,24 +41,62 @@ class UserService:
         return False
     
     @staticmethod
-    async def get_user_preferred_language(user_id: int, default: str = "en") -> str:
+    async def get_user_bot_language(user_id: int, default: str = "en") -> str:
         """
-        Get user's preferred language
+        Get user's preferred language for bot interface
         
         Args:
             user_id: Telegram user ID
             default: Default language if user not found or error
             
         Returns:
-            User's preferred language or default
+            User's bot language or default
         """
         user_data = await UserService.get_user_info(user_id)
-        if user_data:
-            return user_data.get("preferred_language", default)
-
-        await notify_admin (f'tried to get user info for id:{user_id} to get user language but was not found and provided default lang')
+        if user_data and user_data.get("bot_lang"):
+            return user_data.get("bot_lang", default)
+        
+        await notify_admin(f'tried to get user info for id:{user_id} to get bot language but was not found and provided default lang')
         return default
-    
+
+    @staticmethod
+    async def get_user_movies_language(user_id: int, default: str = "en") -> str:
+        """
+        Get user's preferred language for movie content
+        
+        Args:
+            user_id: Telegram user ID
+            default: Default language if user not found or error
+            
+        Returns:
+            User's movies language or default
+        """
+        user_data = await UserService.get_user_info(user_id)
+        if user_data and user_data.get("movies_lang"):
+            return user_data.get("movies_lang", default)
+
+        await notify_admin(f'tried to get user info for id:{user_id} to get movies language but was not found and provided default lang')
+        return default
+
+    @staticmethod
+    async def get_user_telegram_language(user_id: int, default: str = "en") -> str:
+        """
+        Get user's original Telegram language
+        
+        Args:
+            user_id: Telegram user ID
+            default: Default language if user not found or error
+            
+        Returns:
+            User's Telegram language or default
+        """
+        user_data = await UserService.get_user_info(user_id)
+        if user_data and user_data.get("user_tg_lang"):
+            return user_data.get("user_tg_lang", default)
+        
+        await notify_admin(f'tried to get user info for id:{user_id} to get telegram language but was not found and provided default lang')
+        return default
+
     @staticmethod
     async def get_user_custom_name(user_id: int) -> Optional[str]:
         """
@@ -84,30 +122,3 @@ class UserService:
         if user_data:
             return user_data.get("is_onboarded", False)
         return False
-    
-    @staticmethod
-    async def get_user_full_info(user_id: int) -> Dict[str, Any]:
-        """
-        Get all user information with defaults
-        
-        Returns:
-            Dict with all user info and sensible defaults
-        """
-        user_data = await UserService.get_user_info(user_id)
-        if user_data:
-            return user_data
-        
-        # Return default user data if not found
-        await notify_admin (f'tried to get user info for id:{user_id} but returned default empty package!')
-        return {
-            "id": None,
-            "telegram_id": user_id,
-            "first_name": None,
-            "last_name": None,
-            "custom_name": None,
-            "preferred_language": "en",
-            "is_onboarded": False,
-            "is_premium": False,
-            "created_at": None,
-            "updated_at": None
-        } 
