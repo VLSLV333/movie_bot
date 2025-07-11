@@ -1,64 +1,66 @@
-# ✅ Python
+# Python cache files
 __pycache__/
+*.py[cod]
+*$py.class
 *.pyc
 *.pyo
 *.pyd
-*.py[cod]
 *.so
 
-# ✅ Local environments
+# Babel/i18n files that cause aiogram_i18n issues
+bot/locales/__pycache__/
+bot/locales/*.pot
+bot/locales/*.pyc
+
+# Local environments
 .env
 .env.*
+.env.local
 venv/
 .venv/
-.env.local
-*.env
 
-# ✅ IDE settings
+# IDE files
 .idea/
 .vscode/
+*.swp
+*.swo
 
-# ✅ Logs
+# Logs
 *.log
 bot.log
 
-
-
-# ✅ OS-specific files
+# OS-specific files
 .DS_Store
 Thumbs.db
 
-# ✅ Git
-.git
+# Git
 .git/
 .gitignore
 
-# ✅ Build output
+# Build output
 build/
 dist/
 *.egg-info/
 
-# ✅ Test output
+# Testing
+tests/
 .pytest_cache/
 .tox/
 .coverage
 htmlcov/
 .cache/
 
-# ✅ Dockerfiles (optional if you have Docker multi-stage)
+# Documentation
+README.md
+docs/
+*.md
+
+# Docker
 Dockerfile.*
 docker-compose.override.yml
 
+# Node modules
 node_modules/
-tests/
-
-# Build/output files
-*.mp4
-*.ts
-*.m3u8
-*.webm
-*.mkv
-*.avi
 
 # Project-specific build artifacts
 downloads/
@@ -69,6 +71,5 @@ backend/session_files/
 # IDE/editor junk
 *.idea/
 *.vscode/
-*.swp
 
 *upload_accounts.json

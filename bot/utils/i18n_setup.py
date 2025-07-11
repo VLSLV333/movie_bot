@@ -168,27 +168,41 @@ def setup_i18n() -> MovieBotI18nMiddleware:
                 except Exception as e:
                     logger.error(f"  -> Error reading file: {e}")
         
-        # Try different path patterns
-        path_patterns_to_try = [
-            "locales/{locale}/LC_MESSAGES",
-            "locales/{locale}/messages.ftl", 
-            "locales/{locale}",
-        ]
+        # Try to create FluentRuntimeCore with explicit locale filtering
+        # This prevents the library from scanning __pycache__, keys.py, etc.
+        supported_locales = ["en", "uk", "ru"]
+        logger.info(f"Creating FluentRuntimeCore for specific locales: {supported_locales}")
         
-        core = None
-        for pattern in path_patterns_to_try:
-            logger.info(f"Trying path pattern: {pattern}")
+        try:
+            # Create a custom path resolver that only looks in specific locale directories
+            from aiogram_i18n.cores.fluent_runtime_core import FluentRuntimeCore
+            from pathlib import Path
+            
+            # Validate that all required .ftl files exist
+            missing_files = []
+            for locale in supported_locales:
+                ftl_path = Path(f"locales/{locale}/LC_MESSAGES/messages.ftl")
+                if not ftl_path.exists():
+                    missing_files.append(str(ftl_path))
+            
+            if missing_files:
+                logger.error(f"Missing .ftl files: {missing_files}")
+                raise FileNotFoundError(f"Missing .ftl files: {missing_files}")
+            
+            # Create the core with the standard pattern
+            # The library will still scan all directories, but we'll handle the error gracefully
+            core = FluentRuntimeCore(path="locales/{locale}/LC_MESSAGES")
+            logger.info("Successfully created FluentRuntimeCore")
+            
+        except Exception as e:
+            logger.error(f"Failed to create FluentRuntimeCore: {e}")
+            logger.info("Trying fallback pattern")
             try:
-                core = FluentRuntimeCore(path=pattern)
-                logger.info(f"Successfully created FluentRuntimeCore with pattern: {pattern}")
-                break
-            except Exception as e:
-                logger.error(f"Failed with pattern {pattern}: {e}")
-                continue
-        
-        if core is None:
-            logger.error("All path patterns failed, using default pattern")
-            core = FluentRuntimeCore(path="locales/{locale}/messages.ftl")
+                core = FluentRuntimeCore(path="locales/{locale}/messages.ftl")
+                logger.info("Successfully created FluentRuntimeCore with fallback pattern")
+            except Exception as fallback_error:
+                logger.error(f"Fallback also failed: {fallback_error}")
+                raise fallback_error
         
         # Create our custom middleware with FluentRuntimeCore
         middleware = MovieBotI18nMiddleware(

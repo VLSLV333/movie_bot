@@ -59,3 +59,7 @@ coverage.xml
 .vscode/
 
 pgadmin_config_local.py
+
+bot/locales/__pycache__/
+bot/locales/*.pot
+bot/locales/*.pyc
