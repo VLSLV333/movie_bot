@@ -91,7 +91,7 @@ def setup_i18n() -> I18nMiddleware:
             core=FluentRuntimeCore(
                 path="bot/locales/{locale}/LC_MESSAGES/messages"
             ),
-            manager=locale_manager,  # Now using proper BaseManager instance
+            manager=locale_manager,
             default_locale="en"
         )
         logger.info("I18n middleware configured successfully")
