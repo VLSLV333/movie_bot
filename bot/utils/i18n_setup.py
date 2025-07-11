@@ -42,17 +42,6 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
         self._default_locale = default_locale
         logger.info(f"[I18n] Initialized MovieBotFSMI18nMiddleware with default_locale: {default_locale}")
     
-    async def __call__(self, handler, event, data):
-        """Override the middleware call to add logging."""
-        logger.info(f"[I18n] Middleware called for event: {type(event).__name__}")
-        try:
-            result = await super().__call__(handler, event, data)
-            logger.info(f"[I18n] Middleware completed successfully for event: {type(event).__name__}")
-            return result
-        except Exception as e:
-            logger.error(f"[I18n] Middleware error for event {type(event).__name__}: {e}")
-            raise
-    
     async def get_locale(self, event: types.TelegramObject, data: Dict[str, Any]) -> str:
         """
         Get user's preferred language from FSM, with fallback to backend and Telegram.
