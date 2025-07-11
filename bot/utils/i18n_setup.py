@@ -30,6 +30,8 @@ class MovieBotI18nMiddleware(I18nMiddleware):
         Returns:
             User's preferred language code ('en', 'uk', 'ru')
         """
+        logger.info(f"[I18n] get_locale called with event type: {type(event)}")
+        
         # Extract user from different event types
         user = None
         
@@ -45,8 +47,10 @@ class MovieBotI18nMiddleware(I18nMiddleware):
                 user = getattr(callback_query, 'from_user')
         
         if not user:
-            logger.warning("Could not extract user from event, defaulting to English")
+            logger.warning("[I18n] Could not extract user from event, defaulting to English")
             return "en"
+        
+        logger.info(f"[I18n] Processing event for user {user.id}")
         
         # Try to get user's preferred bot language from backend
         try:
