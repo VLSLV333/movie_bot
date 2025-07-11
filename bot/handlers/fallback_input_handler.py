@@ -12,6 +12,8 @@ logger = Logger().get_logger()
 async def fallback_input_handler(message: types.Message, i18n: I18nContext):
     user_id = message.from_user.id
     state = await SessionManager.get_state(user_id)
+    
+    logger.info(f"[User {user_id}] FALLBACK HANDLER REACHED with message: '{message.text}', state: {state}")
 
     if not state:
         logger.info(f"[User {user_id}] Sent free message without active state. Prompting to use main menu.")

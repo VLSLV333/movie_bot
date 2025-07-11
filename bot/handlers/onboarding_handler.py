@@ -193,6 +193,8 @@ async def custom_name_handler(query: types.CallbackQuery, state: FSMContext, i18
     logger.info(f"[User {user_id}] Requested custom name input")
     
     await state.set_state(OnboardingStates.waiting_for_custom_name)
+    current_state = await state.get_state()
+    logger.info(f"[User {user_id}] FSM state set to: {current_state}")
     
     # Use smart edit or send utility
     await smart_edit_or_send(
@@ -208,6 +210,8 @@ async def handle_custom_name_input(message: types.Message, state: FSMContext, i1
         return
         
     user_id = message.from_user.id
+    current_state = await state.get_state()
+    logger.info(f"[User {user_id}] ONBOARDING HANDLER REACHED with message: '{message.text}', FSM state: {current_state}")
     
     # Handle non-text messages (photos, stickers, voice, etc.)
     if not message.text:
