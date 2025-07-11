@@ -35,12 +35,17 @@ class MovieBotLocaleManager(BaseManager):
         # Extract user from different event types
         user = None
         
-        if hasattr(event, 'from_user') and event.from_user:
-            user = event.from_user
-        elif hasattr(event, 'message') and event.message and event.message.from_user:
-            user = event.message.from_user
-        elif hasattr(event, 'callback_query') and event.callback_query and event.callback_query.from_user:
-            user = event.callback_query.from_user
+        # Handle different event types with proper type checking
+        if hasattr(event, 'from_user') and getattr(event, 'from_user', None):
+            user = getattr(event, 'from_user')
+        elif hasattr(event, 'message') and getattr(event, 'message', None):
+            message = getattr(event, 'message')
+            if hasattr(message, 'from_user') and getattr(message, 'from_user', None):
+                user = getattr(message, 'from_user')
+        elif hasattr(event, 'callback_query') and getattr(event, 'callback_query', None):
+            callback_query = getattr(event, 'callback_query')
+            if hasattr(callback_query, 'from_user') and getattr(callback_query, 'from_user', None):
+                user = getattr(callback_query, 'from_user')
         
         if not user:
             logger.warning("Could not extract user from event, defaulting to English")
@@ -56,7 +61,7 @@ class MovieBotLocaleManager(BaseManager):
             logger.warning(f"Failed to get user bot language from backend: {e}")
         
         # Fallback to Telegram user language
-        telegram_lang = user.language_code
+        telegram_lang = getattr(user, 'language_code', None)
         if telegram_lang:
             # Map common language codes to our supported languages
             lang_mapping = {
@@ -74,6 +79,50 @@ class MovieBotLocaleManager(BaseManager):
         # Ultimate fallback
         logger.debug(f"User {user.id} using default language: en")
         return "en"
+
+    async def set_locale(self, locale: str, event: types.TelegramObject, data: Dict[str, Any]) -> None:
+        """
+        Set user's preferred language for i18n (bot interface language).
+        This method is called when we want to change user's language preference.
+        
+        Args:
+            locale: Language code to set ('en', 'uk', 'ru')
+            event: Telegram event object (message, callback_query, etc.)
+            data: Additional data from middleware
+        """
+        # Extract user from different event types
+        user = None
+        
+        # Handle different event types with proper type checking
+        if hasattr(event, 'from_user') and getattr(event, 'from_user', None):
+            user = getattr(event, 'from_user')
+        elif hasattr(event, 'message') and getattr(event, 'message', None):
+            message = getattr(event, 'message')
+            if hasattr(message, 'from_user') and getattr(message, 'from_user', None):
+                user = getattr(message, 'from_user')
+        elif hasattr(event, 'callback_query') and getattr(event, 'callback_query', None):
+            callback_query = getattr(event, 'callback_query')
+            if hasattr(callback_query, 'from_user') and getattr(callback_query, 'from_user', None):
+                user = getattr(callback_query, 'from_user')
+        
+        if not user:
+            logger.warning("Could not extract user from event for setting locale")
+            return
+        
+        # Validate locale
+        if locale not in ['en', 'uk', 'ru']:
+            logger.warning(f"Invalid locale '{locale}', ignoring")
+            return
+        
+        # Use the new UserService method to update bot language
+        try:
+            success = await UserService.set_user_bot_language(user.id, locale)
+            if success:
+                logger.info(f"Successfully updated user {user.id} bot language to: {locale}")
+            else:
+                logger.error(f"Failed to update user {user.id} bot language to: {locale}")
+        except Exception as e:
+            logger.error(f"Error setting locale for user {user.id}: {e}")
 
 
 def setup_i18n() -> I18nMiddleware:

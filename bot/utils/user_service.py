@@ -122,3 +122,47 @@ class UserService:
         if user_data:
             return user_data.get("is_onboarded", False)
         return False
+
+    @staticmethod
+    async def set_user_bot_language(user_id: int, bot_lang: str) -> bool:
+        """
+        Set user's bot interface language
+        
+        Args:
+            user_id: Telegram user ID
+            bot_lang: Language code ('en', 'uk', 'ru')
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if bot_lang not in ['en', 'uk', 'ru']:
+            logger.warning(f"Invalid bot language: {bot_lang}")
+            return False
+        
+        # Get current user data to preserve existing values
+        user_data = await UserService.get_user_info(user_id)
+        if not user_data:
+            logger.error(f"User {user_id} not found, cannot update bot language")
+            return False
+        
+        # Prepare update data with preserved values
+        update_data = {
+            "telegram_id": user_id,
+            "user_tg_lang": user_data.get("user_tg_lang", "en"),  # Preserve existing
+            "custom_name": user_data.get("custom_name"),          # Preserve existing
+            "bot_lang": bot_lang,                                 # Update this
+            "is_premium": user_data.get("is_premium", False)      # Preserve existing
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(f"{BACKEND_API_URL}/users/onboarding", json=update_data) as response:
+                    if response.status == 200:
+                        logger.info(f"Successfully updated user {user_id} bot language to: {bot_lang}")
+                        return True
+                    else:
+                        logger.error(f"Failed to update user {user_id} bot language: {response.status}")
+                        return False
+        except Exception as e:
+            logger.error(f"Error updating user {user_id} bot language: {e}")
+            return False
