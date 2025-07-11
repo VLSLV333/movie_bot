@@ -85,49 +85,10 @@ def setup_i18n() -> MovieBotI18nMiddleware:
         Configured MovieBotI18nMiddleware instance
     """
     try:
-        import os
-        from pathlib import Path
-        
-        # Debug path information
-        current_dir = os.getcwd()
-        logger.info(f"🔍 Current working directory: {current_dir}")
-        
-        # Check different possible paths
-        possible_paths = [
-            "bot/locales",
-            "locales", 
-            "/app/bot/locales",
-            "/app/locales",
-            "./bot/locales",
-            "../locales"
-        ]
-        
-        for path in possible_paths:
-            full_path = os.path.abspath(path)
-            exists = os.path.exists(path)
-            logger.info(f"🔍 Path '{path}' -> '{full_path}' exists: {exists}")
-            if exists:
-                try:
-                    contents = os.listdir(path)
-                    logger.info(f"🔍 Contents of '{path}': {contents}")
-                except Exception as e:
-                    logger.info(f"🔍 Cannot list contents of '{path}': {e}")
-        
-        # Try to find the correct path
-        locales_path = None
-        for path in possible_paths:
-            if os.path.exists(path):
-                locales_path = path
-                logger.info(f"✅ Using locales path: {locales_path}")
-                break
-        
-        if not locales_path:
-            logger.error("❌ Could not find locales directory in any expected location")
-            raise FileNotFoundError("Locales directory not found")
-        
         # Create I18n instance for gettext (.po/.mo files)
+        # The container runs from /app/bot, so "locales" resolves to /app/bot/locales
         i18n = I18n(
-            path=locales_path, 
+            path="locales", 
             default_locale="en", 
             domain="messages"
         )
