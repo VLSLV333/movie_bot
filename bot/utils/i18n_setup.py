@@ -168,15 +168,41 @@ def setup_i18n() -> MovieBotI18nMiddleware:
                 except Exception as e:
                     logger.error(f"  -> Error reading file: {e}")
         
-        # Try to create FluentRuntimeCore with explicit locale filtering
-        # This prevents the library from scanning __pycache__, keys.py, etc.
+        # Runtime cleanup: Remove problematic files/directories that cause aiogram_i18n scanning issues
+        # This runs every time the bot starts to ensure clean locales directory
         supported_locales = ["en", "uk", "ru"]
-        logger.info(f"Creating FluentRuntimeCore for specific locales: {supported_locales}")
+        logger.info("Performing runtime cleanup of locales directory")
         
+        import shutil
+        
+        locales_path = Path("locales")
+        cleanup_items = []
+        
+        for item in locales_path.iterdir():
+            # Keep only valid locale directories and keys.py
+            if item.name in supported_locales or item.name == "keys.py":
+                continue
+            
+            # Mark for cleanup
+            cleanup_items.append(item)
+        
+        # Remove problematic items
+        for item in cleanup_items:
+            try:
+                if item.is_dir():
+                    shutil.rmtree(item)
+                    logger.info(f"Removed directory: {item}")
+                else:
+                    item.unlink()
+                    logger.info(f"Removed file: {item}")
+            except Exception as e:
+                logger.warning(f"Failed to remove {item}: {e}")
+        
+        logger.info(f"Runtime cleanup complete. Remaining locales contents: {[p.name for p in locales_path.iterdir()]}")
+        
+        # Now create FluentRuntimeCore with clean directory
         try:
-            # Create a custom path resolver that only looks in specific locale directories
             from aiogram_i18n.cores.fluent_runtime_core import FluentRuntimeCore
-            from pathlib import Path
             
             # Validate that all required .ftl files exist
             missing_files = []
@@ -189,13 +215,12 @@ def setup_i18n() -> MovieBotI18nMiddleware:
                 logger.error(f"Missing .ftl files: {missing_files}")
                 raise FileNotFoundError(f"Missing .ftl files: {missing_files}")
             
-            # Create the core with the standard pattern
-            # The library will still scan all directories, but we'll handle the error gracefully
+            # Create the core with clean directory structure
             core = FluentRuntimeCore(path="locales/{locale}/LC_MESSAGES")
-            logger.info("Successfully created FluentRuntimeCore")
+            logger.info("Successfully created FluentRuntimeCore after runtime cleanup")
             
         except Exception as e:
-            logger.error(f"Failed to create FluentRuntimeCore: {e}")
+            logger.error(f"Failed to create FluentRuntimeCore even after cleanup: {e}")
             logger.info("Trying fallback pattern")
             try:
                 core = FluentRuntimeCore(path="locales/{locale}/messages.ftl")
