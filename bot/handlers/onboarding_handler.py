@@ -32,7 +32,6 @@ class OnboardingInputStateFilter(Filter):
         if not message.from_user:
             return False
         state = await SessionManager.get_state(message.from_user.id)
-        logger.info(f"[User {message.from_user.id}] OnboardingInputStateFilter: state='{state}', expected='onboarding:waiting_for_custom_name', match={state == 'onboarding:waiting_for_custom_name'}")
         return state == "onboarding:waiting_for_custom_name"
 
 
@@ -225,6 +224,9 @@ async def handle_custom_name_input(message: types.Message, i18n: I18nContext):
     # Only process if we're in the correct state
     if current_state != "onboarding:waiting_for_custom_name":
         # Not in onboarding state, let other handlers process this
+        # We need to explicitly pass this to the fallback handler
+        from bot.handlers.fallback_input_handler import fallback_input_handler
+        await fallback_input_handler(message, i18n)
         return
     
     logger.info(f"[User {user_id}] ONBOARDING HANDLER PROCESSING custom name input: '{message.text}'")
