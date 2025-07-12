@@ -27,14 +27,21 @@ class UserCreateRequest(BaseModel):
     is_premium: Optional[bool] = False
     movies_lang: Optional[str] = None
     bot_lang: Optional[str] = None
+
+    @field_validator('user_tg_lang', 'movies_lang', 'bot_lang')
+    @classmethod
+    def validate_language_codes(cls, v):
+        if v is not None:
+            # Allow common language codes: en, ru, uk, and other 2-3 letter codes
+            if not re.match(r'^[a-z]{2,3}$', v):
+                raise ValueError('Invalid language code. Must be 2-3 lowercase letters.')
+        return v
     @field_validator('first_name', 'last_name', 'custom_name')
     @classmethod
     def validate_name_fields(cls, v):
         if v is not None:
-            # Allow Unicode letters, spaces, hyphens, apostrophes, and dots
-            # Using a simpler pattern without redundant escapes
-            if not re.match(r'^[\p{L}\s\-\'.]+$', v, re.UNICODE):
-                raise ValueError('Name contains invalid characters. Only letters, spaces, hyphens, apostrophes, and dots are allowed.')
+            # Only check for empty/whitespace-only names and length
+            # Database handles Unicode characters including emojis and Cyrillic
             if len(v.strip()) == 0:
                 raise ValueError('Name cannot be empty or only whitespace.')
             if len(v) > 100:
@@ -48,14 +55,21 @@ class UserOnboardingRequest(BaseModel):
     is_premium: Optional[bool] = None
     bot_lang: Optional[str] = None
 
+    @field_validator('user_tg_lang', 'bot_lang')
+    @classmethod
+    def validate_language_codes(cls, v):
+        if v is not None:
+            # Allow common language codes: en, ru, uk, and other 2-3 letter codes
+            if not re.match(r'^[a-z]{2,3}$', v):
+                raise ValueError('Invalid language code. Must be 2-3 lowercase letters.')
+        return v
+
     @field_validator('custom_name')
     @classmethod
     def validate_custom_name(cls, v):
         if v is not None:
-            # Allow Unicode letters, spaces, hyphens, apostrophes, and dots
-            # Using a simpler pattern without redundant escapes
-            if not re.match(r'^[\p{L}\s\-\'.]+$', v, re.UNICODE):
-                raise ValueError('Name contains invalid characters. Only letters, spaces, hyphens, apostrophes, and dots are allowed.')
+            # Only check for empty/whitespace-only names and length
+            # Database handles Unicode characters including emojis and Cyrillic
             if len(v.strip()) == 0:
                 raise ValueError('Name cannot be empty or only whitespace.')
             if len(v) > 100:
@@ -66,13 +80,34 @@ class UserLanguageRequest(BaseModel):
     telegram_id: int
     user_tg_lang: str
 
+    @field_validator('user_tg_lang')
+    @classmethod
+    def validate_language_code(cls, v):
+        if not re.match(r'^[a-z]{2,3}$', v):
+            raise ValueError('Invalid language code. Must be 2-3 lowercase letters.')
+        return v
+
 class UserMoviesLanguageRequest(BaseModel):
     telegram_id: int
     movies_lang: str
 
+    @field_validator('movies_lang')
+    @classmethod
+    def validate_language_code(cls, v):
+        if not re.match(r'^[a-z]{2,3}$', v):
+            raise ValueError('Invalid language code. Must be 2-3 lowercase letters.')
+        return v
+
 class UserBotLanguageRequest(BaseModel):
     telegram_id: int
     bot_lang: str
+
+    @field_validator('bot_lang')
+    @classmethod
+    def validate_language_code(cls, v):
+        if not re.match(r'^[a-z]{2,3}$', v):
+            raise ValueError('Invalid language code. Must be 2-3 lowercase letters.')
+        return v
 
 @router.get("/users/{telegram_id}")
 async def get_user(telegram_id: int, db: AsyncSession = Depends(get_db)):

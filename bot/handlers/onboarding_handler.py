@@ -60,15 +60,52 @@ async def call_backend_api(endpoint: str, method: str = "GET", data: Optional[di
         logger.error(f"[BackendAPI] Backend API call failed: {e}")
         return None
 
+def validate_language_code(lang: str) -> str:
+    """Validate and normalize language code"""
+    if not lang or not isinstance(lang, str):
+        return 'en'
+    
+    # Normalize to lowercase and ensure it's 2-3 characters
+    lang = lang.lower().strip()
+    if len(lang) < 2 or len(lang) > 3:
+        return 'en'
+    
+    # Allow only letters
+    if not lang.isalpha():
+        return 'en'
+    
+    return lang
+
+def validate_name(name: Optional[str]) -> Optional[str]:
+    """Validate and clean name field"""
+    if not name:
+        return None
+    
+    # Strip whitespace
+    name = name.strip()
+    
+    # Check length (max 100 characters as per backend)
+    if len(name) > 100:
+        name = name[:100]
+    
+    # Only check if it's not empty after trimming
+    # Database handles Unicode characters including emojis and Cyrillic
+    return name if name else None
+
 async def get_or_create_user_backend(telegram_id: int, user_tg_lang: str, first_name: Optional[str] = None, last_name: Optional[str] = None) -> Optional[dict]:
     """Get or create user in backend with all language settings set to Telegram language"""
+    # Validate and clean input data
+    validated_lang = validate_language_code(user_tg_lang)
+    validated_first_name = validate_name(first_name)
+    validated_last_name = validate_name(last_name)
+    
     data = {
         "telegram_id": telegram_id,
-        "user_tg_lang": user_tg_lang,  # User's Telegram language
-        "movies_lang": user_tg_lang,   # Movies language = Telegram language
-        "bot_lang": user_tg_lang,      # Bot interface language = Telegram language
-        "first_name": first_name,
-        "last_name": last_name,
+        "user_tg_lang": validated_lang,  # User's Telegram language
+        "movies_lang": validated_lang,   # Movies language = Telegram language
+        "bot_lang": validated_lang,      # Bot interface language = Telegram language
+        "first_name": validated_first_name,
+        "last_name": validated_last_name,
         "is_premium": False
     }
     return await call_backend_api("/users/get-or-create", "POST", data)
