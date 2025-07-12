@@ -58,6 +58,20 @@ def setup_i18n() -> I18nMiddleware:
         
         logger.info(f"Found locales directory at: {Path(locales_base).absolute()}")
         
+        # Clean up ONLY the problematic __pycache__ directory that causes aiogram_i18n issues
+        # This is safe because __pycache__ only contains compiled Python files that are regenerated automatically
+        import shutil
+        locales_path = Path(locales_base)
+        pycache_path = locales_path / "__pycache__"
+        if pycache_path.exists():
+            try:
+                shutil.rmtree(pycache_path)
+                logger.info(f"Removed problematic __pycache__ directory: {pycache_path}")
+            except Exception as e:
+                logger.warning(f"Failed to remove __pycache__ directory: {e}")
+        else:
+            logger.info("No __pycache__ directory found - no cleanup needed")
+        
         # Create the simplest possible FluentRuntimeCore
         core = FluentRuntimeCore(path=f"{locales_base}/{{locale}}/LC_MESSAGES")
         logger.info("Successfully created FluentRuntimeCore")
