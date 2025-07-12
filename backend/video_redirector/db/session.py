@@ -13,21 +13,10 @@ if not DATABASE_URL:
 # Convert to async URL
 DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
 
-# Add UTF-8 encoding parameters to ensure proper handling of international characters
-if "?" not in DATABASE_URL:
-    DATABASE_URL += "?charset=utf8"
-else:
-    DATABASE_URL += "&charset=utf8"
-
 engine = create_async_engine(
     DATABASE_URL, 
     echo=False,
-    # Additional parameters for better Unicode support
-    connect_args={
-        "server_settings": {
-            "client_encoding": "utf8"
-        }
-    }
+    # PostgreSQL uses UTF-8 by default, no need for additional encoding settings
 )
 
 AsyncSessionLocal = async_sessionmaker(
