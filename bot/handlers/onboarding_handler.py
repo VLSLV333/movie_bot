@@ -157,6 +157,10 @@ async def start_handler(message: types.Message, state: FSMContext):
         user_tg_lang=user_lang
     )
 
+    # Set FSM locale for i18n
+    await state.update_data(locale=user_lang)
+    logger.info(f"[User {user_id}] FSM locale set to: {user_lang}")
+
     # Show welcome message with main menu
     keyboard = get_main_menu_keyboard()
     await message.answer_animation(
