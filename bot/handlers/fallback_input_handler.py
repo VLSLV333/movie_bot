@@ -40,18 +40,27 @@ async def test_locale_handler(message: types.Message, state: FSMContext, i18n: I
     await message.answer(test_msg)
 
 @router.message()
-async def fallback_input_handler(message: types.Message, i18n: I18nContext):
+async def fallback_input_handler(message: types.Message, i18n: I18nContext, state: FSMContext):
     if not message.from_user:
         return
         
     user_id = message.from_user.id
-    state = await SessionManager.get_state(user_id)
+    session_state = await SessionManager.get_state(user_id)
     
-    logger.info(f"[User {user_id}] FALLBACK HANDLER REACHED with message: '{message.text}', state: {state}")
+    logger.info(f"[User {user_id}] FALLBACK HANDLER REACHED with message: '{message.text}', session_state: {session_state}")
     logger.info(f"[User {user_id}] FALLBACK HANDLER - I18n context locale: {i18n.locale}")
     logger.info(f"[User {user_id}] FALLBACK HANDLER - I18n context available: {i18n is not None}")
+    
+    # Debug: Check FSM data
+    try:
+        fsm_data = await state.get_data()
+        fsm_locale = fsm_data.get("user_locale", "NOT_SET")
+        logger.info(f"[User {user_id}] FALLBACK HANDLER - FSM locale: {fsm_locale}")
+    except Exception as e:
+        logger.error(f"[User {user_id}] FALLBACK HANDLER - Failed to get FSM data: {e}")
+        fsm_locale = "ERROR"
 
-    if not state:
+    if not session_state:
         logger.info(f"[User {user_id}] Sent free message without active state. Prompting to use main menu.")
 
         await message.answer(
