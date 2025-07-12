@@ -11,7 +11,7 @@ async def create_user(
     first_name: Optional[str] = None,
     last_name: Optional[str] = None,
     custom_name: Optional[str] = None,
-    is_onboarded: bool = False,
+    is_onboarded: bool = True,
     is_premium: bool = False,
     movies_lang: Optional[str] = None,
     bot_lang: Optional[str] = None
@@ -131,6 +131,7 @@ async def get_or_create_user(
             is_premium=is_premium,
             user_tg_lang=user_tg_lang,
             movies_lang=movies_lang,
-            bot_lang=bot_lang
+            bot_lang=bot_lang,
+            is_onboarded=True  # Mark as onboarded by default
         )
     return user 

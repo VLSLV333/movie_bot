@@ -18,9 +18,9 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     telegram_id = Column(Integer, nullable=False, unique=True)
-    first_name = Column(String(100))
-    last_name = Column(String(100))
-    custom_name = Column(String(100))
+    first_name = Column(String(100, collation='utf8_unicode_ci'))
+    last_name = Column(String(100, collation='utf8_unicode_ci'))
+    custom_name = Column(String(100, collation='utf8_unicode_ci'))
     user_tg_lang = Column(String(10))  # User's default language from Telegram
     movies_lang = Column(String(10))   # Language for movie content/dubs
     bot_lang = Column(String(10))      # Language for bot interface

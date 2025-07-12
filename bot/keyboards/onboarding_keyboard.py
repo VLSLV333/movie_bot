@@ -1,9 +1,13 @@
+# This file contains onboarding keyboard functions that are not currently used
+# since we simplified the onboarding flow to just handle /start command.
+# Keeping this file for potential future use if we want to add onboarding back.
+
 from aiogram import types
 from bot.locales.keys import CUSTOM_NAME_BTN, LANG_ENGLISH, LANG_UKRAINIAN, LANG_RUSSIAN
 from aiogram.utils.i18n import gettext
 
 def get_name_selection_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
-    """Create keyboard for name selection"""
+    """Create keyboard for name selection - NOT CURRENTLY USED"""
     keyboard = []
     
     # Add Telegram names if available
@@ -27,7 +31,7 @@ def get_name_selection_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_language_selection_keyboard(user_lang: str) -> types.InlineKeyboardMarkup:
-    """Create keyboard for language selection"""
+    """Create keyboard for language selection - NOT CURRENTLY USED"""
     # Map language codes to translation keys
     lang_keys = {
         "uk": LANG_UKRAINIAN,

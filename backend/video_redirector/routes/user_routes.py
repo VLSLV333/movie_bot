@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.video_redirector.db.session import get_db
 from backend.video_redirector.db.crud_users import (
@@ -11,6 +11,7 @@ from backend.video_redirector.db.crud_users import (
     get_or_create_user
 )
 from typing import Optional
+import re
 
 import logging
 logger = logging.getLogger(__name__)
@@ -26,6 +27,19 @@ class UserCreateRequest(BaseModel):
     is_premium: Optional[bool] = False
     movies_lang: Optional[str] = None
     bot_lang: Optional[str] = None
+    @field_validator('first_name', 'last_name', 'custom_name')
+    @classmethod
+    def validate_name_fields(cls, v):
+        if v is not None:
+            # Allow Unicode letters, spaces, hyphens, apostrophes, and dots
+            # Using a simpler pattern without redundant escapes
+            if not re.match(r'^[\p{L}\s\-\'.]+$', v, re.UNICODE):
+                raise ValueError('Name contains invalid characters. Only letters, spaces, hyphens, apostrophes, and dots are allowed.')
+            if len(v.strip()) == 0:
+                raise ValueError('Name cannot be empty or only whitespace.')
+            if len(v) > 100:
+                raise ValueError('Name is too long. Maximum 100 characters allowed.')
+        return v.strip() if v else v
 
 class UserOnboardingRequest(BaseModel):
     telegram_id: int
@@ -33,6 +47,20 @@ class UserOnboardingRequest(BaseModel):
     custom_name: Optional[str] = None
     is_premium: Optional[bool] = None
     bot_lang: Optional[str] = None
+
+    @field_validator('custom_name')
+    @classmethod
+    def validate_custom_name(cls, v):
+        if v is not None:
+            # Allow Unicode letters, spaces, hyphens, apostrophes, and dots
+            # Using a simpler pattern without redundant escapes
+            if not re.match(r'^[\p{L}\s\-\'.]+$', v, re.UNICODE):
+                raise ValueError('Name contains invalid characters. Only letters, spaces, hyphens, apostrophes, and dots are allowed.')
+            if len(v.strip()) == 0:
+                raise ValueError('Name cannot be empty or only whitespace.')
+            if len(v) > 100:
+                raise ValueError('Name is too long. Maximum 100 characters allowed.')
+        return v.strip() if v else v
 
 class UserLanguageRequest(BaseModel):
     telegram_id: int
