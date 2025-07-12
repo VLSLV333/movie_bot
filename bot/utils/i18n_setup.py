@@ -55,8 +55,9 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
             User's preferred language code
         """
         logger.info(f"[I18n] get_locale() called with event type: {type(event).__name__}")
-        logger.info(f"[I18n] Event object: {event}")
-        logger.info(f"[I18n] Middleware data keys: {list(data.keys()) if data else 'None'}")
+        logger.info(f"[I18n] DEBUG: get_locale method is being called!")
+        
+        # Note: We're temporarily using standard I18nMiddleware for testing
         
         # Extract user from different event types
         user = None
@@ -170,10 +171,10 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
 
 
 # I18n middleware instance (will be initialized in setup_i18n)
-i18n_middleware: Optional[MovieBotFSMI18nMiddleware] = None
+i18n_middleware: Optional[I18nMiddleware] = None
 
 
-def setup_i18n() -> MovieBotFSMI18nMiddleware:
+def setup_i18n() -> I18nMiddleware:
     """
     Setup and return configured FSM I18n middleware.
     
@@ -266,7 +267,8 @@ def setup_i18n() -> MovieBotFSMI18nMiddleware:
                 raise fallback_error
         
         # Create our custom FSM middleware with FluentRuntimeCore
-        i18n_middleware = MovieBotFSMI18nMiddleware(
+        # Temporarily use standard middleware to test
+        i18n_middleware = I18nMiddleware(
             core=core,
             default_locale=DEFAULT_LANGUAGE
         )
