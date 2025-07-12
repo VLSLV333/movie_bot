@@ -63,7 +63,7 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                     if status == "queued":
                         animation_url = STATUS_ANIMATIONS["queued"]
                         position = data.get("queue_position") or '...'
-                        new_text = gettext(DOWNLOAD_QUEUE_POSITION, position=position)
+                        new_text = gettext(DOWNLOAD_QUEUE_POSITION).format(position=position)
                     elif status == "extracting":
                         animation_url = STATUS_ANIMATIONS["extracting"]
                         new_text = gettext(DOWNLOAD_EXTRACTING_DATA)
@@ -76,14 +76,14 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                                     merge_data = await merge_resp.json()
                                     percent = int(merge_data.get("progress", 0))
                                     progress_bar = make_progress_bar(percent)
-                                    new_text = gettext(DOWNLOAD_CONVERTING_VIDEO, progress_bar=progress_bar, percent=percent)
+                                    new_text = gettext(DOWNLOAD_CONVERTING_VIDEO).format(progress_bar=progress_bar, percent=percent)
                                 else:
                                     progress_bar = make_progress_bar(0)
-                                    new_text = gettext(DOWNLOAD_CONVERTING_VIDEO, progress_bar=progress_bar, percent=0)
+                                    new_text = gettext(DOWNLOAD_CONVERTING_VIDEO).format(progress_bar=progress_bar, percent=0)
                         except Exception as e:
                             logger.error(f"[User {user_id}] Could not fetch merge progress: {e}")
                             progress_bar = make_progress_bar(0)
-                            new_text = gettext(DOWNLOAD_CONVERTING_VIDEO, progress_bar=progress_bar, percent=0)
+                            new_text = gettext(DOWNLOAD_CONVERTING_VIDEO).format(progress_bar=progress_bar, percent=0)
                     elif status == "uploading":
                         animation_url = STATUS_ANIMATIONS["uploading"]
                         new_text = gettext(DOWNLOAD_UPLOADING_TO_TELEGRAM)
@@ -123,7 +123,7 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                         return None
                     else:
                         animation_url = STATUS_ANIMATIONS["default"]
-                        new_text = gettext(DOWNLOAD_PROCESSING_STATUS, status=status)
+                        new_text = gettext(DOWNLOAD_PROCESSING_STATUS).format(status=status)
 
                     # If status changed, delete old animation and send new one, and update text message
                     if status != last_status:

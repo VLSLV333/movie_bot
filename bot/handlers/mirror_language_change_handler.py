@@ -82,7 +82,7 @@ async def mirror_select_language_handler(query: types.CallbackQuery):
                     # Get the language display name
                     language_display = get_language_display_name(selected_language)
 
-                    await query.message.answer(gettext(LANGUAGE_UPDATED_SUCCESSFULLY, language=language_display))
+                    await query.message.answer(gettext(LANGUAGE_UPDATED_SUCCESSFULLY).format(language=language_display))
                     return
 
                 else:

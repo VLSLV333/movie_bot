@@ -39,18 +39,18 @@ def render_navigation_panel(
 
     # Build text hint
     if click_source == "top" and position == "top":
-        scroll_hint = gettext(SCROLL_DOWN_HINT, batch_size=batch_size)
+        scroll_hint = gettext(SCROLL_DOWN_HINT).format(batch_size=batch_size)
     elif click_source == "top" and position == "bottom":
         scroll_hint = gettext(PRESS_NEXT_HINT)
     elif click_source == "bottom" and position == "top":
         scroll_hint = gettext(PRESS_NEXT_HINT)
     elif click_source == "bottom" and position == "bottom":
-        scroll_hint = gettext(SCROLL_UP_HINT, batch_size=batch_size)
+        scroll_hint = gettext(SCROLL_UP_HINT).format(batch_size=batch_size)
     else:
         if position == "top":
             scroll_hint = gettext(PRESS_NEXT_HINT)
         elif position == "bottom":
-            scroll_hint = gettext(SCROLL_UP_HINT, batch_size=batch_size)
+            scroll_hint = gettext(SCROLL_UP_HINT).format(batch_size=batch_size)
         else:
             scroll_hint = ""
 
@@ -60,7 +60,7 @@ def render_navigation_panel(
         context_line = gettext(EXPLORING_MOVIES_DEFAULT)
         logger.error(f"error while getting search context text, error: {e}")
 
-    text = gettext(SHOWING_MOVIES_RANGE, global_start=global_start, global_end=global_end, total_results=total_results) + "\n\n"
+    text = gettext(SHOWING_MOVIES_RANGE).format(global_start=global_start, global_end=global_end, total_results=total_results) + "\n\n"
 
     if context_line:
         text += f"{context_line}\n\n"
@@ -79,7 +79,7 @@ def render_navigation_panel(
     # "Previous" button — disable if at first batch
     if context.current_result_idx > batch_size or context.current_page != 1:
         buttons.append(types.InlineKeyboardButton(
-            text=gettext(PREVIOUS_MOVIES_BTN, batch_size=batch_size),
+            text=gettext(PREVIOUS_MOVIES_BTN).format(batch_size=batch_size),
             callback_data="show_previous_results"
         ))
     else:
@@ -88,7 +88,7 @@ def render_navigation_panel(
     # "Next" button — only show if not at last result of last tmdb page
     if context.current_result_idx + 20 * (context.current_page - 1) < context.total_results:
         buttons.append(types.InlineKeyboardButton(
-            text=gettext(NEXT_MOVIES_BTN, batch_size=batch_size),
+            text=gettext(NEXT_MOVIES_BTN).format(batch_size=batch_size),
             callback_data="show_more_results"
         ))
     else:

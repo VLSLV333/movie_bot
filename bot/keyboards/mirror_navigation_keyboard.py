@@ -34,9 +34,9 @@ async def get_mirror_navigation_keyboard(session: MirrorSearchSession, position:
     except Exception as e:
         logger.error(f"Unexpected error while getting movie title: {e}")
 
-    hint = gettext(MIRROR_SELECTION_HINT, movie_title=movie_title)
+    hint = gettext(MIRROR_SELECTION_HINT).format(movie_title=movie_title)
 
-    text = gettext(MIRROR_SELECT_TITLE, movie_title=movie_title)
+    text = gettext(MIRROR_SELECT_TITLE).format(movie_title=movie_title)
     if hint:
         text += f"\n\n{hint}"
 

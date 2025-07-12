@@ -1,5 +1,4 @@
 from typing import List, Dict, Optional
-import json
 
 class MirrorSearchSession:
     def __init__(

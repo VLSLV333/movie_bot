@@ -292,7 +292,7 @@ async def show_language_selection(message: types.Message, user_name: str):
     
     keyboard = get_language_selection_keyboard(user_lang)
     
-    await message.answer(gettext(ONBOARDING_LANGUAGE_QUESTION, user_name=user_name),
+    await message.answer(gettext(ONBOARDING_LANGUAGE_QUESTION).format(user_name=user_name),
         reply_markup=keyboard
     )
 
