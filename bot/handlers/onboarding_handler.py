@@ -163,7 +163,7 @@ async def start_handler(message: types.Message, i18n: I18nContext, state: FSMCon
         )
 
 @router.callback_query(F.data == "start_onboarding")
-async def start_onboarding_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def start_onboarding_handler(query: types.CallbackQuery, i18n: I18nContext, state: FSMContext):
     """Start the onboarding process"""
     #TODO: when premium users will be available we can propose becoming premium here or here
     if not query.from_user:
@@ -188,7 +188,7 @@ async def start_onboarding_handler(query: types.CallbackQuery, i18n: I18nContext
     await query.answer()
 
 @router.callback_query(F.data == "skip_onboarding")
-async def skip_onboarding_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def skip_onboarding_handler(query: types.CallbackQuery, i18n: I18nContext, state: FSMContext):
     """Skip onboarding and continue with default settings"""
     if not query.from_user:
         return
@@ -204,7 +204,7 @@ async def skip_onboarding_handler(query: types.CallbackQuery, i18n: I18nContext)
     await query.answer()
 
 @router.callback_query(F.data.startswith("select_name:"))
-async def select_name_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def select_name_handler(query: types.CallbackQuery, i18n: I18nContext, state: FSMContext):
     """Handle name selection"""
     if not query.from_user or not query.data:
         return
@@ -223,7 +223,7 @@ async def select_name_handler(query: types.CallbackQuery, i18n: I18nContext):
     await query.answer()
 
 @router.callback_query(F.data == "custom_name")
-async def custom_name_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def custom_name_handler(query: types.CallbackQuery, i18n: I18nContext, state: FSMContext):
     """Handle custom name input"""
     if not query.from_user:
         return
@@ -247,7 +247,7 @@ async def custom_name_handler(query: types.CallbackQuery, i18n: I18nContext):
     await query.answer()
 
 @router.message(F.text)
-async def handle_custom_name_input(message: types.Message, i18n: I18nContext):
+async def handle_custom_name_input(message: types.Message, i18n: I18nContext, state: FSMContext):
     """Handle custom name text input"""
     if not message.from_user:
         return
@@ -256,42 +256,36 @@ async def handle_custom_name_input(message: types.Message, i18n: I18nContext):
     current_state = await SessionManager.get_state(user_id)
     
     # Only process if we're in the correct state
-    if current_state != "onboarding:waiting_for_custom_name":
-        # Not in onboarding state, let other handlers process this
-        # We need to explicitly pass this to the fallback handler
-        from bot.handlers.fallback_input_handler import fallback_input_handler
-        await fallback_input_handler(message, i18n)
-        return
-    
-    logger.info(f"[User {user_id}] ONBOARDING HANDLER PROCESSING custom name input: '{message.text}'")
-    
-    # Handle non-text messages (photos, stickers, voice, etc.)
-    if not message.text:
-        await message.answer(i18n.get(CUSTOM_NAME_PROMPT))
-        return
-    
-    custom_name = message.text.strip()
-    
-    # Check if name is empty
-    if not custom_name:
-        await message.answer(i18n.get(NAME_TOO_SHORT))
-        return
-    
-    # Check maximum length only
-    if len(custom_name) > 50:
-        await message.answer(i18n.get(NAME_TOO_LONG))
-        return
-    
-    logger.info(f"[User {user_id}] Entered custom name: {custom_name}")
-    
-    # Store the custom name in SessionManager data
-    await SessionManager.update_data(user_id, {"custom_name": custom_name})
-    
-    # Clear the state since we're done with input
-    await SessionManager.clear_state(user_id)
-    
-    # Show language selection
-    await show_language_selection(message, custom_name, i18n)
+    if current_state == "onboarding:waiting_for_custom_name":
+        logger.info(f"[User {user_id}] ONBOARDING HANDLER PROCESSING custom name input: '{message.text}'")
+
+        # Handle non-text messages (photos, stickers, voice, etc.)
+        if not message.text:
+            await message.answer(i18n.get(CUSTOM_NAME_PROMPT))
+            return
+
+        custom_name = message.text.strip()
+
+        # Check if name is empty
+        if not custom_name:
+            await message.answer(i18n.get(NAME_TOO_SHORT))
+            return
+
+        # Check maximum length only
+        if len(custom_name) > 50:
+            await message.answer(i18n.get(NAME_TOO_LONG))
+            return
+
+        logger.info(f"[User {user_id}] Entered custom name: {custom_name}")
+
+        # Store the custom name in SessionManager data
+        await SessionManager.update_data(user_id, {"custom_name": custom_name})
+
+        # Clear the state since we're done with input
+        await SessionManager.clear_state(user_id)
+
+        # Show language selection
+        await show_language_selection(message, custom_name, i18n)
 
 async def show_language_selection(message: types.Message, user_name: str, i18n: I18nContext):
     """Show language selection keyboard"""

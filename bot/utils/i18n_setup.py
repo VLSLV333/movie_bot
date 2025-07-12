@@ -44,7 +44,7 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
     
     async def get_locale(self, event: types.TelegramObject, data: Dict[str, Any]) -> str:
         """
-        Get user's preferred language from FSM, with fallback to backend and Telegram.
+        Get user's preferred language from FSM, with fallback to Telegram and backend.
         
         Args:
             event: Telegram event object
@@ -111,28 +111,7 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
             except Exception as e:
                 logger.error(f"[I18n] Failed to get language from FSM for user {user_id}: {e}")
         
-        # Fallback to backend
-        try:
-            logger.info(f"[I18n] Falling back to backend for user {user_id}")
-            bot_lang = await UserService.get_user_bot_language(user_id)
-            if bot_lang and bot_lang in SUPPORTED_LANGUAGES:
-                logger.info(f"[I18n] User {user_id} language from backend: {bot_lang}")
-                # Try to sync to FSM if available
-                if fsm_context:
-                    try:
-                        current_data = await fsm_context.get_data()
-                        current_data[self.fsm_key] = bot_lang
-                        await fsm_context.set_data(current_data)
-                        logger.info(f"[I18n] Synced backend language to FSM for user {user_id}")
-                    except Exception as e:
-                        logger.error(f"[I18n] Failed to sync language to FSM for user {user_id}: {e}")
-                return bot_lang
-            else:
-                logger.warning(f"[I18n] Backend returned invalid language for user {user_id}: {bot_lang}")
-        except Exception as e:
-            logger.error(f"[I18n] Failed to get language from backend for user {user_id}: {e}")
-        
-        # Fallback to Telegram user language
+        # Fallback to Telegram user language (PRIORITIZED for new users)
         telegram_lang = getattr(user, 'language_code', None)
         if telegram_lang:
             lang_mapping = {
@@ -157,6 +136,27 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
                     logger.error(f"[I18n] Failed to sync language to FSM for user {user_id}: {e}")
             
             return mapped_lang
+        
+        # Fallback to backend (for existing users)
+        try:
+            logger.info(f"[I18n] Falling back to backend for user {user_id}")
+            bot_lang = await UserService.get_user_bot_language(user_id)
+            if bot_lang and bot_lang in SUPPORTED_LANGUAGES:
+                logger.info(f"[I18n] User {user_id} language from backend: {bot_lang}")
+                # Try to sync to FSM if available
+                if fsm_context:
+                    try:
+                        current_data = await fsm_context.get_data()
+                        current_data[self.fsm_key] = bot_lang
+                        await fsm_context.set_data(current_data)
+                        logger.info(f"[I18n] Synced backend language to FSM for user {user_id}")
+                    except Exception as e:
+                        logger.error(f"[I18n] Failed to sync language to FSM for user {user_id}: {e}")
+                return bot_lang
+            else:
+                logger.warning(f"[I18n] Backend returned invalid language for user {user_id}: {bot_lang}")
+        except Exception as e:
+            logger.error(f"[I18n] Failed to get language from backend for user {user_id}: {e}")
         
         # Ultimate fallback
         logger.warning(f"[I18n] User {user_id} using default language: {self._default_locale}")
