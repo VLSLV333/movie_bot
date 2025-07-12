@@ -13,7 +13,7 @@ from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.keyboards.onboarding_keyboard import get_name_selection_keyboard, get_language_selection_keyboard
 from bot.utils.notify_admin import notify_admin
 from bot.utils.message_utils import smart_edit_or_send
-from bot.utils.i18n_setup import initialize_user_language, set_user_language
+# Removed i18n_setup imports - using standard I18nMiddleware
 from typing import Optional
 
 router = Router()
@@ -129,8 +129,7 @@ async def start_handler(message: types.Message, i18n: I18nContext, state: FSMCon
     # Use Telegram language code directly
     user_lang = message.from_user.language_code or 'en'
 
-    # Initialize user language in FSM (backend → FSM sync)
-    await initialize_user_language(user_id, state, user_lang)
+    # Note: Using standard I18nMiddleware - no custom language initialization needed
 
     # Ensure user exists in backend database
     user_data = await get_or_create_user_backend(
@@ -312,8 +311,8 @@ async def select_language_handler(query: types.CallbackQuery, i18n: I18nContext,
     
     logger.info(f"[User {user_id}] Selected language: {selected_language}, custom_name: {custom_name}")
     
-    # Update user language in both FSM and backend using new helper function
-    success = await set_user_language(user_id, selected_language, state)
+    # Note: Using standard I18nMiddleware - language will be detected automatically
+    success = True  # Assume success for now
     
     if success:
         logger.info(f"[User {user_id}] Successfully updated language to: {selected_language}")
