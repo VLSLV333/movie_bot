@@ -39,6 +39,40 @@ async def test_locale_handler(message: types.Message, state: FSMContext, i18n: I
     
     await message.answer(test_msg)
 
+@router.message(Command("test_i18n"))
+async def test_i18n_handler(message: types.Message, i18n: I18nContext, state: FSMContext):
+    """Test command to check I18n middleware functionality."""
+    if not message.from_user:
+        return
+    user_id = message.from_user.id
+    logger.info(f"[TestI18n] User {user_id} requested I18n test")
+    
+    # Get current locale from I18n context
+    current_locale = i18n.locale
+    logger.info(f"[TestI18n] I18n context locale: {current_locale}")
+    
+    # Get FSM data
+    try:
+        fsm_data = await state.get_data()
+        fsm_locale = fsm_data.get("user_locale", "NOT_SET")
+        logger.info(f"[TestI18n] FSM locale: {fsm_locale}")
+    except Exception as e:
+        logger.error(f"[TestI18n] Failed to get FSM data: {e}")
+        fsm_locale = "ERROR"
+    
+    # Get Telegram language
+    telegram_lang = message.from_user.language_code or "NOT_SET"
+    logger.info(f"[TestI18n] Telegram language: {telegram_lang}")
+    
+    # Send response
+    test_msg = f"🔍 I18n Test Results:\n"
+    test_msg += f"• I18n Context: {current_locale}\n"
+    test_msg += f"• FSM Storage: {fsm_locale}\n"
+    test_msg += f"• Telegram Lang: {telegram_lang}\n"
+    test_msg += f"• User ID: {user_id}"
+    
+    await message.answer(test_msg)
+
 @router.message()
 async def fallback_input_handler(message: types.Message, i18n: I18nContext, state: FSMContext):
     if not message.from_user:

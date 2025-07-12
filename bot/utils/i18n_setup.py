@@ -54,20 +54,24 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
             User's preferred language code
         """
         logger.info(f"[I18n] get_locale() called with event type: {type(event).__name__}")
+        logger.info(f"[I18n] Event object: {event}")
         
         # Extract user from different event types
         user = None
         
         if hasattr(event, 'from_user') and getattr(event, 'from_user', None):
             user = getattr(event, 'from_user')
+            logger.info(f"[I18n] Found user directly in event: {user.id}")
         elif hasattr(event, 'message') and getattr(event, 'message', None):
             message = getattr(event, 'message')
             if hasattr(message, 'from_user') and getattr(message, 'from_user', None):
                 user = getattr(message, 'from_user')
+                logger.info(f"[I18n] Found user in message: {user.id}")
         elif hasattr(event, 'callback_query') and getattr(event, 'callback_query', None):
             callback_query = getattr(event, 'callback_query')
             if hasattr(callback_query, 'from_user') and getattr(callback_query, 'from_user', None):
                 user = getattr(callback_query, 'from_user')
+                logger.info(f"[I18n] Found user in callback_query: {user.id}")
         
         if not user:
             logger.warning(f"[I18n] Could not extract user from event {type(event).__name__}, defaulting to default language")
