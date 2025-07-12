@@ -246,46 +246,42 @@ async def custom_name_handler(query: types.CallbackQuery, i18n: I18nContext, sta
     logger.info(f"[User {user_id}] Sent custom name prompt")
     await query.answer()
 
-@router.message(F.text)
+@router.message(F.text, OnboardingInputStateFilter())
 async def handle_custom_name_input(message: types.Message, i18n: I18nContext, state: FSMContext):
     """Handle custom name text input"""
     if not message.from_user:
         return
         
     user_id = message.from_user.id
-    current_state = await SessionManager.get_state(user_id)
-    
-    # Only process if we're in the correct state
-    if current_state == "onboarding:waiting_for_custom_name":
-        logger.info(f"[User {user_id}] ONBOARDING HANDLER PROCESSING custom name input: '{message.text}'")
+    logger.info(f"[User {user_id}] ONBOARDING HANDLER PROCESSING custom name input: '{message.text}'")
 
-        # Handle non-text messages (photos, stickers, voice, etc.)
-        if not message.text:
-            await message.answer(i18n.get(CUSTOM_NAME_PROMPT))
-            return
+    # Handle non-text messages (photos, stickers, voice, etc.)
+    if not message.text:
+        await message.answer(i18n.get(CUSTOM_NAME_PROMPT))
+        return
 
-        custom_name = message.text.strip()
+    custom_name = message.text.strip()
 
-        # Check if name is empty
-        if not custom_name:
-            await message.answer(i18n.get(NAME_TOO_SHORT))
-            return
+    # Check if name is empty
+    if not custom_name:
+        await message.answer(i18n.get(NAME_TOO_SHORT))
+        return
 
-        # Check maximum length only
-        if len(custom_name) > 50:
-            await message.answer(i18n.get(NAME_TOO_LONG))
-            return
+    # Check maximum length only
+    if len(custom_name) > 50:
+        await message.answer(i18n.get(NAME_TOO_LONG))
+        return
 
-        logger.info(f"[User {user_id}] Entered custom name: {custom_name}")
+    logger.info(f"[User {user_id}] Entered custom name: {custom_name}")
 
-        # Store the custom name in SessionManager data
-        await SessionManager.update_data(user_id, {"custom_name": custom_name})
+    # Store the custom name in SessionManager data
+    await SessionManager.update_data(user_id, {"custom_name": custom_name})
 
-        # Clear the state since we're done with input
-        await SessionManager.clear_state(user_id)
+    # Clear the state since we're done with input
+    await SessionManager.clear_state(user_id)
 
-        # Show language selection
-        await show_language_selection(message, custom_name, i18n)
+    # Show language selection
+    await show_language_selection(message, custom_name, i18n)
 
 async def show_language_selection(message: types.Message, user_name: str, i18n: I18nContext):
     """Show language selection keyboard"""
