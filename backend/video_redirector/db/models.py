@@ -1,6 +1,6 @@
 from enum import Enum
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, UniqueConstraint,Text, ForeignKey, Date
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, BigInteger, UniqueConstraint,Text, ForeignKey, Date
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -17,7 +17,7 @@ class User(Base):
     __table_args__ = (UniqueConstraint("telegram_id", name="uq_user_telegram_id"),)
 
     id = Column(Integer, primary_key=True, index=True)
-    telegram_id = Column(Integer, nullable=False, unique=True)
+    telegram_id = Column(BigInteger, nullable=False, unique=True)  # BIGINT for large Telegram IDs
     first_name = Column(String(100))
     last_name = Column(String(100))
     custom_name = Column(String(100))
