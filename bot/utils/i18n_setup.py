@@ -41,6 +41,7 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
         self.fsm_key = "user_locale"
         self._default_locale = default_locale
         logger.info(f"[I18n] Initialized MovieBotFSMI18nMiddleware with default_locale: {default_locale}")
+        logger.info(f"[I18n] FSM key set to: {self.fsm_key}")
     
     async def get_locale(self, event: types.TelegramObject, data: Dict[str, Any]) -> str:
         """
@@ -55,6 +56,7 @@ class MovieBotFSMI18nMiddleware(I18nMiddleware):
         """
         logger.info(f"[I18n] get_locale() called with event type: {type(event).__name__}")
         logger.info(f"[I18n] Event object: {event}")
+        logger.info(f"[I18n] Middleware data keys: {list(data.keys()) if data else 'None'}")
         
         # Extract user from different event types
         user = None
