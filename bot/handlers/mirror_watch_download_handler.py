@@ -4,7 +4,7 @@ import hmac
 import hashlib
 import json
 from aiogram import Router, types, F
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 from aiohttp import ClientSession
 from urllib.parse import quote
 from bot.utils.logger import Logger
@@ -44,7 +44,7 @@ def generate_token(tmdb_id: int, lang: str, dub: str) -> str:
     return md5(base.encode()).hexdigest()[:12]
 
 @router.callback_query(F.data.startswith("watch_mirror:"))
-async def watch_mirror_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def watch_mirror_handler(query: types.CallbackQuery):
     if query is None or query.data is None:
         logger.error("CallbackQuery or its data is None in watch_mirror_handler")
         return
@@ -61,14 +61,14 @@ async def watch_mirror_handler(query: types.CallbackQuery, i18n: I18nContext):
 
     if not movie_data_raw:
         if query.message is not None:
-            await query.message.answer(i18n.get(MOVIE_LINK_NO_LONGER_VALID),
-                                       reply_markup=get_main_menu_keyboard(i18n))
+            await query.message.answer(gettext(MOVIE_LINK_NO_LONGER_VALID),
+                                       reply_markup=get_main_menu_keyboard())
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(MOVIE_LINK_NO_LONGER_VALID),
-                    reply_markup=get_main_menu_keyboard(i18n)
+                    text=gettext(MOVIE_LINK_NO_LONGER_VALID),
+                    reply_markup=get_main_menu_keyboard()
                 )
             else:
                 logger.error("query or query.bot is None, cannot send message to user.")
@@ -81,14 +81,14 @@ async def watch_mirror_handler(query: types.CallbackQuery, i18n: I18nContext):
     except Exception as e:
         logger.error(f"[User {user_id}] Failed to parse cached mirror data: {e}")
         if query.message is not None:
-            await query.message.answer(i18n.get(LOST_MOVIE_DATA_RESEARCH),
-                                       reply_markup=get_main_menu_keyboard(i18n))
+            await query.message.answer(gettext(LOST_MOVIE_DATA_RESEARCH),
+                                       reply_markup=get_main_menu_keyboard())
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(LOST_MOVIE_DATA_RESEARCH),
-                    reply_markup=get_main_menu_keyboard(i18n)
+                    text=gettext(LOST_MOVIE_DATA_RESEARCH),
+                    reply_markup=get_main_menu_keyboard()
                 )
             else:
                 logger.error("query or query.bot is None, cannot send message to user.")
@@ -100,14 +100,14 @@ async def watch_mirror_handler(query: types.CallbackQuery, i18n: I18nContext):
     if query.message is not None:
         loading_gif_msg = await query.message.answer_animation(
             animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
-            caption=i18n.get(PREPARING_MOVIE_DUBS_WATCH)
+            caption=gettext(PREPARING_MOVIE_DUBS_WATCH)
         )
     else:
         if query is not None and getattr(query, 'bot', None) is not None:
             loading_gif_msg = await query.bot.send_animation(  # type: ignore
                 chat_id=query.from_user.id,
                 animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
-                caption=i18n.get(PREPARING_MOVIE_DUBS_WATCH)
+                caption=gettext(PREPARING_MOVIE_DUBS_WATCH)
             )
         else:
             logger.error("query or query.bot is None, cannot send animation to user.")
@@ -122,8 +122,7 @@ async def watch_mirror_handler(query: types.CallbackQuery, i18n: I18nContext):
         task_id=task_id,
         status_url=STATUS_API_URL,
         loading_gif_msg=loading_gif_msg,
-        query=query,
-        i18n=i18n
+        query=query
     )
     if not config:
         try:
@@ -132,15 +131,15 @@ async def watch_mirror_handler(query: types.CallbackQuery, i18n: I18nContext):
             logger.error(f"Error while deleting gif: {e}")
         if query.message is not None:
             await query.message.answer(
-                i18n.get(SORRY_COULDNT_EXTRACT_MOVIE_TRY_AGAIN),
-                reply_markup=get_main_menu_keyboard(i18n)
+                gettext(SORRY_COULDNT_EXTRACT_MOVIE_TRY_AGAIN),
+                reply_markup=get_main_menu_keyboard()
             )
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(SORRY_COULDNT_EXTRACT_MOVIE_TRY_AGAIN),
-                    reply_markup=get_main_menu_keyboard(i18n)
+                    text=gettext(SORRY_COULDNT_EXTRACT_MOVIE_TRY_AGAIN),
+                    reply_markup=get_main_menu_keyboard()
                 )
             else:
                 logger.error("query or query.bot is None, cannot send message to user.")
@@ -156,7 +155,7 @@ async def watch_mirror_handler(query: types.CallbackQuery, i18n: I18nContext):
         selected_dub = list(config[lang].keys())[0]
 
     watch_url = f"https://moviebot.click/hd/watch/{task_id}?lang={lang}&dub={quote(selected_dub)}"
-    kb = [[types.InlineKeyboardButton(text=i18n.get(START_WATCHING_BTN), url=watch_url)]]
+    kb = [[types.InlineKeyboardButton(text=gettext(START_WATCHING_BTN), url=watch_url)]]
     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
 
     try:
@@ -165,19 +164,19 @@ async def watch_mirror_handler(query: types.CallbackQuery, i18n: I18nContext):
         logger.error(f"Error while deleting gif: {e}")
 
     if query.message is not None:
-        await query.message.answer(i18n.get(MOVIE_READY_TO_WATCH, movie_title=movie_title), reply_markup=markup)
+        await query.message.answer(gettext(MOVIE_READY_TO_WATCH, movie_title=movie_title), reply_markup=markup)
     else:
         if query is not None and getattr(query, 'bot', None) is not None:
             await query.bot.send_message(  # type: ignore
                 chat_id=query.from_user.id,
-                text=i18n.get(MOVIE_READY_TO_WATCH, movie_title=movie_title),
+                text=gettext(MOVIE_READY_TO_WATCH, movie_title=movie_title),
                 reply_markup=markup
             )
         else:
             logger.error("query or query.bot is None, cannot send message to user.")
 
 @router.callback_query(F.data.startswith("download_mirror:"))
-async def download_mirror_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def download_mirror_handler(query: types.CallbackQuery):
     if query is None or query.data is None:
         logger.error("CallbackQuery or its data is None in download_mirror_handler")
         return
@@ -194,14 +193,14 @@ async def download_mirror_handler(query: types.CallbackQuery, i18n: I18nContext)
 
     if not movie_data_raw:
         if query.message is not None:
-            await query.message.answer(i18n.get(MOVIE_LINK_NO_LONGER_VALID),
-                                       reply_markup=get_main_menu_keyboard(i18n))
+            await query.message.answer(gettext(MOVIE_LINK_NO_LONGER_VALID),
+                                       reply_markup=get_main_menu_keyboard())
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(MOVIE_LINK_NO_LONGER_VALID),
-                    reply_markup=get_main_menu_keyboard(i18n)
+                    text=gettext(MOVIE_LINK_NO_LONGER_VALID),
+                    reply_markup=get_main_menu_keyboard()
                 )
             else:
                 logger.error("query or query.bot is None, cannot send message to user.")
@@ -216,14 +215,14 @@ async def download_mirror_handler(query: types.CallbackQuery, i18n: I18nContext)
     except Exception as e:
         logger.error(f"[User {user_id}] Failed to parse cached mirror data: {e}")
         if query.message is not None:
-            await query.message.answer(i18n.get(LOST_MOVIE_DATA_RESEARCH),
-                                       reply_markup=get_main_menu_keyboard(i18n))
+            await query.message.answer(gettext(LOST_MOVIE_DATA_RESEARCH),
+                                       reply_markup=get_main_menu_keyboard())
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(LOST_MOVIE_DATA_RESEARCH),
-                    reply_markup=get_main_menu_keyboard(i18n)
+                    text=gettext(LOST_MOVIE_DATA_RESEARCH),
+                    reply_markup=get_main_menu_keyboard()
                 )
             else:
                 logger.error("query or query.bot is None, cannot send message to user.")
@@ -264,26 +263,26 @@ async def download_mirror_handler(query: types.CallbackQuery, i18n: I18nContext)
             display_dub = translate_dub_to_ua(dub) if user_lang == 'uk' else dub
             kb.append([
                 types.InlineKeyboardButton(
-                    text=i18n.get(TEXT_DUBS_READY_TO_DOWNLOAD, emoji=emoji, display_dub=display_dub),
+                    text=gettext(TEXT_DUBS_READY_TO_DOWNLOAD, emoji=emoji, display_dub=display_dub),
                     callback_data=f"watch_downloaded:{token}"
                 )
             ])
 
         kb.append([
             types.InlineKeyboardButton(
-                text=i18n.get(DOWNLOAD_ANOTHER_DUB),
+                text=gettext(DOWNLOAD_ANOTHER_DUB),
                 callback_data=f"fetch_dubs:{stream_id}"
             )
         ])
 
         markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
         if query.message is not None:
-            await query.message.answer(i18n.get(ALREADY_HAVE_MOVIE), reply_markup=markup)
+            await query.message.answer(gettext(ALREADY_HAVE_MOVIE), reply_markup=markup)
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(ALREADY_HAVE_MOVIE),
+                    text=gettext(ALREADY_HAVE_MOVIE),
                     reply_markup=markup
                 )
             else:
@@ -296,17 +295,17 @@ async def download_mirror_handler(query: types.CallbackQuery, i18n: I18nContext)
         logger.info(f"[User {user_id}] No existing dubs found. Triggering dub selection flow.")
         markup = types.InlineKeyboardMarkup(inline_keyboard=[[
             types.InlineKeyboardButton(
-                text=i18n.get(CHOOSE_DUB_TO_DOWNLOAD),
+                text=gettext(CHOOSE_DUB_TO_DOWNLOAD),
                 callback_data=f"fetch_dubs:{stream_id}"
             )
         ]])
         if query.message is not None:
-            await query.message.answer(i18n.get(MOVIE_NEVER_DOWNLOADED_BEFORE, title=movie_data['title']), reply_markup=markup)
+            await query.message.answer(gettext(MOVIE_NEVER_DOWNLOADED_BEFORE, title=movie_data['title']), reply_markup=markup)
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(MOVIE_NEVER_DOWNLOADED_BEFORE, title=movie_data['title']),
+                    text=gettext(MOVIE_NEVER_DOWNLOADED_BEFORE, title=movie_data['title']),
                     reply_markup=markup
                 )
             else:
@@ -316,13 +315,13 @@ async def download_mirror_handler(query: types.CallbackQuery, i18n: I18nContext)
 
 
 @router.callback_query(F.data.startswith("fetch_dubs:"))
-async def fetch_dubs_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def fetch_dubs_handler(query: types.CallbackQuery):
     if query is None or query.data is None:
         logger.error("CallbackQuery or its data is None in fetch_dubs_handler")
         return
     loading_msg = await query.message.answer_animation(  # type: ignore
         animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
-        caption=i18n.get(CHECKING_DOWNLOADED_VERSIONS_DUBS)
+        caption=gettext(CHECKING_DOWNLOADED_VERSIONS_DUBS)
     )
 
     user_id = query.from_user.id
@@ -338,14 +337,14 @@ async def fetch_dubs_handler(query: types.CallbackQuery, i18n: I18nContext):
 
     if not movie_data_raw or not download_task:
         if query.message is not None:
-            await query.message.answer(i18n.get(MOVIE_LINK_NO_LONGER_VALID),
-                                       reply_markup=get_main_menu_keyboard(i18n))
+            await query.message.answer(gettext(MOVIE_LINK_NO_LONGER_VALID),
+                                       reply_markup=get_main_menu_keyboard())
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(MOVIE_LINK_NO_LONGER_VALID),
-                    reply_markup=get_main_menu_keyboard(i18n)
+                    text=gettext(MOVIE_LINK_NO_LONGER_VALID),
+                    reply_markup=get_main_menu_keyboard()
                 )
             else:
                 logger.error("query or query.bot is None, cannot send message to user.")
@@ -365,14 +364,14 @@ async def fetch_dubs_handler(query: types.CallbackQuery, i18n: I18nContext):
         logger.error(f"[User {user_id}] Failed to parse cached  mirror data: {e}")
         await loading_msg.delete()
         if query.message is not None:
-            await query.message.answer(i18n.get(LOST_MOVIE_DATA_RESEARCH),
-                                       reply_markup=get_main_menu_keyboard(i18n))
+            await query.message.answer(gettext(LOST_MOVIE_DATA_RESEARCH),
+                                       reply_markup=get_main_menu_keyboard())
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(LOST_MOVIE_DATA_RESEARCH),
-                    reply_markup=get_main_menu_keyboard(i18n)
+                    text=gettext(LOST_MOVIE_DATA_RESEARCH),
+                    reply_markup=get_main_menu_keyboard()
                 )
             else:
                 logger.error("query or query.bot is None, cannot send message to user.")
@@ -386,14 +385,14 @@ async def fetch_dubs_handler(query: types.CallbackQuery, i18n: I18nContext):
         logger.error(f"[User {user_id}] Failed to get dubs: {e}")
         await loading_msg.delete()
         if query.message is not None:
-            await query.message.answer(i18n.get(TRY_SEARCHING_FROM_BEGINNING),
-                                       reply_markup=get_main_menu_keyboard(i18n))
+            await query.message.answer(gettext(TRY_SEARCHING_FROM_BEGINNING),
+                                       reply_markup=get_main_menu_keyboard())
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(TRY_SEARCHING_FROM_BEGINNING),
-                    reply_markup=get_main_menu_keyboard(i18n)
+                    text=gettext(TRY_SEARCHING_FROM_BEGINNING),
+                    reply_markup=get_main_menu_keyboard()
                 )
             else:
                 logger.error("query or query.bot is None, cannot send message to user.")
@@ -402,13 +401,13 @@ async def fetch_dubs_handler(query: types.CallbackQuery, i18n: I18nContext):
     if not dubs_scrapper_result['dubs']:
         await loading_msg.delete()
         if query.message is not None:
-            await query.message.answer(i18n.get(NO_DUBS_AVAILABLE_IN_LANGUAGE), reply_markup=get_main_menu_keyboard(i18n))
+            await query.message.answer(gettext(NO_DUBS_AVAILABLE_IN_LANGUAGE), reply_markup=get_main_menu_keyboard())
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(NO_DUBS_AVAILABLE_IN_LANGUAGE),
-                    reply_markup=get_main_menu_keyboard(i18n)
+                    text=gettext(NO_DUBS_AVAILABLE_IN_LANGUAGE),
+                    reply_markup=get_main_menu_keyboard()
                 )
             else:
                 logger.error("query or query.bot is None, cannot send message to user.")
@@ -416,11 +415,11 @@ async def fetch_dubs_handler(query: types.CallbackQuery, i18n: I18nContext):
 
     if dubs_scrapper_result['message']:
         if dubs_scrapper_result['message'] == "🥲 Only 1 dub found":
-            text_to_show = i18n.get(ONLY_ONE_DUB)
+            text_to_show = gettext(ONLY_ONE_DUB)
         elif dubs_scrapper_result['message'] == "🥲 No available dubs found for this language.":
-            text_to_show = i18n.get(NO_DUBS_FOR_LANG)
+            text_to_show = gettext(NO_DUBS_FOR_LANG)
         elif dubs_scrapper_result['message'] == "️🎙️ Sorry, no Ukrainian dubs available for this movie.":
-            text_to_show = i18n.get(NO_UA_DUBS)
+            text_to_show = gettext(NO_UA_DUBS)
         await query.answer()
         if query.message is not None:
             await query.message.answer(text_to_show)
@@ -447,11 +446,11 @@ async def fetch_dubs_handler(query: types.CallbackQuery, i18n: I18nContext):
         }), ex=3600)
 
         kb = [[types.InlineKeyboardButton(
-            text=i18n.get(DOWNLOAD_DEFAULT_DUB),
+            text=gettext(DOWNLOAD_DEFAULT_DUB),
             callback_data=f"select_dub:{token}"
         )]]
         await loading_msg.delete()
-        await query.message.answer(i18n.get(MOVIE_HAS_ONLY_DEFAULT_DUB),
+        await query.message.answer(gettext(MOVIE_HAS_ONLY_DEFAULT_DUB),
                                    reply_markup=types.InlineKeyboardMarkup(inline_keyboard=kb))
         return
 
@@ -461,7 +460,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery, i18n: I18nContext):
     kb = []
 
     if ready_dubs_list:
-        kb.append([types.InlineKeyboardButton(text=i18n.get(ALREADY_AVAILABLE_DUBS), callback_data="noop")])
+        kb.append([types.InlineKeyboardButton(text=gettext(ALREADY_AVAILABLE_DUBS), callback_data="noop")])
         for dub_dict in ready_dubs_list:
             dub = dub_dict['dub']
             token = generate_token(tmdb_id, user_lang, dub)
@@ -487,7 +486,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery, i18n: I18nContext):
             ])
 
     if available_dubs_can_be_downloaded:
-        kb.append([types.InlineKeyboardButton(text=i18n.get(AVAILABLE_TO_DOWNLOAD), callback_data="noop")])
+        kb.append([types.InlineKeyboardButton(text=gettext(AVAILABLE_TO_DOWNLOAD), callback_data="noop")])
         for dub in available_dubs_can_be_downloaded:
             emoji = "🇺🇦" if (user_lang == 'uk' and 'no Ukrainian dubs' not in dubs_scrapper_result.get('message','')) else "🎙"
             text = emoji +  f" {translate_dub_to_ua(dub)}" if user_lang == 'uk' else f" {dub}"
@@ -506,12 +505,12 @@ async def fetch_dubs_handler(query: types.CallbackQuery, i18n: I18nContext):
 
     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
     await loading_msg.delete()
-    await query.message.answer(i18n.get(CHOOSE_DUB_TO_DOWNLOAD_OR_WATCH),
+    await query.message.answer(gettext(CHOOSE_DUB_TO_DOWNLOAD_OR_WATCH),
                                reply_markup=markup)  # type: ignore
     await query.answer()  # type: ignore
 
 @router.callback_query(F.data.startswith("watch_downloaded:"))
-async def watch_downloaded_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def watch_downloaded_handler(query: types.CallbackQuery):
     user_id = query.from_user.id
     token = query.data.split("watch_downloaded:")[1]  # type: ignore
 
@@ -527,17 +526,17 @@ async def watch_downloaded_handler(query: types.CallbackQuery, i18n: I18nContext
     delivery_bot_link = f"https://t.me/deliv3ry_bot?start=2_{signed}"
 
     await query.message.answer(
-        i18n.get(MOVIE_READY_TO_WATCH_DELIVERY, movie_title=movie_title),
+        gettext(MOVIE_READY_TO_WATCH_DELIVERY, movie_title=movie_title),
         reply_markup=types.InlineKeyboardMarkup(
             inline_keyboard=[
-                [types.InlineKeyboardButton(text=i18n.get(GET_MOVIE_FROM_DELIVERY_BOT), url=delivery_bot_link)]
+                [types.InlineKeyboardButton(text=gettext(GET_MOVIE_FROM_DELIVERY_BOT), url=delivery_bot_link)]
             ]
         )
     )  # type: ignore
     await query.answer()  # type: ignore
 
 @router.callback_query(F.data.startswith("select_dub:"))
-async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def select_dub_handler(query: types.CallbackQuery):
     if query is None or query.data is None:
         logger.error("CallbackQuery or its data is None in select_dub_handler")
         return
@@ -550,13 +549,13 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
 
     if not selected_data_json:
         if query.message is not None:
-            await query.message.answer(i18n.get(DUB_SELECTION_EXPIRED), reply_markup=get_main_menu_keyboard(i18n))
+            await query.message.answer(gettext(DUB_SELECTION_EXPIRED), reply_markup=get_main_menu_keyboard())
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(DUB_SELECTION_EXPIRED),
-                    reply_markup=get_main_menu_keyboard(i18n)
+                    text=gettext(DUB_SELECTION_EXPIRED),
+                    reply_markup=get_main_menu_keyboard()
                 )
             else:
                 logger.error("query or query.bot is None, cannot send message to user.")
@@ -573,13 +572,13 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
     except Exception as e:
         logger.error(f"[User {user_id}] Failed to parse selected dub token: {e}")
         if query.message is not None:
-            await query.message.answer(i18n.get(COULD_NOT_PROCESS_DUB_INFO), reply_markup=get_main_menu_keyboard(i18n))
+            await query.message.answer(gettext(COULD_NOT_PROCESS_DUB_INFO), reply_markup=get_main_menu_keyboard())
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(COULD_NOT_PROCESS_DUB_INFO),
-                    reply_markup=get_main_menu_keyboard(i18n)
+                    text=gettext(COULD_NOT_PROCESS_DUB_INFO),
+                    reply_markup=get_main_menu_keyboard()
                 )
             else:
                 logger.error("query or query.bot is None, cannot send message to user.")
@@ -604,14 +603,14 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
     if query.message is not None:
         loading_msg = await query.message.answer_animation(
             animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
-            caption=i18n.get(ADDED_TO_DOWNLOAD_QUEUE)
+            caption=gettext(ADDED_TO_DOWNLOAD_QUEUE)
         )
     else:
         if query is not None and getattr(query, 'bot', None) is not None:
             loading_msg = await query.bot.send_animation(
                 chat_id=query.from_user.id,
                 animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
-                caption=i18n.get(ADDED_TO_DOWNLOAD_QUEUE)
+                caption=gettext(ADDED_TO_DOWNLOAD_QUEUE)
             )  # type: ignore
         else:
             logger.error("query or query.bot is None, cannot send animation to user.")
@@ -625,7 +624,7 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
                         await loading_msg.delete()
                     #TODO: when premium users functionality is ready - we need to suggest here user to become premium and download more at once
                     if backend_response.get('status') == "limit_reached":
-                        error_msg = i18n.get(DOWNLOAD_LIMIT, user_limit=backend_response.get('user_limit'))
+                        error_msg = gettext(DOWNLOAD_LIMIT, user_limit=backend_response.get('user_limit'))
                     if query.message is not None:
                         await query.message.answer(error_msg)
                     else:
@@ -642,7 +641,7 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
                     if loading_msg:
                         await loading_msg.delete()
                     if backend_response.get('status') == "duplicate_download":
-                        error_msg = i18n.get(DUPLICATE_DOWNLOAD)
+                        error_msg = gettext(DUPLICATE_DOWNLOAD)
                     if query.message is not None:
                         await query.message.answer(error_msg)
                     else:
@@ -659,14 +658,14 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
                         await loading_msg.delete()
                     if query.message is not None:
                         await query.message.answer(
-                            i18n.get(FAILED_TO_TRIGGER_DOWNLOAD),
-                            reply_markup=get_main_menu_keyboard(i18n))
+                            gettext(FAILED_TO_TRIGGER_DOWNLOAD),
+                            reply_markup=get_main_menu_keyboard())
                     else:
                         if query is not None and getattr(query, 'bot', None) is not None:
                             await query.bot.send_message(  # type: ignore
                                 chat_id=query.from_user.id,
-                                text=i18n.get(FAILED_TO_TRIGGER_DOWNLOAD),
-                                reply_markup=get_main_menu_keyboard(i18n)
+                                text=gettext(FAILED_TO_TRIGGER_DOWNLOAD),
+                                reply_markup=get_main_menu_keyboard()
                             )
                         else:
                             logger.error("query or query.bot is None, cannot send message to user.")
@@ -679,14 +678,14 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
                         await loading_msg.delete()
                     if query.message is not None:
                         await query.message.answer(
-                            i18n.get(FAILED_TO_TRIGGER_DOWNLOAD),
-                            reply_markup=get_main_menu_keyboard(i18n))
+                            gettext(FAILED_TO_TRIGGER_DOWNLOAD),
+                            reply_markup=get_main_menu_keyboard())
                     else:
                         if query is not None and getattr(query, 'bot', None) is not None:
                             await query.bot.send_message(  # type: ignore
                                 chat_id=query.from_user.id,
-                                text=i18n.get(FAILED_TO_TRIGGER_DOWNLOAD),
-                                reply_markup=get_main_menu_keyboard(i18n)
+                                text=gettext(FAILED_TO_TRIGGER_DOWNLOAD),
+                                reply_markup=get_main_menu_keyboard()
                             )
                         else:
                             logger.error("query or query.bot is None, cannot send message to user.")
@@ -698,8 +697,7 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
             status_url="https://moviebot.click/hd/status/download",
             loading_msg=loading_msg,
             query=query,
-            bot=query.bot,
-            i18n=i18n
+            bot=query.bot
         )
 
         if result:
@@ -707,10 +705,10 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
             delivery_bot_link = f"https://t.me/deliv3ry_bot?start=1_{signed_task_id}"
             if query.message is not None:
                 await query.message.answer(
-                    i18n.get(MOVIE_READY_START_DELIVERY_BOT, movie_title=movie_title),
+                    gettext(MOVIE_READY_START_DELIVERY_BOT, movie_title=movie_title),
                     reply_markup=types.InlineKeyboardMarkup(
                         inline_keyboard=[
-                            [types.InlineKeyboardButton(text=i18n.get(OPEN_DELIVERY_BOT), url=delivery_bot_link)]
+                            [types.InlineKeyboardButton(text=gettext(OPEN_DELIVERY_BOT), url=delivery_bot_link)]
                         ]
                     )
                 )
@@ -718,10 +716,10 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
                 if query is not None and getattr(query, 'bot', None) is not None:
                     await query.bot.send_message(  # type: ignore
                         chat_id=query.from_user.id,
-                        text=i18n.get(MOVIE_READY_START_DELIVERY_BOT, movie_title=movie_title),
+                        text=gettext(MOVIE_READY_START_DELIVERY_BOT, movie_title=movie_title),
                         reply_markup=types.InlineKeyboardMarkup(
                             inline_keyboard=[
-                                [types.InlineKeyboardButton(text=i18n.get(OPEN_DELIVERY_BOT), url=delivery_bot_link)]
+                                [types.InlineKeyboardButton(text=gettext(OPEN_DELIVERY_BOT), url=delivery_bot_link)]
                             ]
                         )
                     )
@@ -736,14 +734,14 @@ async def select_dub_handler(query: types.CallbackQuery, i18n: I18nContext):
         except Exception as e:
             logger.error(f"[User {user_id}] Failed to delete loading message at the end of download flow: {e}")
         if query.message is not None:
-            await query.message.answer(i18n.get(UNEXPECTED_ERROR_DURING_DOWNLOAD),
-                                       reply_markup=get_main_menu_keyboard(i18n))
+            await query.message.answer(gettext(UNEXPECTED_ERROR_DURING_DOWNLOAD),
+                                       reply_markup=get_main_menu_keyboard())
         else:
             if query is not None and getattr(query, 'bot', None) is not None:
                 await query.bot.send_message(  # type: ignore
                     chat_id=query.from_user.id,
-                    text=i18n.get(UNEXPECTED_ERROR_DURING_DOWNLOAD),
-                    reply_markup=get_main_menu_keyboard(i18n)
+                    text=gettext(UNEXPECTED_ERROR_DURING_DOWNLOAD),
+                    reply_markup=get_main_menu_keyboard()
                 )
             else:
                 logger.error("query or query.bot is None, cannot send message to user.")

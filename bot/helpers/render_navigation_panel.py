@@ -3,7 +3,7 @@ from typing import Tuple, Optional
 from bot.config import BATCH_SIZE
 from bot.search.user_search_context import UserSearchContext
 from bot.utils.logger import Logger
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 from bot.locales.keys import (
     SCROLL_DOWN_HINT, PRESS_NEXT_HINT, SCROLL_UP_HINT,
     EXPLORING_MOVIES_DEFAULT, SHOWING_MOVIES_RANGE,
@@ -14,16 +14,13 @@ logger = Logger().get_logger()
 
 def render_navigation_panel(
     context: UserSearchContext,
-    i18n: I18nContext,
     position: str = "bottom",  # "top" or "bottom"
     batch_size: int = BATCH_SIZE,
-    click_source: Optional[str] = None,
-) -> Tuple[str, types.InlineKeyboardMarkup]:
+    click_source: Optional[str] = None) -> Tuple[str, types.InlineKeyboardMarkup]:
     """
     Build navigation panel text and buttons.
     Args:
         context: current user search context
-        i18n: I18n context for translation
         position: "top" or "bottom" (affects scroll hint text)
         batch_size: number of movies in batch
         click_source: top" or "bottom" (affects scroll hint text)
@@ -42,28 +39,28 @@ def render_navigation_panel(
 
     # Build text hint
     if click_source == "top" and position == "top":
-        scroll_hint = i18n.get(SCROLL_DOWN_HINT, batch_size=batch_size)
+        scroll_hint = gettext(SCROLL_DOWN_HINT, batch_size=batch_size)
     elif click_source == "top" and position == "bottom":
-        scroll_hint = i18n.get(PRESS_NEXT_HINT)
+        scroll_hint = gettext(PRESS_NEXT_HINT)
     elif click_source == "bottom" and position == "top":
-        scroll_hint = i18n.get(PRESS_NEXT_HINT)
+        scroll_hint = gettext(PRESS_NEXT_HINT)
     elif click_source == "bottom" and position == "bottom":
-        scroll_hint = i18n.get(SCROLL_UP_HINT, batch_size=batch_size)
+        scroll_hint = gettext(SCROLL_UP_HINT, batch_size=batch_size)
     else:
         if position == "top":
-            scroll_hint = i18n.get(PRESS_NEXT_HINT)
+            scroll_hint = gettext(PRESS_NEXT_HINT)
         elif position == "bottom":
-            scroll_hint = i18n.get(SCROLL_UP_HINT, batch_size=batch_size)
+            scroll_hint = gettext(SCROLL_UP_HINT, batch_size=batch_size)
         else:
             scroll_hint = ""
 
     try:
-        context_line = context.strategy.get_context_text(i18n)
+        context_line = context.strategy.get_context_text()
     except Exception as e:
-        context_line = i18n.get(EXPLORING_MOVIES_DEFAULT)
+        context_line = gettext(EXPLORING_MOVIES_DEFAULT)
         logger.error(f"error while getting search context text, error: {e}")
 
-    text = i18n.get(SHOWING_MOVIES_RANGE, global_start=global_start, global_end=global_end, total_results=total_results) + "\n\n"
+    text = gettext(SHOWING_MOVIES_RANGE, global_start=global_start, global_end=global_end, total_results=total_results) + "\n\n"
 
     if context_line:
         text += f"{context_line}\n\n"
@@ -82,7 +79,7 @@ def render_navigation_panel(
     # "Previous" button — disable if at first batch
     if context.current_result_idx > batch_size or context.current_page != 1:
         buttons.append(types.InlineKeyboardButton(
-            text=i18n.get(PREVIOUS_MOVIES_BTN, batch_size=batch_size),
+            text=gettext(PREVIOUS_MOVIES_BTN, batch_size=batch_size),
             callback_data="show_previous_results"
         ))
     else:
@@ -91,7 +88,7 @@ def render_navigation_panel(
     # "Next" button — only show if not at last result of last tmdb page
     if context.current_result_idx + 20 * (context.current_page - 1) < context.total_results:
         buttons.append(types.InlineKeyboardButton(
-            text=i18n.get(NEXT_MOVIES_BTN, batch_size=batch_size),
+            text=gettext(NEXT_MOVIES_BTN, batch_size=batch_size),
             callback_data="show_more_results"
         ))
     else:

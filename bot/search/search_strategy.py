@@ -6,7 +6,7 @@ from bot.locales.keys import (
     EXPLORING_MOVIES_DEFAULT, SEARCH_CONTEXT_LOOKING_FOR_NAME,
     SEARCH_CONTEXT_SEARCHING_BY_GENRE, SEARCH_CONTEXT_LOOKING_FOR_GENRES
 )
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 import logging
 
 logger = logging.getLogger(__name__)
@@ -36,9 +36,9 @@ class SearchStrategy(ABC):
         pass
 
     @abstractmethod
-    def get_context_text(self, i18n: I18nContext) -> str:
+    def get_context_text(self) -> str:
         """Returns a short string that describes the user's search intent."""
-        return i18n.get(EXPLORING_MOVIES_DEFAULT)
+        return gettext(EXPLORING_MOVIES_DEFAULT)
 
 class SearchByNameStrategy(SearchStrategy):
     def __init__(self, query: str, language: str):
@@ -58,8 +58,8 @@ class SearchByNameStrategy(SearchStrategy):
             "language": self.language
         }
 
-    def get_context_text(self, i18n: I18nContext) -> str:
-        return i18n.get(SEARCH_CONTEXT_LOOKING_FOR_NAME, query=self.query)
+    def get_context_text(self) -> str:
+        return gettext(SEARCH_CONTEXT_LOOKING_FOR_NAME, query=self.query)
 
     @staticmethod
     def from_dict(data: dict) -> 'SearchByNameStrategy':
@@ -94,9 +94,9 @@ class SearchByGenreStrategy(SearchStrategy):
             "language": self.language
         }
 
-    def get_context_text(self, i18n: I18nContext) -> str:
+    def get_context_text(self) -> str:
         if not self.genres:
-            return i18n.get(SEARCH_CONTEXT_SEARCHING_BY_GENRE)
+            return gettext(SEARCH_CONTEXT_SEARCHING_BY_GENRE)
 
         # Get translated genre names
         genre_names = []
@@ -104,13 +104,13 @@ class SearchByGenreStrategy(SearchStrategy):
             if gid in GENRE_ID_TO_KEY:
                 genre_key = GENRE_ID_TO_KEY[gid]
                 # Extract just the name part without emoji (split after first space)
-                full_name = i18n.get(genre_key)
+                full_name = gettext(genre_key)
                 name_part = full_name.split(" ", 1)[-1] if " " in full_name else full_name
                 genre_names.append(name_part)
             else:
                 genre_names.append(f"Genre {gid}")
 
-        return i18n.get(SEARCH_CONTEXT_LOOKING_FOR_GENRES, genres=', '.join(genre_names))
+        return gettext(SEARCH_CONTEXT_LOOKING_FOR_GENRES, genres=', '.join(genre_names))
 
     @staticmethod
     def from_dict(data: dict) -> 'SearchByGenreStrategy':

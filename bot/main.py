@@ -1,5 +1,11 @@
+"""
+Updated main.py using simple i18n approach.
+This replaces the complex aiogram-i18n setup with aiogram's built-in i18n.
+"""
+
 from bot.utils.logger import Logger
 from bot.utils.redis_client import RedisClient
+from bot.utils.simple_i18n_setup import setup_simple_i18n
 
 import asyncio
 from aiogram import Bot, Dispatcher
@@ -17,12 +23,11 @@ from bot.handlers.mirror_search_handler import router as mirror_search_router
 from bot.handlers.mirror_pagination_handler import router as mirror_pagination_router
 from bot.handlers.mirror_watch_download_handler import router as mirror_watch_download_router
 from bot.handlers.mirror_language_change_handler import router as mirror_language_change_router
-from bot.utils.i18n_setup import setup_i18n
 
 logger = Logger().get_logger()
 logger.info("Bot started and logging initialized ")
 
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=BOT_TOKEN or "")
 # Create dispatcher with FSM storage
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -53,10 +58,9 @@ async def main():
         logger.info(" Starting bot...")
         await on_startup()
 
-        # Setup I18n middleware BEFORE registering routers
-        i18n_middleware = setup_i18n()
-        i18n_middleware.setup(dispatcher=dp)
-        logger.info("I18n middleware initialized!")
+        # Setup simple I18n middleware BEFORE registering routers
+        setup_simple_i18n(dp)
+        logger.info("Simple I18n middleware initialized!")
 
         # Setup routers AFTER I18n middleware
         setup_routers(dp)
@@ -71,4 +75,4 @@ async def main():
         logger.info("Bot stopped.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main()) 

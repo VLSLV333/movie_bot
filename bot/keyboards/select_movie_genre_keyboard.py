@@ -1,6 +1,6 @@
 from aiogram import types
 from bot.helpers.back_button import add_back_button
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 from bot.locales.keys import (
     CONFIRM_BTN, GENRE_ACTION, GENRE_COMEDY, GENRE_ADVENTURE, GENRE_THRILLER,
     GENRE_ROMANCE, GENRE_DRAMA, GENRE_FANTASY, GENRE_MYSTERY, GENRE_FAMILY,
@@ -31,7 +31,7 @@ GENRES = [
 ]
 
 
-def get_movie_genre_keyboard(selected_genres: list[int], i18n: I18nContext) -> types.InlineKeyboardMarkup:
+def get_movie_genre_keyboard(selected_genres: list[int]) -> types.InlineKeyboardMarkup:
     """
     Returns an inline keyboard with selectable genres. Selected genres are visually highlighted.
     """
@@ -40,7 +40,7 @@ def get_movie_genre_keyboard(selected_genres: list[int], i18n: I18nContext) -> t
 
     for idx, genre in enumerate(GENRES):
         genre_id = genre["id"]
-        name = i18n.get(genre["key"])
+        name = gettext(genre["key"])
 
         is_selected = genre_id in selected_genres
         display = f"✅ {name}" if is_selected else name
@@ -60,7 +60,7 @@ def get_movie_genre_keyboard(selected_genres: list[int], i18n: I18nContext) -> t
     # Confirm button at the top
     if selected_genres:
         keyboard.append(
-            [types.InlineKeyboardButton(text=i18n.get(CONFIRM_BTN), callback_data="confirm_genres")]
+            [types.InlineKeyboardButton(text=gettext(CONFIRM_BTN), callback_data="confirm_genres")]
         )
 
-    return add_back_button(types.InlineKeyboardMarkup(inline_keyboard=keyboard),source='search',index=0,i18n=i18n)
+    return add_back_button(types.InlineKeyboardMarkup(inline_keyboard=keyboard),source='search',index=0)

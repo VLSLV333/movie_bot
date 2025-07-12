@@ -4,7 +4,7 @@ from aiogram import types
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.utils.logger import Logger
 from bot.utils.notify_admin import notify_admin
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 from bot.locales.keys import (
     DOWNLOAD_QUEUE_POSITION,
     DOWNLOAD_EXTRACTING_DATA,
@@ -32,7 +32,7 @@ def make_progress_bar(percent, length=10):
     filled = int(percent / 100 * length)
     return "█" * filled + "-" * (length - filled)
 
-async def poll_download_until_ready(user_id: int, i18n: I18nContext, task_id: str, status_url: str, loading_msg: types.Message,
+async def poll_download_until_ready(user_id: int, task_id: str, status_url: str, loading_msg: types.Message,
                                     query: types.CallbackQuery, bot):
     """
     Polls the backend for download status and updates the user with animation and caption.
@@ -63,10 +63,10 @@ async def poll_download_until_ready(user_id: int, i18n: I18nContext, task_id: st
                     if status == "queued":
                         animation_url = STATUS_ANIMATIONS["queued"]
                         position = data.get("queue_position") or '...'
-                        new_text = i18n.get(DOWNLOAD_QUEUE_POSITION, position=position)
+                        new_text = gettext(DOWNLOAD_QUEUE_POSITION, position=position)
                     elif status == "extracting":
                         animation_url = STATUS_ANIMATIONS["extracting"]
-                        new_text = i18n.get(DOWNLOAD_EXTRACTING_DATA)
+                        new_text = gettext(DOWNLOAD_EXTRACTING_DATA)
                     elif status == "merging":
                         animation_url = STATUS_ANIMATIONS["merging"]
                         # Fetch progress from merge_progress endpoint
@@ -76,17 +76,17 @@ async def poll_download_until_ready(user_id: int, i18n: I18nContext, task_id: st
                                     merge_data = await merge_resp.json()
                                     percent = int(merge_data.get("progress", 0))
                                     progress_bar = make_progress_bar(percent)
-                                    new_text = i18n.get(DOWNLOAD_CONVERTING_VIDEO, progress_bar=progress_bar, percent=percent)
+                                    new_text = gettext(DOWNLOAD_CONVERTING_VIDEO, progress_bar=progress_bar, percent=percent)
                                 else:
                                     progress_bar = make_progress_bar(0)
-                                    new_text = i18n.get(DOWNLOAD_CONVERTING_VIDEO, progress_bar=progress_bar, percent=0)
+                                    new_text = gettext(DOWNLOAD_CONVERTING_VIDEO, progress_bar=progress_bar, percent=0)
                         except Exception as e:
                             logger.error(f"[User {user_id}] Could not fetch merge progress: {e}")
                             progress_bar = make_progress_bar(0)
-                            new_text = i18n.get(DOWNLOAD_CONVERTING_VIDEO, progress_bar=progress_bar, percent=0)
+                            new_text = gettext(DOWNLOAD_CONVERTING_VIDEO, progress_bar=progress_bar, percent=0)
                     elif status == "uploading":
                         animation_url = STATUS_ANIMATIONS["uploading"]
-                        new_text = i18n.get(DOWNLOAD_UPLOADING_TO_TELEGRAM)
+                        new_text = gettext(DOWNLOAD_UPLOADING_TO_TELEGRAM)
                     elif status == "done":
                         result = data.get("result")
                         if result:
@@ -117,13 +117,13 @@ async def poll_download_until_ready(user_id: int, i18n: I18nContext, task_id: st
 
                         logger.error(f"[User {user_id}].❌ Download failed: {error_text}")
                         await query.message.answer(
-                            i18n.get(DOWNLOAD_FAILED_START_AGAIN),
-                            reply_markup=get_main_menu_keyboard(i18n=i18n)
+                            gettext(DOWNLOAD_FAILED_START_AGAIN),
+                            reply_markup=get_main_menu_keyboard()
                         )
                         return None
                     else:
                         animation_url = STATUS_ANIMATIONS["default"]
-                        new_text = i18n.get(DOWNLOAD_PROCESSING_STATUS, status=status)
+                        new_text = gettext(DOWNLOAD_PROCESSING_STATUS, status=status)
 
                     # If status changed, delete old animation and send new one, and update text message
                     if status != last_status:
@@ -197,8 +197,8 @@ async def poll_download_until_ready(user_id: int, i18n: I18nContext, task_id: st
         logger.warning(f"[User {user_id}] Could not delete loading message: {e}")
     try:
         await query.message.answer(
-            i18n.get(DOWNLOAD_TIMEOUT_TRY_LATER),
-            reply_markup=get_main_menu_keyboard(i18n=i18n)
+            gettext(DOWNLOAD_TIMEOUT_TRY_LATER),
+            reply_markup=get_main_menu_keyboard()
         )
     except Exception as e:
         logger.error(f"[User {user_id}] Could not send timeout message: {e}")

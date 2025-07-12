@@ -2,7 +2,7 @@ import hashlib
 import traceback
 import json
 from aiogram import Router, types, F
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 from aiohttp import ClientSession
 from bot.utils.session_manager import SessionManager
 from bot.locales.keys import (
@@ -47,12 +47,12 @@ async def fetch_next_mirror_results(query: str, lang: str, excluded_mirrors: lis
     return None
 
 @router.callback_query(F.data.startswith("select_movie_card:"))
-async def handle_mirror_search(query: types.CallbackQuery, i18n: I18nContext):
+async def handle_mirror_search(query: types.CallbackQuery):
     redis = RedisClient.get_client()
 
-    main_menu_keyboard = get_main_menu_keyboard(i18n)
+    main_menu_keyboard = get_main_menu_keyboard()
     if not query.data:
-        await query.answer(i18n.get(SOMETHING_WENT_WRONG_TRY_MAIN_MENU), reply_markup=main_menu_keyboard)
+        await query.answer(gettext(SOMETHING_WENT_WRONG_TRY_MAIN_MENU), reply_markup=main_menu_keyboard)
         return
     parts = query.data.split(":")
     # select_movie_card:{movie_id} or select_movie_card:{movie_id}:{flag}
@@ -61,13 +61,13 @@ async def handle_mirror_search(query: types.CallbackQuery, i18n: I18nContext):
 
     movie_json = await redis.get(f"movie_info:{movie_id}")
     if not movie_json:
-        await query.answer(i18n.get(SOMETHING_WENT_WRONG_TRY_MAIN_MENU), reply_markup=main_menu_keyboard)
+        await query.answer(gettext(SOMETHING_WENT_WRONG_TRY_MAIN_MENU), reply_markup=main_menu_keyboard)
         return
     movie = json.loads(movie_json)
 
     tmdb_id = int(movie_id)
 
-    await query.answer(i18n.get(SEARCHING_IN_PROGRESS))
+    await query.answer(gettext(SEARCHING_IN_PROGRESS))
     logger.info(f"[User {query.from_user.id}] Initiating mirror search for: '{movie.get('original_title')}' (skip_db_lookup={skip_db_lookup})")
 
     # Retrieve movie title from stored session (you may pass it directly in a real scenario)
@@ -75,7 +75,7 @@ async def handle_mirror_search(query: types.CallbackQuery, i18n: I18nContext):
     if not session:
         if query.message:
             await query.message.answer(
-                i18n.get(SESSION_EXPIRED_RESTART_SEARCH),
+                gettext(SESSION_EXPIRED_RESTART_SEARCH),
                 reply_markup=main_menu_keyboard
             )
         await query.answer()
@@ -100,7 +100,7 @@ async def handle_mirror_search(query: types.CallbackQuery, i18n: I18nContext):
                             "id": hashlib.sha256(file.get("movie_url").encode()).hexdigest()[:16]
                         }
                         add_wrong_movie_btn = not file.get("checked_by_admin", True)
-                        cards = await render_mirror_card_batch([card_data], tmdb_id=tmdb_id, user_lang=user_lang, add_wrong_movie_btn=add_wrong_movie_btn,i18n=i18n)
+                        cards = await render_mirror_card_batch([card_data], tmdb_id=tmdb_id, user_lang=user_lang, add_wrong_movie_btn=add_wrong_movie_btn)
                         for msg_text, msg_kb, msg_img, stream_id in cards:
                             if query.message:
                                 if msg_img:
@@ -122,7 +122,7 @@ async def handle_mirror_search(query: types.CallbackQuery, i18n: I18nContext):
             }) as resp:
                 if resp.status != 200:
                     if query.message:
-                        await query.message.answer(i18n.get(FAILED_TO_SEARCH_MIRRORS_TRY_AGAIN), reply_markup=main_menu_keyboard)
+                        await query.message.answer(gettext(FAILED_TO_SEARCH_MIRRORS_TRY_AGAIN), reply_markup=main_menu_keyboard)
                     logger.error(
                         f"[User {query.from_user.id}] Mirror search failed with status: {resp.status}, body: {await resp.text()}")
                     return
@@ -130,13 +130,13 @@ async def handle_mirror_search(query: types.CallbackQuery, i18n: I18nContext):
     except Exception as e:
         logger.exception(f"[User {query.from_user.id}] Exception during mirror search: {e}\n{traceback.format_exc()}")
         if query.message:
-            await query.message.answer(i18n.get(UNEXPECTED_ERROR_MIRROR_SEARCH_TRY_AGAIN), reply_markup=main_menu_keyboard)
+            await query.message.answer(gettext(UNEXPECTED_ERROR_MIRROR_SEARCH_TRY_AGAIN), reply_markup=main_menu_keyboard)
         return
 
     #check if any of mirrors with results returned have this movie
     if not any(mirror['results'] for mirror in mirror_results):
         if query.message:
-            await query.message.answer(i18n.get(NO_MIRROR_RESULTS_TRY_ANOTHER_MOVIE), reply_markup=main_menu_keyboard)
+            await query.message.answer(gettext(NO_MIRROR_RESULTS_TRY_ANOTHER_MOVIE), reply_markup=main_menu_keyboard)
         return
 
     # Extract info from backend response
@@ -166,14 +166,14 @@ async def handle_mirror_search(query: types.CallbackQuery, i18n: I18nContext):
     await SessionManager.update_data(query.from_user.id, {"mirror_session": mirror_session.to_dict()})
 
     # Show top nav first
-    top_nav_text, top_nav_keyboard = await get_mirror_navigation_keyboard(mirror_session, position="top", click_source="top",i18n=i18n)
+    top_nav_text, top_nav_keyboard = await get_mirror_navigation_keyboard(mirror_session, position="top", click_source="top")
     if query.message:
         top_panel = await query.message.answer(top_nav_text, reply_markup=top_nav_keyboard)
         top_nav_message_id = top_panel.message_id
     else:
         top_nav_message_id = None
 
-    cards = await render_mirror_card_batch(results[:1], tmdb_id=tmdb_id, user_lang=user_lang,i18n=i18n)
+    cards = await render_mirror_card_batch(results[:1], tmdb_id=tmdb_id, user_lang=user_lang)
     card_message_ids = []
 
     for msg_text, msg_kb, msg_img, stream_id in cards:
@@ -185,7 +185,7 @@ async def handle_mirror_search(query: types.CallbackQuery, i18n: I18nContext):
             await store_message_id_in_redis(stream_id, msg.message_id, query.from_user.id)
             card_message_ids.append(msg.message_id)
 
-    bottom_nav_text, bottom_nav_keyboard = await get_mirror_navigation_keyboard(mirror_session, position="bottom", click_source="bottom",i18n=i18n)
+    bottom_nav_text, bottom_nav_keyboard = await get_mirror_navigation_keyboard(mirror_session, position="bottom", click_source="bottom")
     if query.message:
         bottom_panel = await query.message.answer(bottom_nav_text, reply_markup=bottom_nav_keyboard)
         bottom_nav_message_id = bottom_panel.message_id

@@ -1,5 +1,5 @@
 from aiogram import Router, types, F
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 from bot.locales.keys import SESSION_EXPIRED_RESTART_SEARCH, CAST_CREW_COMING_SOON, TRAILER_COMING_SOON, \
     RELATED_MOVIES_COMING_SOON, FAVORITES_STORAGE_COMING_SOON, WATCHLIST_STORAGE_COMING_SOON, \
     RATINGS_STORAGE_COMING_SOON, YES_BTN, NO_BTN, CONFIRM_REPORT_MOVIE_NOT_FOUND, REPORT_THANKS_MESSAGE
@@ -21,132 +21,130 @@ async def _get_movie_from_session(user_id: int, movie_id: int) -> dict | None:
     return next((m for m in session["current_results"] if m["id"] == movie_id), None)
 
 @router.callback_query(F.data.startswith("expand_card:"))
-async def expand_card(query: types.CallbackQuery, i18n: I18nContext):
+async def expand_card(query: types.CallbackQuery):
     _, mid = query.data.split(":", 1)
     movie_id = int(mid)
     movie = await _get_movie_from_session(query.from_user.id, movie_id)
     if not movie:
-        keyboard = get_search_type_keyboard(i18n)
+        keyboard = get_search_type_keyboard()
         await query.message.answer(
-            i18n.get(SESSION_EXPIRED_RESTART_SEARCH),
+            gettext(SESSION_EXPIRED_RESTART_SEARCH),
             reply_markup=keyboard
         )
         await query.answer()
         return
 
-    text, keyboard, poster = await render_movie_card(movie,i18n=i18n, is_expanded=True)
+    text, keyboard, poster = await render_movie_card(movie, is_expanded=True)
     try:
         await query.bot.edit_message_media(
             chat_id=query.message.chat.id,
             message_id=query.message.message_id,
             media=types.InputMediaPhoto(media=poster, caption=text, parse_mode="HTML"),
-            reply_markup=keyboard,
-        )
+            reply_markup=keyboard)
     except Exception as e:
         logger.error("Failed to expand card in bot.handlers.movie_card_callbacks:", e)
     await query.answer()
 
 @router.callback_query(F.data.startswith("collapse_card:"))
-async def collapse_card(query: types.CallbackQuery, i18n: I18nContext):
+async def collapse_card(query: types.CallbackQuery):
     _, mid = query.data.split(":", 1)
     movie_id = int(mid)
     movie = await _get_movie_from_session(query.from_user.id, movie_id)
     if not movie:
-        keyboard = get_search_type_keyboard(i18n)
+        keyboard = get_search_type_keyboard()
         await query.message.answer(
-            i18n.get(SESSION_EXPIRED_RESTART_SEARCH),
+            gettext(SESSION_EXPIRED_RESTART_SEARCH),
             reply_markup=keyboard
         )
         await query.answer()
         return
 
-    text, keyboard, poster = await render_movie_card(movie,i18n=i18n, is_expanded=False)
+    text, keyboard, poster = await render_movie_card(movie, is_expanded=False)
     try:
         await query.bot.edit_message_media(
             chat_id=query.message.chat.id,
             message_id=query.message.message_id,
             media=types.InputMediaPhoto(media=poster, caption=text, parse_mode="HTML"),
-            reply_markup=keyboard,
-        )
+            reply_markup=keyboard)
     except Exception as e:
         logger.error("Failed to collapse card in bot.handlers.movie_card_callbacks:", e)
     await query.answer()
 
 # 6) Find by Actor/Director stub
 @router.callback_query(F.data.startswith("movie_cast_card:"))
-async def find_people(query: types.CallbackQuery, i18n: I18nContext):
+async def find_people(query: types.CallbackQuery):
     _, mid = query.data.split(":", 1)
     movie_id = int(mid)
     # TODO: look up real cast/crew
-    await query.answer(i18n.get(CAST_CREW_COMING_SOON), show_alert=True)
+    await query.answer(gettext(CAST_CREW_COMING_SOON), show_alert=True)
 
 @router.callback_query(F.data.startswith("watch_trailer_card:"))
-async def find_trailer(query: types.CallbackQuery, i18n: I18nContext):
+async def find_trailer(query: types.CallbackQuery):
     _, mid = query.data.split(":", 1)
     movie_id = int(mid)
     # TODO: look up real trailer…
-    await query.answer(i18n.get(TRAILER_COMING_SOON), show_alert=True)
+    await query.answer(gettext(TRAILER_COMING_SOON), show_alert=True)
 
 # 7) Related Movies stub
 @router.callback_query(F.data.startswith("related_movies_card:"))
-async def related_movies(query: types.CallbackQuery, i18n: I18nContext):
+async def related_movies(query: types.CallbackQuery):
     _, mid = query.data.split(":", 1)
     movie_id = int(mid)
     # TODO: provide related movies
-    await query.answer(i18n.get(RELATED_MOVIES_COMING_SOON), show_alert=True)
+    await query.answer(gettext(RELATED_MOVIES_COMING_SOON), show_alert=True)
 
 # 8) Add to Favorites stub
 @router.callback_query(F.data.startswith("add_favorite_card:"))
-async def add_favorite(query: types.CallbackQuery, i18n: I18nContext):
+async def add_favorite(query: types.CallbackQuery):
     _, mid = query.data.split(":", 1)
     movie_id = int(mid)
     # TODO: integrate user favorites storage
-    await query.answer(i18n.get(FAVORITES_STORAGE_COMING_SOON), show_alert=True)
+    await query.answer(gettext(FAVORITES_STORAGE_COMING_SOON), show_alert=True)
 
 # 9) Add to Watchlist stub
 @router.callback_query(F.data.startswith("add_watchlist_card:"))
-async def add_watchlist(query: types.CallbackQuery, i18n: I18nContext):
+async def add_watchlist(query: types.CallbackQuery):
     _, mid = query.data.split(":", 1)
     movie_id = int(mid)
     # TODO: integrate user watchlist storage
-    await query.answer(i18n.get(WATCHLIST_STORAGE_COMING_SOON), show_alert=True)
+    await query.answer(gettext(WATCHLIST_STORAGE_COMING_SOON), show_alert=True)
 
 # 10) Add to User movie rating
 @router.callback_query(F.data.startswith("rate_movie_card:"))
-async def add_watchlist(query: types.CallbackQuery, i18n: I18nContext):
+async def add_watchlist(query: types.CallbackQuery):
     _, mid = query.data.split(":", 1)
     movie_id = int(mid)
     # TODO: integrate user ratings storage
-    await query.answer(i18n.get(RATINGS_STORAGE_COMING_SOON), show_alert=True)
+    await query.answer(gettext(RATINGS_STORAGE_COMING_SOON), show_alert=True)
 
 # Handler for 'Can not watch' button
 @router.callback_query(F.data.startswith("can_not_watch:"))
-async def can_not_watch_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def can_not_watch_handler(query: types.CallbackQuery):
     _, mid = query.data.split(":", 1)
     movie_id = int(mid)
     # Send confirmation message with Yes/No buttons
     kb = types.InlineKeyboardMarkup(inline_keyboard=[
         [
-            types.InlineKeyboardButton(text=i18n.get(YES_BTN), callback_data=f"report_yes:{movie_id}"),
-            types.InlineKeyboardButton(text=i18n.get(NO_BTN), callback_data=f"report_no:{movie_id}")
+            types.InlineKeyboardButton(text=gettext(YES_BTN), callback_data=f"report_yes:{movie_id}"),
+            types.InlineKeyboardButton(text=gettext(NO_BTN), callback_data=f"report_no:{movie_id}")
         ]
     ])
     msg = await query.message.answer(
-        i18n.get(CONFIRM_REPORT_MOVIE_NOT_FOUND),
+        gettext(CONFIRM_REPORT_MOVIE_NOT_FOUND),
         reply_markup=kb
     )
     await query.answer()
 
 # Handler for 'No' button (delete confirmation message)
 @router.callback_query(F.data.startswith("report_no:"))
-async def report_no_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def report_no_handler(query: types.CallbackQuery):
     if query.message:
         await query.message.delete()
     await query.answer()
 
 # Handler for 'Yes' button (notify admin and thank user)
 @router.callback_query(F.data.startswith("report_yes:"))
-async def report_yes_handler(query: types.CallbackQuery, i18n: I18nContext):
+async def report_yes_handler(query: types.CallbackQuery):
     _, mid = query.data.split(":", 1)
     movie_id = int(mid)
     user = query.from_user
@@ -181,6 +179,6 @@ async def report_yes_handler(query: types.CallbackQuery, i18n: I18nContext):
     # Edit confirmation message
     if query.message:
         await query.message.edit_text(
-            i18n.get(REPORT_THANKS_MESSAGE)
+            gettext(REPORT_THANKS_MESSAGE)
         )
     await query.answer()

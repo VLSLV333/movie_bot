@@ -1,26 +1,25 @@
 from aiogram import types
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 from bot.locales.keys import BACK_BTN
 
-def get_back_button_keyboard(destination: str, i18n: I18nContext) -> types.InlineKeyboardMarkup:
+def get_back_button_keyboard(destination: str) -> types.InlineKeyboardMarkup:
     """
     Creates an inline keyboard with a single "Back" button.
     :param destination: where the back button should go (e.g., 'main', 'search', etc.)
-    :param i18n: I18n context for translation
     :return: InlineKeyboardMarkup with back button
     """
     return types.InlineKeyboardMarkup(
         inline_keyboard=[
-            [types.InlineKeyboardButton(text=i18n.get(BACK_BTN), callback_data=f"back:{destination}")]
+            [types.InlineKeyboardButton(text=gettext(BACK_BTN), callback_data=f"back:{destination}")]
         ]
     )
 
-def add_back_button(keyboard: types.InlineKeyboardMarkup, source: str = "main", index: int | None = None, i18n: I18nContext = None) -> types.InlineKeyboardMarkup:
+def add_back_button(keyboard: types.InlineKeyboardMarkup, source: str = "main", index: int | None = None) -> types.InlineKeyboardMarkup:
     """
     Appends a context-aware 'Back' button as a new row in an existing keyboard.
     Returns a new InlineKeyboardMarkup with the extra button.
     """
-    back_button = types.InlineKeyboardButton(text=i18n.get(BACK_BTN), callback_data=f"back:{source}")
+    back_button = types.InlineKeyboardButton(text=gettext(BACK_BTN), callback_data=f"back:{source}")
 
     # Get the keyboard structure - handle both aiogram 2.x and 3.x
     try:

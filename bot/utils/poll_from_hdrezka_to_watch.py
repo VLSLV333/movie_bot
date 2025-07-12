@@ -1,6 +1,6 @@
 import asyncio
 from aiohttp import ClientSession
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.utils.logger import Logger
 from bot.locales.keys import (
@@ -18,10 +18,8 @@ async def poll_watch_until_ready(
     status_url: str,
     loading_gif_msg,
     query,
-    i18n: I18nContext,
     max_attempts: int = 150, #300 secs
-    poll_interval: float = 2.0,
-) -> dict | None:
+    poll_interval: float = 2.0) -> dict | None:
     """
     Polls a background task status endpoint until completion or failure.
 
@@ -47,13 +45,12 @@ async def poll_watch_until_ready(
             logger.error(f"[{user_id}] Extraction failed: {error_msg}")
             logger.debug(f"[{user_id}] Full error response: {status_data}")
 
-            keyboard = get_main_menu_keyboard(i18n=i18n)
+            keyboard = get_main_menu_keyboard()
 
             await loading_gif_msg.delete()
             await query.message.answer(
-                i18n.get(POLL_ERROR_OCCURRED_WATCH_AGAIN),
-                reply_markup=keyboard,
-            )
+                gettext(POLL_ERROR_OCCURRED_WATCH_AGAIN),
+                reply_markup=keyboard)
             return None
 
         status = status_data.get("status")
@@ -63,7 +60,7 @@ async def poll_watch_until_ready(
 
             if not config:
                 logger.warning(f"[{user_id}] Extraction done, but config is missing.")
-                await query.message.answer(i18n.get(POLL_MOVIE_CONFIG_MISSING))
+                await query.message.answer(gettext(POLL_MOVIE_CONFIG_MISSING))
                 return None
 
             logger.info(f"[{user_id}] Extraction complete.")
@@ -73,25 +70,24 @@ async def poll_watch_until_ready(
             error_msg = status_data.get("error", "Unknown error.")
             logger.error(f"[{user_id}] Extraction failed: {error_msg}")
 
-            keyboard = get_main_menu_keyboard(i18n=i18n)
+            keyboard = get_main_menu_keyboard()
 
             await loading_gif_msg.delete()
             await query.message.answer(
-                i18n.get(POLL_ERROR_OCCURRED_WATCH_AGAIN),
-                reply_markup=keyboard,
-            )
+                gettext(POLL_ERROR_OCCURRED_WATCH_AGAIN),
+                reply_markup=keyboard)
             return None
 
         elif attempt % 15 == 0 and attempt > 0:
             logger.info(f"[{user_id}] Extraction still running after {attempt * poll_interval:.0f}s")
-            await query.message.answer(i18n.get(POLL_STILL_WORKING_WAIT))
+            await query.message.answer(gettext(POLL_STILL_WORKING_WAIT))
 
     logger.error(f"[{user_id}] Timed out after {max_attempts * poll_interval:.0f}s – no success or failure.")
-    keyboard = get_main_menu_keyboard(i18n=i18n)
+    keyboard = get_main_menu_keyboard()
 
     await loading_gif_msg.delete()
     await query.message.answer(
-        i18n.get(POLL_TAKING_TOO_LONG_WATCH_AGAIN),
+        gettext(POLL_TAKING_TOO_LONG_WATCH_AGAIN),
         reply_markup=keyboard
     )
     return None

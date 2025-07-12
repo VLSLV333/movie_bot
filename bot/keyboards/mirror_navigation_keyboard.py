@@ -1,5 +1,5 @@
 from aiogram import types
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 from bot.search.mirror_search_session import MirrorSearchSession
 from typing import Tuple
 from bot.utils.logger import Logger
@@ -9,7 +9,7 @@ import json
 
 logger = Logger().get_logger()
 
-async def get_mirror_navigation_keyboard(session: MirrorSearchSession, i18n: I18nContext, position: str = "bottom",click_source: str | None = None) -> Tuple[str, types.InlineKeyboardMarkup]:
+async def get_mirror_navigation_keyboard(session: MirrorSearchSession, position: str = "bottom",click_source: str | None = None) -> Tuple[str, types.InlineKeyboardMarkup]:
     """
     Create top/bottom navigation panel with message text and buttons.
     """
@@ -34,9 +34,9 @@ async def get_mirror_navigation_keyboard(session: MirrorSearchSession, i18n: I18
     except Exception as e:
         logger.error(f"Unexpected error while getting movie title: {e}")
 
-    hint = i18n.get(MIRROR_SELECTION_HINT, movie_title=movie_title)
+    hint = gettext(MIRROR_SELECTION_HINT, movie_title=movie_title)
 
-    text = i18n.get(MIRROR_SELECT_TITLE, movie_title=movie_title)
+    text = gettext(MIRROR_SELECT_TITLE, movie_title=movie_title)
     if hint:
         text += f"\n\n{hint}"
 
@@ -44,11 +44,11 @@ async def get_mirror_navigation_keyboard(session: MirrorSearchSession, i18n: I18
     buttons = []
     show_previous = session.current_result_index > 0
     if show_previous:
-        buttons.append(types.InlineKeyboardButton(text=i18n.get(PREVIOUS_BTN), callback_data="previous_mirror_result"))
+        buttons.append(types.InlineKeyboardButton(text=gettext(PREVIOUS_BTN), callback_data="previous_mirror_result"))
 
     buttons.append(
         types.InlineKeyboardButton(
-            text=i18n.get(NEXT_BTN),
+            text=gettext(NEXT_BTN),
             callback_data="next_mirror_result"
         )
     )

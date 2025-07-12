@@ -1,6 +1,6 @@
 from aiogram import types
 from typing import Tuple, Optional
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 import json
 from bot.utils.redis_client import RedisClient
 from bot.utils.logger import Logger
@@ -25,11 +25,10 @@ def truncate_text(text: str, max_length: int = 200) -> str:
         return text
     return text[:max_length].rstrip() + "..."
 
-async def render_movie_card(movie: dict, i18n: I18nContext, is_expanded: bool = False) -> Tuple[str, types.InlineKeyboardMarkup, Optional[str]]:
+async def render_movie_card(movie: dict, is_expanded: bool = False) -> Tuple[str, types.InlineKeyboardMarkup, Optional[str]]:
     """
     Generate the movie card text, buttons, and poster URL.
     :param movie: Movie data dictionary from TMDB
-    :param i18n: I18n context for translation
     :param is_expanded: If True, show expanded card with more options
     :return: (text, keyboard, poster_url)
     """
@@ -39,16 +38,16 @@ async def render_movie_card(movie: dict, i18n: I18nContext, is_expanded: bool = 
     if year == "()":
         year = ''
 
-    title = movie.get("title") or i18n.get(NO_TITLE_FALLBACK)
-    overview = movie.get("overview") or i18n.get(DEFAULT_OVERVIEW_FALLBACK)
+    title = movie.get("title") or gettext(NO_TITLE_FALLBACK)
+    overview = movie.get("overview") or gettext(DEFAULT_OVERVIEW_FALLBACK)
     title = title.strip()
     overview = overview.strip()
 
     # Optional: check again if still empty after strip
     if not title:
-        title = i18n.get(NO_TITLE_FALLBACK)
+        title = gettext(NO_TITLE_FALLBACK)
     if not overview:
-        overview = i18n.get(GOOD_MOVIE_FALLBACK)
+        overview = gettext(GOOD_MOVIE_FALLBACK)
 
     # ✅ Validate poster_path
     poster_path = movie.get("poster_path")
@@ -60,7 +59,7 @@ async def render_movie_card(movie: dict, i18n: I18nContext, is_expanded: bool = 
     # Get TMDB rating or fallback
     rating = movie.get("vote_average")
     rating_count = movie.get("vote_count")
-    rating_text = f"\n{i18n.get(IMDB_RATING_PREFIX)}{rating:.1f}" if rating else ""
+    rating_text = f"\n{gettext(IMDB_RATING_PREFIX)}{rating:.1f}" if rating else ""
 
     # ✅ Prepare text caption
     text = f"<b>{title} {year}</b>{rating_text}\n\n"
@@ -72,33 +71,33 @@ async def render_movie_card(movie: dict, i18n: I18nContext, is_expanded: bool = 
     if is_expanded:
         # Expanded card: full options
         buttons.append([
-            types.InlineKeyboardButton(text=i18n.get(SELECT_BTN), callback_data=f"select_movie_card:{movie['id']}"),
-            types.InlineKeyboardButton(text=i18n.get(WATCH_LATER_BTN), callback_data=f"add_watchlist_card:{movie['id']}")
+            types.InlineKeyboardButton(text=gettext(SELECT_BTN), callback_data=f"select_movie_card:{movie['id']}"),
+            types.InlineKeyboardButton(text=gettext(WATCH_LATER_BTN), callback_data=f"add_watchlist_card:{movie['id']}")
         ])
         buttons.append([
-            types.InlineKeyboardButton(text=i18n.get(TRAILER_COMING_SOON), callback_data=f"watch_trailer_card:{movie['id']}"),
-            types.InlineKeyboardButton(text=i18n.get(CAST_CREW_COMING_SOON), callback_data=f"movie_cast_card:{movie['id']}")
+            types.InlineKeyboardButton(text=gettext(TRAILER_COMING_SOON), callback_data=f"watch_trailer_card:{movie['id']}"),
+            types.InlineKeyboardButton(text=gettext(CAST_CREW_COMING_SOON), callback_data=f"movie_cast_card:{movie['id']}")
         ])
         buttons.append([
             #TODO: later we can add in Favorites btn like "share my Favorite movies"
-            types.InlineKeyboardButton(text=i18n.get(ADD_TO_FAVORITES), callback_data=f"add_favorite_card:{movie['id']}"),
-            types.InlineKeyboardButton(text=i18n.get(RATINGS_STORAGE_COMING_SOON), callback_data=f"rate_movie_card:{movie['id']}"),
+            types.InlineKeyboardButton(text=gettext(ADD_TO_FAVORITES), callback_data=f"add_favorite_card:{movie['id']}"),
+            types.InlineKeyboardButton(text=gettext(RATINGS_STORAGE_COMING_SOON), callback_data=f"rate_movie_card:{movie['id']}"),
         ])
         buttons.append([
-            types.InlineKeyboardButton(text=i18n.get(RELATED_MOVIES_COMING_SOON), callback_data=f"related_movies_card:{movie['id']}"),
-            types.InlineKeyboardButton(text=i18n.get(CAN_NOT_FIND_BTN), callback_data=f"can_not_watch:{movie['id']}")
+            types.InlineKeyboardButton(text=gettext(RELATED_MOVIES_COMING_SOON), callback_data=f"related_movies_card:{movie['id']}"),
+            types.InlineKeyboardButton(text=gettext(CAN_NOT_FIND_BTN), callback_data=f"can_not_watch:{movie['id']}")
         ])
         buttons.append([
-            types.InlineKeyboardButton(text=i18n.get(COLLAPSE_CARD_BTN), callback_data=f"collapse_card:{movie['id']}")
+            types.InlineKeyboardButton(text=gettext(COLLAPSE_CARD_BTN), callback_data=f"collapse_card:{movie['id']}")
         ])
     else:
         # Small card view: quick actions
         buttons.append([
-            types.InlineKeyboardButton(text=i18n.get(SELECT_BTN), callback_data=f"select_movie_card:{movie['id']}"),
-            types.InlineKeyboardButton(text=i18n.get(WATCH_LATER_BTN), callback_data=f"add_watchlist_card:{movie['id']}")
+            types.InlineKeyboardButton(text=gettext(SELECT_BTN), callback_data=f"select_movie_card:{movie['id']}"),
+            types.InlineKeyboardButton(text=gettext(WATCH_LATER_BTN), callback_data=f"add_watchlist_card:{movie['id']}")
         ])
         buttons.append([
-            types.InlineKeyboardButton(text=i18n.get(EXPAND_CARD_BTN), callback_data=f"expand_card:{movie['id']}")
+            types.InlineKeyboardButton(text=gettext(EXPAND_CARD_BTN), callback_data=f"expand_card:{movie['id']}")
         ])
 
     await save_movie_info_to_redis(movie)

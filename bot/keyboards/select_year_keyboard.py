@@ -1,13 +1,13 @@
 from aiogram import types
 from typing import List
 from bot.helpers.back_button import add_back_button
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 from bot.locales.keys import CONFIRM_BTN
 
-def get_select_year_keyboard(year_list: List[int], selected_years: List[int], i18n: I18nContext) -> types.InlineKeyboardMarkup:
+def get_select_year_keyboard(year_list: List[int], selected_years: List[int]) -> types.InlineKeyboardMarkup:
     """
     Generate a keyboard for selecting years with dynamic range logic:
-    - Selecting one year highlights just that year
+    - Selecting one-year highlights just that year
     - Selecting a second year highlights the full range between them (including both tapped years)
     - Selecting a third year (in or out of range) resets the range to that year only (basically same as selecting one year only)
     """
@@ -44,7 +44,7 @@ def get_select_year_keyboard(year_list: List[int], selected_years: List[int], i1
     # Add confirm button at the top only if at least one year is selected
     if highlighted_years:
         keyboard.append([
-            types.InlineKeyboardButton(text=i18n.get(CONFIRM_BTN), callback_data="confirm_years")
+            types.InlineKeyboardButton(text=gettext(CONFIRM_BTN), callback_data="confirm_years")
         ])
 
-    return add_back_button(types.InlineKeyboardMarkup(inline_keyboard=keyboard),source='year_range',index=0,i18n=i18n)
+    return add_back_button(types.InlineKeyboardMarkup(inline_keyboard=keyboard),source='year_range',index=0)

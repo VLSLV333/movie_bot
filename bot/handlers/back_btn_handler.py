@@ -1,5 +1,5 @@
 from aiogram import Router, types, F
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.locales.keys import BACK_TO_MAIN_MENU, SEARCH_TYPE_QUESTION, GENRE_SELECTION_PROMPT, \
     YEAR_RANGE_SELECTION_PROMPT
@@ -14,12 +14,11 @@ logger = Logger().get_logger()
 
 
 @router.callback_query(F.data.startswith("back:"))
-async def handle_back_btn(query: types.CallbackQuery, i18n: I18nContext):
+async def handle_back_btn(query: types.CallbackQuery):
     """
        Handles the logic of going back by deleting current message and showing destination view.
        Clears session state if needed.
-       :param i18n: I18nContext for i18n
-       :param query: Telegram CallbackQuery object
+              :param query: Telegram CallbackQuery object
        """
     _, destination = query.data.split(":")
     user_id = query.from_user.id
@@ -28,15 +27,15 @@ async def handle_back_btn(query: types.CallbackQuery, i18n: I18nContext):
         logger.info(f"[User {user_id}] Navigated back to main menu via Back button.")
         await SessionManager.clear_state(user_id)
         await query.message.edit_text(
-            i18n.get(BACK_TO_MAIN_MENU),
-            reply_markup=get_main_menu_keyboard(i18n=i18n)
+            gettext(BACK_TO_MAIN_MENU),
+            reply_markup=get_main_menu_keyboard()
         )
     elif destination == "search":
         logger.info(f"[User {user_id}] Navigated back to search type menu via Back button.")
         await SessionManager.clear_state(user_id)
         await query.message.edit_text(
-            i18n.get(SEARCH_TYPE_QUESTION),
-            reply_markup=get_search_type_keyboard(i18n=i18n)
+            gettext(SEARCH_TYPE_QUESTION),
+            reply_markup=get_search_type_keyboard()
         )
     elif destination == "select_genre":
         logger.info(f"[User {user_id}] Navigated back to select_genre via Back button.")
@@ -44,18 +43,18 @@ async def handle_back_btn(query: types.CallbackQuery, i18n: I18nContext):
         session = await SessionManager.get_data(user_id)
         selected_genres = session.get("selected_genres", [])
 
-        keyboard = get_movie_genre_keyboard(selected_genres, i18n=i18n)
+        keyboard = get_movie_genre_keyboard(selected_genres)
 
         await SessionManager.clear_state(user_id)
         await query.message.edit_text(
-            i18n.get(GENRE_SELECTION_PROMPT),
+            gettext(GENRE_SELECTION_PROMPT),
             reply_markup=keyboard
         )
     elif destination == "year_range":
         logger.info(f"[User {user_id}] Navigated back to year range selection menu via Back button.")
 
         await SessionManager.clear_state(user_id)
-        keyboard = get_year_range_keyboard(i18n=i18n)
-        await query.message.edit_text(i18n.get(YEAR_RANGE_SELECTION_PROMPT), reply_markup=keyboard)
+        keyboard = get_year_range_keyboard()
+        await query.message.edit_text(gettext(YEAR_RANGE_SELECTION_PROMPT), reply_markup=keyboard)
 
     await query.answer()

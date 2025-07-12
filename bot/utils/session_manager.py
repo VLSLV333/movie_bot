@@ -14,8 +14,7 @@ class SessionManager:
             context: UserSearchContext,
             current_cards_message_ids: list = None,
             pagination_message_id: int = None,
-            top_pagination_message_id: int = None,
-    ):
+            top_pagination_message_id: int = None):
         client = RedisClient.get_client()
 
         session_data = context.to_dict()

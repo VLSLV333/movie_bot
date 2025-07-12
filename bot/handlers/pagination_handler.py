@@ -1,7 +1,7 @@
 import asyncio
 from weakref import WeakValueDictionary
 from aiogram import Router, types, F
-from aiogram_i18n import I18nContext
+from aiogram.utils.i18n import gettext
 from aiogram.exceptions import TelegramBadRequest
 from bot.services.tmdb_service import TMDBService
 from bot.utils.logger import Logger
@@ -59,14 +59,14 @@ async def safely_delete_navigation(query: types.CallbackQuery, pagination_messag
         logger.warning(f"[User {query.from_user.id}] Could not delete bottom panel: {ex}")
         return False
 
-async def handle_pagination(query: types.CallbackQuery, direction: str, i18n: I18nContext):
+async def handle_pagination(query: types.CallbackQuery, direction: str):
     # 1) grab the per‑user lock
     user_id = query.from_user.id
     lock = get_user_lock(user_id)
 
     # 2) if it's already locked, just ignore the extra tap
     if lock.locked():
-        return await query.answer(i18n.get(WAIT_CARDS_UPDATING), show_alert=False)
+        return await query.answer(gettext(WAIT_CARDS_UPDATING), show_alert=False)
 
     # 3) only one runner at a time
     async with lock:
@@ -80,10 +80,10 @@ async def handle_pagination(query: types.CallbackQuery, direction: str, i18n: I1
             except Exception as e:
                 logger.error(f"Redis error while clearing state : {e}")
 
-            keyboard = get_search_type_keyboard(i18n=i18n)
+            keyboard = get_search_type_keyboard()
 
             await query.message.answer(
-                i18n.get(SESSION_EXPIRED_RESTART_SEARCH),
+                gettext(SESSION_EXPIRED_RESTART_SEARCH),
                 reply_markup=keyboard
             )
             await query.answer()
@@ -100,8 +100,8 @@ async def handle_pagination(query: types.CallbackQuery, direction: str, i18n: I1
         movies = await (context.get_next_movies(tmdb_service) if direction == "next" else context.get_previous_movies(tmdb_service))
 
         if not movies:
-            keyboard = get_search_type_keyboard(i18n=i18n)
-            await query.message.answer(i18n.get(NO_MORE_MATCHES_START_NEW_SEARCH), reply_markup=keyboard)
+            keyboard = get_search_type_keyboard()
+            await query.message.answer(gettext(NO_MORE_MATCHES_START_NEW_SEARCH), reply_markup=keyboard)
 
             try:
                 await SessionManager.clear_user_session(user_id)
@@ -144,7 +144,7 @@ async def handle_pagination(query: types.CallbackQuery, direction: str, i18n: I1
         
         # Now, update or send cards as needed
         for i, (movie, message_id) in enumerate(zip(movies, updated_message_ids)):
-            text, keyboard, poster_url = await render_movie_card(movie, is_expanded=False,i18n=i18n)
+            text, keyboard, poster_url = await render_movie_card(movie, is_expanded=False)
             if str(message_id) in PLACEHOLDER_IDS:
                 try:
                     sent = await query.message.answer_photo(photo=poster_url, caption=text, reply_markup=keyboard, parse_mode="HTML")
@@ -180,8 +180,8 @@ async def handle_pagination(query: types.CallbackQuery, direction: str, i18n: I1
         # Try to update top pagination
         try:
             if top_pagination_message_id:
-                nav_text_top, nav_keyboard_top = render_navigation_panel(context, position="top", click_source=click_source,i18n=i18n)
-                nav_keyboard_top = add_back_to_main_menu_button(nav_keyboard_top,i18n=i18n)
+                nav_text_top, nav_keyboard_top = render_navigation_panel(context, position="top", click_source=click_source)
+                nav_keyboard_top = add_back_to_main_menu_button(nav_keyboard_top)
                 await query.bot.edit_message_text(
                     chat_id=query.message.chat.id,
                     message_id=top_pagination_message_id,
@@ -201,8 +201,8 @@ async def handle_pagination(query: types.CallbackQuery, direction: str, i18n: I1
 
         # Try to update bottom pagination
         try:
-            nav_text, nav_keyboard = render_navigation_panel(context, position="bottom", click_source=click_source,i18n=i18n)
-            nav_keyboard = add_back_to_main_menu_button(nav_keyboard,i18n=i18n)
+            nav_text, nav_keyboard = render_navigation_panel(context, position="bottom", click_source=click_source)
+            nav_keyboard = add_back_to_main_menu_button(nav_keyboard)
             panel = await query.message.answer(nav_text, reply_markup=nav_keyboard)
             pagination_message_id = panel.message_id
         except TelegramBadRequest as e:
@@ -227,9 +227,9 @@ async def handle_pagination(query: types.CallbackQuery, direction: str, i18n: I1
         await query.answer()
 
 @router.callback_query(F.data == "show_more_results")
-async def show_more_results(query: types.CallbackQuery, i18n: I18nContext):
-    await handle_pagination(query, direction="next", i18n=i18n)
+async def show_more_results(query: types.CallbackQuery):
+    await handle_pagination(query, direction="next")
 
 @router.callback_query(F.data == "show_previous_results")
-async def show_previous_results(query: types.CallbackQuery, i18n: I18nContext):
-    await handle_pagination(query, direction="previous", i18n=i18n)
+async def show_previous_results(query: types.CallbackQuery):
+    await handle_pagination(query, direction="previous")
