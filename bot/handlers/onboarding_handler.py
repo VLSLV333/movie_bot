@@ -62,18 +62,26 @@ async def call_backend_api(endpoint: str, method: str = "GET", data: Optional[di
 
 def validate_language_code(lang: str) -> str:
     """Validate and normalize language code"""
+    logger.info(f"[LanguageValidation] Input language: '{lang}' (type: {type(lang)})")
+    
     if not lang or not isinstance(lang, str):
+        logger.info(f"[LanguageValidation] Invalid input, returning 'en'")
         return 'en'
     
     # Normalize to lowercase and ensure it's 2-3 characters
     lang = lang.lower().strip()
+    logger.info(f"[LanguageValidation] After normalization: '{lang}'")
+    
     if len(lang) < 2 or len(lang) > 3:
+        logger.info(f"[LanguageValidation] Length {len(lang)} not in range 2-3, returning 'en'")
         return 'en'
     
     # Allow only letters
     if not lang.isalpha():
+        logger.info(f"[LanguageValidation] Contains non-letters, returning 'en'")
         return 'en'
     
+    logger.info(f"[LanguageValidation] Final validated language: '{lang}'")
     return lang
 
 def validate_name(name: Optional[str]) -> Optional[str]:
@@ -94,10 +102,17 @@ def validate_name(name: Optional[str]) -> Optional[str]:
 
 async def get_or_create_user_backend(telegram_id: int, user_tg_lang: str, first_name: Optional[str] = None, last_name: Optional[str] = None) -> Optional[dict]:
     """Get or create user in backend with all language settings set to Telegram language"""
+    logger.info(f"[BackendUserCreation] Starting user creation for telegram_id: {telegram_id}")
+    logger.info(f"[BackendUserCreation] Input user_tg_lang: '{user_tg_lang}'")
+    
     # Validate and clean input data
     validated_lang = validate_language_code(user_tg_lang)
     validated_first_name = validate_name(first_name)
     validated_last_name = validate_name(last_name)
+    
+    logger.info(f"[BackendUserCreation] Validated language: '{validated_lang}'")
+    logger.info(f"[BackendUserCreation] Validated first_name: '{validated_first_name}'")
+    logger.info(f"[BackendUserCreation] Validated last_name: '{validated_last_name}'")
     
     data = {
         "telegram_id": telegram_id,
@@ -108,6 +123,8 @@ async def get_or_create_user_backend(telegram_id: int, user_tg_lang: str, first_
         "last_name": validated_last_name,
         "is_premium": False
     }
+    
+    logger.info(f"[BackendUserCreation] Final data being sent to backend: {data}")
     return await call_backend_api("/users/get-or-create", "POST", data)
 
 @router.message(CommandStart())
@@ -120,8 +137,17 @@ async def start_handler(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     logger.info(f"[User {user_id}] Triggered /start")
 
+    # Detailed language detection logging
+    raw_language_code = message.from_user.language_code
+    logger.info(f"[User {user_id}] Raw Telegram language_code: {raw_language_code}")
+    
+    # Log all available user information for debugging
+    logger.info(f"[User {user_id}] User info - first_name: '{message.from_user.first_name}', last_name: '{message.from_user.last_name}'")
+    logger.info(f"[User {user_id}] User info - username: '{message.from_user.username}', is_premium: {message.from_user.is_premium}")
+    
     # Use Telegram language code directly
-    user_lang = message.from_user.language_code or 'en'
+    user_lang = raw_language_code or 'en'
+    logger.info(f"[User {user_id}] Final language code after fallback: {user_lang}")
 
     # Create user in backend database with all language settings set to Telegram language
     user_data = await get_or_create_user_backend(
