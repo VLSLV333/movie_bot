@@ -21,19 +21,41 @@ def get_bot_language_selection_keyboard() -> types.InlineKeyboardMarkup:
     
     return types.InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_movies_language_selection_keyboard() -> types.InlineKeyboardMarkup:
+def get_movies_language_selection_keyboard(lang: str | None = None) -> types.InlineKeyboardMarkup:
     """Create keyboard for movies language preference selection"""
+    # Language mapping for direct translation
+    lang_texts = {
+        'uk': {
+            'ukrainian': '🇺🇦 Українська',
+            'english': '🇺🇸 English',
+            'russian': '🇷🇺 Русский'
+        },
+        'en': {
+            'ukrainian': '🇺🇦 Ukrainian',
+            'english': '🇺🇸 English',
+            'russian': '🇷🇺 Russian'
+        },
+        'ru': {
+            'ukrainian': '🇺🇦 Украинский',
+            'english': '🇺🇸 Английский',
+            'russian': '🇷🇺 Русский'
+        }
+    }
+    
+    # Default to English if no language specified
+    texts = lang_texts.get(lang or 'en', lang_texts['en'])
+    
     keyboard = [
         [types.InlineKeyboardButton(
-            text=gettext(LANG_UKRAINIAN),
+            text=texts['ukrainian'],
             callback_data="onboarding_movies_lang:uk"
         )],
         [types.InlineKeyboardButton(
-            text=gettext(LANG_ENGLISH),
+            text=texts['english'],
             callback_data="onboarding_movies_lang:en"
         )],
         [types.InlineKeyboardButton(
-            text=gettext(LANG_RUSSIAN),
+            text=texts['russian'],
             callback_data="onboarding_movies_lang:ru"
         )]
     ]

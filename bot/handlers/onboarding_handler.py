@@ -189,13 +189,21 @@ async def handle_bot_language_selection(query: types.CallbackQuery, state: FSMCo
     # Update backend
     await UserService.set_user_bot_language(user_id, selected_lang)
     
-    # Ask second question: Movies language preference
-    keyboard = get_movies_language_selection_keyboard()
+    # Direct translation for the question text based on selected language
+    question_texts = {
+        'uk': '🎬 Оберіть мову, якою вам зручно дивитися кіно:',
+        'en': '🎬 Pick your favorite movie language:',
+        'ru': '🎬 Выберите язык, на котором вам удобно смотреть фильмы:'
+    }
+    
+    question_text = question_texts.get(selected_lang, question_texts['en'])
+    keyboard = get_movies_language_selection_keyboard(lang=selected_lang)
+    
     if query.message:
         await query.message.delete()
         await query.bot.send_message(
             chat_id=query.from_user.id,
-            text=gettext(ONBOARDING_MOVIES_LANG_QUESTION),
+            text=question_text,
             reply_markup=keyboard
         )
     
@@ -232,6 +240,7 @@ async def handle_movies_language_selection(query: types.CallbackQuery, state: FS
     
     # Complete onboarding and show main menu
     keyboard = get_main_menu_keyboard()
+    
     if query.message:
         await query.message.edit_text(
             gettext(ONBOARDING_COMPLETED),
