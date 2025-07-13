@@ -145,9 +145,14 @@ async def start_handler(message: types.Message, state: FSMContext):
     logger.info(f"[User {user_id}] User info - first_name: '{message.from_user.first_name}', last_name: '{message.from_user.last_name}'")
     logger.info(f"[User {user_id}] User info - username: '{message.from_user.username}', is_premium: {message.from_user.is_premium}")
     
-    # Use Telegram language code directly
+    # Validate against supported languages
+    supported_languages = ['en', 'uk', 'ru']
     user_lang = raw_language_code or 'en'
-    logger.info(f"[User {user_id}] Final language code after fallback: {user_lang}")
+    if user_lang not in supported_languages:
+        user_lang = 'en'  # Fallback to English
+        logger.info(f"[User {user_id}] Unsupported language '{raw_language_code}' detected, falling back to 'en'")
+    
+    logger.info(f"[User {user_id}] Final validated language code: {user_lang}")
 
     # Create user in backend database with all language settings set to Telegram language
     user_data = await get_or_create_user_backend(

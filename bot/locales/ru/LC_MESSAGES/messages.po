@@ -212,7 +212,7 @@ msgid "error_cannot_show_language_options"
 msgstr "❌ Ошибка: невозможно показать параметры языка"
 
 msgid "language_updated_successfully"
-msgstr "✅ Язык обновлен: {language}\n\nНажмите «Смотреть» или «Загрузить» — фильм будет на выбранном языке."
+msgstr "✅ Язык обновлен: {language}\n\nНажмите «Смотреть» или «Скачать» — фильм будет на выбранном языке."
 
 msgid "error_update_language_failed"
 msgstr "❌ Не удалось обновить язык, попробуйте позже"
