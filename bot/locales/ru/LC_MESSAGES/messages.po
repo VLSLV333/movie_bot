@@ -22,11 +22,11 @@ msgstr "Привет, я Юля, твой бот-друг для фильмов!
 msgid "onboarding_welcome"
 msgstr "Отлично! Всего 2 вопроса"
 
-msgid "onboarding_name_question"
-msgstr "Выберите, как к вам обращаться:"
+msgid "onboarding_bot_lang_question"
+msgstr " Какой язык общения вам удобнее? 😇"
 
-msgid "onboarding_language_question"
-msgstr "{user_name}, на каком языке мне с вами общаться? 😇"
+msgid "onboarding_movies_lang_question"
+msgstr "🎬 Выберите язык, на котором вам удобно смотреть фильмы:"
 
 msgid "onboarding_completed"
 msgstr "✅ Отлично! Ваши настройки сохранены."

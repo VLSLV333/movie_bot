@@ -3,10 +3,12 @@ from aiogram import Router, types
 from aiogram.utils.i18n import gettext
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from bot.locales.keys import WELCOME_MESSAGE
+from bot.locales.keys import WELCOME_MESSAGE, ONBOARDING_BOT_LANG_QUESTION, ONBOARDING_MOVIES_LANG_QUESTION, ONBOARDING_COMPLETED
 from bot.utils.logger import Logger
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
+from bot.keyboards.onboarding_keyboard import get_bot_language_selection_keyboard, get_movies_language_selection_keyboard
 from bot.utils.notify_admin import notify_admin
+from bot.utils.user_service import UserService
 from typing import Optional
 
 router = Router()
@@ -101,60 +103,40 @@ def validate_name(name: Optional[str]) -> Optional[str]:
     return name if name else None
 
 async def get_or_create_user_backend(telegram_id: int, user_tg_lang: str, first_name: Optional[str] = None, last_name: Optional[str] = None) -> Optional[dict]:
-    """Get or create user in backend with all language settings set to Telegram language"""
-    logger.info(f"[BackendUserCreation] Starting user creation for telegram_id: {telegram_id}")
-    logger.info(f"[BackendUserCreation] Input user_tg_lang: '{user_tg_lang}'")
-    
-    # Validate and clean input data
     validated_lang = validate_language_code(user_tg_lang)
     validated_first_name = validate_name(first_name)
     validated_last_name = validate_name(last_name)
     
-    logger.info(f"[BackendUserCreation] Validated language: '{validated_lang}'")
-    logger.info(f"[BackendUserCreation] Validated first_name: '{validated_first_name}'")
-    logger.info(f"[BackendUserCreation] Validated last_name: '{validated_last_name}'")
-    
     data = {
         "telegram_id": telegram_id,
         "user_tg_lang": validated_lang,  # User's Telegram language
-        "movies_lang": validated_lang,   # Movies language = Telegram language
-        "bot_lang": validated_lang,      # Bot interface language = Telegram language
+        "movies_lang": validated_lang,   # Movies language = Telegram language (will be updated during onboarding)
+        "bot_lang": validated_lang,      # Bot interface language = Telegram language (will be updated during onboarding)
         "first_name": validated_first_name,
         "last_name": validated_last_name,
         "is_premium": False
     }
     
-    logger.info(f"[BackendUserCreation] Final data being sent to backend: {data}")
     return await call_backend_api("/users/get-or-create", "POST", data)
 
 @router.message(CommandStart())
 async def start_handler(message: types.Message, state: FSMContext):
-    """Simple start handler - Welcome message + Main menu + Create user in DB"""
+    """Start handler - Welcome message + Start onboarding flow"""
     if not message.from_user:
         logger.error("Message from_user is None")
         return
         
     user_id = message.from_user.id
-    logger.info(f"[User {user_id}] Triggered /start")
 
-    # Detailed language detection logging
     raw_language_code = message.from_user.language_code
-    logger.info(f"[User {user_id}] Raw Telegram language_code: {raw_language_code}")
-    
-    # Log all available user information for debugging
-    logger.info(f"[User {user_id}] User info - first_name: '{message.from_user.first_name}', last_name: '{message.from_user.last_name}'")
-    logger.info(f"[User {user_id}] User info - username: '{message.from_user.username}', is_premium: {message.from_user.is_premium}")
-    
-    # Validate against supported languages
+
     supported_languages = ['en', 'uk', 'ru']
     user_lang = raw_language_code or 'en'
     if user_lang not in supported_languages:
         user_lang = 'en'  # Fallback to English
         logger.info(f"[User {user_id}] Unsupported language '{raw_language_code}' detected, falling back to 'en'")
     
-    logger.info(f"[User {user_id}] Final validated language code: {user_lang}")
-
-    # Create user in backend database with all language settings set to Telegram language
+    # Create user in backend database with Telegram language as initial values
     user_data = await get_or_create_user_backend(
         telegram_id=user_id,
         first_name=message.from_user.first_name,
@@ -166,11 +148,17 @@ async def start_handler(message: types.Message, state: FSMContext):
     await state.update_data(locale=user_lang)
     logger.info(f"[User {user_id}] FSM locale set to: {user_lang}")
 
-    # Show welcome message with main menu
-    keyboard = get_main_menu_keyboard()
+    # Show welcome message and start onboarding
+    keyboard = get_bot_language_selection_keyboard()
     await message.answer_animation(
         animation=WELCOME_GIF_URL,
         caption=gettext(WELCOME_MESSAGE),
+        reply_markup=keyboard
+    )
+    
+    # Ask first question: Bot interface language
+    await message.answer(
+        gettext(ONBOARDING_BOT_LANG_QUESTION),
         reply_markup=keyboard
     )
 
@@ -179,3 +167,71 @@ async def start_handler(message: types.Message, state: FSMContext):
         await notify_admin(f"[User {user_id}] Failed to create/get user from backend, first name: {message.from_user.first_name}, last name: {message.from_user.last_name}, user_tg_lang: {user_lang}")
     else:
         logger.info(f"[User {user_id}] User created/retrieved successfully: {user_data}")
+
+@router.callback_query(lambda c: c.data.startswith("onboarding_bot_lang:"))
+async def handle_bot_language_selection(query: types.CallbackQuery, state: FSMContext):
+    """Handle bot interface language selection during onboarding"""
+    if not query.data:
+        await query.answer("Invalid callback data")
+        return
+        
+    user_id = query.from_user.id
+    selected_lang = query.data.split(":")[1]
+    
+    logger.info(f"[User {user_id}] Selected bot language: {selected_lang}")
+    
+    # Update FSM locale immediately (changes interface language)
+    await state.update_data(locale=selected_lang)
+    logger.info(f"[User {user_id}] FSM locale updated to: {selected_lang}")
+    
+    # Update backend
+    await UserService.set_user_bot_language(user_id, selected_lang)
+    
+    # Ask second question: Movies language preference
+    keyboard = get_movies_language_selection_keyboard()
+    if query.message:
+        await query.message.edit_text(
+            gettext(ONBOARDING_MOVIES_LANG_QUESTION),
+            reply_markup=keyboard
+        )
+    
+    await query.answer()
+
+@router.callback_query(lambda c: c.data.startswith("onboarding_movies_lang:"))
+async def handle_movies_language_selection(query: types.CallbackQuery, state: FSMContext):
+    """Handle movies language preference selection during onboarding"""
+    if not query.data:
+        await query.answer("Invalid callback data")
+        return
+        
+    user_id = query.from_user.id
+    selected_lang = query.data.split(":")[1]
+    
+    logger.info(f"[User {user_id}] Selected movies language: {selected_lang}")
+    
+    # Update backend with movies language preference
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.put(
+                f"{BACKEND_API_URL}/users/movies-language",
+                json={
+                    "telegram_id": user_id,
+                    "movies_lang": selected_lang
+                }
+            ) as response:
+                if response.status == 200:
+                    logger.info(f"[User {user_id}] Successfully updated movies language to: {selected_lang}")
+                else:
+                    logger.error(f"[User {user_id}] Failed to update movies language: {response.status}")
+    except Exception as e:
+        logger.error(f"[User {user_id}] Exception during movies language update: {e}")
+    
+    # Complete onboarding and show main menu
+    keyboard = get_main_menu_keyboard()
+    if query.message:
+        await query.message.edit_text(
+            gettext(ONBOARDING_COMPLETED),
+            reply_markup=keyboard
+        )
+    
+    await query.answer()

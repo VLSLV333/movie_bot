@@ -6,8 +6,8 @@ This module contains all translation keys used throughout the bot.
 # Welcome & Onboarding Messages
 WELCOME_MESSAGE = "welcome_message"
 ONBOARDING_WELCOME = "onboarding_welcome"
-ONBOARDING_NAME_QUESTION = "onboarding_name_question"
-ONBOARDING_LANGUAGE_QUESTION = "onboarding_language_question"
+ONBOARDING_BOT_LANG_QUESTION = "onboarding_bot_lang_question"
+ONBOARDING_MOVIES_LANG_QUESTION = "onboarding_movies_lang_question"
 ONBOARDING_COMPLETED = "onboarding_completed"
 ONBOARDING_SKIPPED = "onboarding_skipped"
 PREFERENCES_SUGGESTION = "preferences_suggestion"

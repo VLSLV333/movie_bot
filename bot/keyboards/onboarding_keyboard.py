@@ -1,73 +1,41 @@
-# This file contains onboarding keyboard functions that are not currently used
-# since we simplified the onboarding flow to just handle /start command.
-# Keeping this file for potential future use if we want to add onboarding back.
-
 from aiogram import types
-from bot.locales.keys import CUSTOM_NAME_BTN, LANG_ENGLISH, LANG_UKRAINIAN, LANG_RUSSIAN
+from bot.locales.keys import LANG_ENGLISH, LANG_UKRAINIAN, LANG_RUSSIAN
 from aiogram.utils.i18n import gettext
 
-def get_name_selection_keyboard(user: types.User) -> types.InlineKeyboardMarkup:
-    """Create keyboard for name selection - NOT CURRENTLY USED"""
-    keyboard = []
-    
-    # Add Telegram names if available
-    if user.first_name:
-        keyboard.append([types.InlineKeyboardButton(
-            text=user.first_name, 
-            callback_data=f"select_name:{user.first_name}"
-        )])
-    
-    if user.last_name:
-        keyboard.append([types.InlineKeyboardButton(
-            text=user.last_name, 
-            callback_data=f"select_name:{user.last_name}"
-        )])
-    
-    keyboard.append([types.InlineKeyboardButton(
-        text=gettext(CUSTOM_NAME_BTN), 
-        callback_data="custom_name"
-    )])
+def get_bot_language_selection_keyboard() -> types.InlineKeyboardMarkup:
+    """Create keyboard for bot interface language selection"""
+    keyboard = [
+        [types.InlineKeyboardButton(
+            text=gettext(LANG_UKRAINIAN),
+            callback_data="onboarding_bot_lang:uk"
+        )],
+        [types.InlineKeyboardButton(
+            text=gettext(LANG_ENGLISH),
+            callback_data="onboarding_bot_lang:en"
+        )],
+        [types.InlineKeyboardButton(
+            text=gettext(LANG_RUSSIAN),
+            callback_data="onboarding_bot_lang:ru"
+        )]
+    ]
     
     return types.InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_language_selection_keyboard(user_lang: str) -> types.InlineKeyboardMarkup:
-    """Create keyboard for language selection - NOT CURRENTLY USED"""
-    # Map language codes to translation keys
-    lang_keys = {
-        "uk": LANG_UKRAINIAN,
-        "en": LANG_ENGLISH, 
-        "ru": LANG_RUSSIAN,
-        # "es": "🇪🇸 Spanish",
-        # "fr": "🇫🇷 French",
-        # "de": "🇩🇪 German"
-    }
-    
-    keyboard = []
-    
-    # Show user's Telegram language first if it's supported
-    if user_lang in lang_keys:
-        keyboard.append([types.InlineKeyboardButton(
-            text=gettext(lang_keys[user_lang]),
-            callback_data=f"select_lang:{user_lang}"
-        )])
-    else:
-        keyboard.append([types.InlineKeyboardButton(
-            text=gettext(lang_keys['en']),
-            callback_data="select_lang:en"
-        )])
-    
-    # Add other supported languages
-    for lang_code, lang_key in lang_keys.items():
-        if lang_code != user_lang:
-            keyboard.append([types.InlineKeyboardButton(
-                text=gettext(lang_key), 
-                callback_data=f"select_lang:{lang_code}"
-            )])
-    
-    # Add "Other" option for future expansion
-    # keyboard.append([types.InlineKeyboardButton(
-    #     text="🌍 Other languages",
-    #     callback_data="other_lang"
-    # )])
+def get_movies_language_selection_keyboard() -> types.InlineKeyboardMarkup:
+    """Create keyboard for movies language preference selection"""
+    keyboard = [
+        [types.InlineKeyboardButton(
+            text=gettext(LANG_UKRAINIAN),
+            callback_data="onboarding_movies_lang:uk"
+        )],
+        [types.InlineKeyboardButton(
+            text=gettext(LANG_ENGLISH),
+            callback_data="onboarding_movies_lang:en"
+        )],
+        [types.InlineKeyboardButton(
+            text=gettext(LANG_RUSSIAN),
+            callback_data="onboarding_movies_lang:ru"
+        )]
+    ]
     
     return types.InlineKeyboardMarkup(inline_keyboard=keyboard) 

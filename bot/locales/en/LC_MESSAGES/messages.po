@@ -22,11 +22,11 @@ msgstr "Hi, I am Juli, your movie friend bot! 🎬\n\nI can help you find, watch
 msgid "onboarding_welcome"
 msgstr "Awesome! Only 2 questions"
 
-msgid "onboarding_name_question"
-msgstr "Choose your nickname:"
+msgid "onboarding_bot_lang_question"
+msgstr "What language should I use when talking with you? 😇"
 
-msgid "onboarding_language_question"
-msgstr "{user_name}, what language should I use when talking with you? 😇"
+msgid "onboarding_movies_lang_question"
+msgstr "🎬 Pick your favorite movie language:"
 
 msgid "onboarding_completed"
 msgstr "✅ Great! Your preferences have been saved."
