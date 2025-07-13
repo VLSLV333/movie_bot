@@ -10,6 +10,8 @@ from backend.video_redirector.db.crud_upload_accounts import (
     increment_uploads,
     get_account_stats_by_session_name,
     get_least_used_accounts_today,
+    create_or_get_account_stats,
+    get_all_stats,
 )
 import logging
 from backend.video_redirector.config import PROXY_CONFIG
@@ -277,11 +279,47 @@ class UploadAccount:
         # Check if we're in cooldown period
         if (self.client is None and 
             current_time - self.last_client_creation < self.client_creation_cooldown):
-            logger.warning(f"Account {self.session_name} in cooldown, waiting...")
-            await asyncio.sleep(self.client_creation_cooldown - (current_time - self.last_client_creation))
+            remaining_cooldown = self.client_creation_cooldown - (current_time - self.last_client_creation)
+            logger.warning(f"Account {self.session_name} in cooldown, waiting {remaining_cooldown:.1f}s...")
+            await asyncio.sleep(remaining_cooldown)
         
         if self.client is None:
             session_path = os.path.join(str(SESSION_DIR), str(self.session_name))
+            
+            # 🔍 ENHANCED DIAGNOSTICS: Check session file
+            session_file = f"{session_path}.session"
+            logger.info(f"🔍 [{self.session_name}] Checking session file: {session_file}")
+            
+            if not os.path.exists(session_file):
+                logger.error(f"❌ [{self.session_name}] Session file not found: {session_file}")
+                logger.error(f"   Expected directory: {SESSION_DIR}")
+                logger.error(f"   Directory exists: {os.path.exists(SESSION_DIR)}")
+                logger.error(f"   Directory contents: {os.listdir(SESSION_DIR) if os.path.exists(SESSION_DIR) else 'N/A'}")
+                return None
+            
+            # Check session file size and permissions
+            try:
+                session_size = os.path.getsize(session_file)
+                session_permissions = oct(os.stat(session_file).st_mode)[-3:]
+                logger.info(f"📁 [{self.session_name}] Session file size: {session_size} bytes, permissions: {session_permissions}")
+                
+                if session_size == 0:
+                    logger.error(f"❌ [{self.session_name}] Session file is empty: {session_file}")
+                    return None
+                elif session_size < 100:
+                    logger.warning(f"⚠️ [{self.session_name}] Session file seems too small: {session_size} bytes")
+            except Exception as e:
+                logger.error(f"❌ [{self.session_name}] Error checking session file: {e}")
+                return None
+            
+            # 🔍 ENHANCED DIAGNOSTICS: Check API credentials
+            logger.info(f"🔑 [{self.session_name}] API credentials check:")
+            logger.info(f"   API ID: {self.api_id} (type: {type(self.api_id)})")
+            logger.info(f"   API Hash: {self.api_hash[:10]}... (length: {len(self.api_hash)})")
+            
+            if not self.api_id or not self.api_hash:
+                logger.error(f"❌ [{self.session_name}] Missing API credentials")
+                return None
             
             # Configure proxy if enabled
             proxy_config = None
@@ -300,41 +338,69 @@ class UploadAccount:
                         proxy_config["username"] = username
                         proxy_config["password"] = password
                 
-                # Log proxy configuration
-                logger.info(f"🔧 Creating client with proxy for account {self.session_name}")
-                logger.info(f"   Proxy: {proxy_config['scheme']}://{proxy_config['hostname']}:{proxy_config['port']}")
-                if 'username' in proxy_config:
-                    logger.info(f"   Auth: {proxy_config['username']}:***")
+                # 🔍 ENHANCED DIAGNOSTICS: Log proxy configuration
+                logger.info(f"🌐 [{self.session_name}] Proxy configuration:")
+                logger.info(f"   Scheme: {proxy_config['scheme']}")
+                logger.info(f"   Hostname: {proxy_config['hostname']}")
+                logger.info(f"   Port: {proxy_config['port']}")
+                logger.info(f"   Username: {proxy_config.get('username', 'None')}")
+                logger.info(f"   Password: {'***' if proxy_config.get('password') else 'None'}")
             else:
-                logger.info(f"🔧 Creating client without proxy for account {self.session_name}")
+                logger.info(f"🌐 [{self.session_name}] No proxy configured")
             
-            # Create client with session name as first positional argument
-            if proxy_config:
-                self.client = Client(
-                    session_path,
-                    api_id=self.api_id,
-                    api_hash=self.api_hash,
-                    proxy=proxy_config
-                )
-            else:
-                self.client = Client(
-                    session_path,
-                    api_id=self.api_id,
-                    api_hash=self.api_hash
-                )
-            
-            await self.client.start()
-            self.last_client_creation = current_time
-            
-            # Get and log current IP after client creation
-            if PROXY_CONFIG["enabled"]:
-                current_ip = await get_current_ip()
-                if current_ip:
-                    logger.info(f"🌐 Client {self.session_name} created successfully with IP: {current_ip}")
+            # Create client with detailed error handling
+            try:
+                logger.info(f"🔧 [{self.session_name}] Creating Pyrogram client...")
+                
+                if proxy_config:
+                    self.client = Client(
+                        session_path,
+                        api_id=self.api_id,
+                        api_hash=self.api_hash,
+                        proxy=proxy_config
+                    )
                 else:
-                    logger.warning(f"⚠️ Client {self.session_name} created but IP detection failed")
-            else:
-                logger.info(f"✅ Client {self.session_name} created successfully (no proxy)")
+                    self.client = Client(
+                        session_path,
+                        api_id=self.api_id,
+                        api_hash=self.api_hash
+                    )
+                
+                logger.info(f"✅ [{self.session_name}] Client object created successfully")
+                
+                # Start client with detailed logging
+                logger.info(f"🚀 [{self.session_name}] Starting client...")
+                await self.client.start()
+                logger.info(f"✅ [{self.session_name}] Client started successfully")
+                
+                self.last_client_creation = current_time
+                
+                # Get and log current IP after client creation
+                if PROXY_CONFIG["enabled"]:
+                    current_ip = await get_current_ip()
+                    if current_ip:
+                        logger.info(f"🌐 [{self.session_name}] Client created with IP: {current_ip}")
+                    else:
+                        logger.warning(f"⚠️ [{self.session_name}] Client created but IP detection failed")
+                else:
+                    logger.info(f"✅ [{self.session_name}] Client created successfully (no proxy)")
+                    
+            except Exception as e:
+                logger.error(f"❌ [{self.session_name}] Failed to create/start client: {type(e).__name__}: {e}")
+                
+                # 🔍 ENHANCED DIAGNOSTICS: Categorize the error
+                error_str = str(e).lower()
+                if "session" in error_str or "auth" in error_str:
+                    logger.error(f"🔐 [{self.session_name}] Authentication/Session error - check API credentials and session file")
+                elif "proxy" in error_str or "connection" in error_str:
+                    logger.error(f"🌐 [{self.session_name}] Proxy/Connection error - check proxy configuration")
+                elif "timeout" in error_str:
+                    logger.error(f"⏰ [{self.session_name}] Timeout error - check network connectivity")
+                else:
+                    logger.error(f"❓ [{self.session_name}] Unknown error type - {type(e).__name__}")
+                
+                self.client = None
+                return None
         elif not self.client.is_connected:
             # Try to restart the client if it's not connected
             try:
@@ -482,6 +548,77 @@ def release_upload_permission():
 
 # --- DB-based stat functions ---
 
+async def initialize_all_accounts_in_db(db: AsyncSession):
+    """Initialize all upload accounts in the database to ensure proper load balancing"""
+    logger.info(f"🔧 Initializing {len(UPLOAD_ACCOUNT_POOL)} accounts in database...")
+    
+    initialized_count = 0
+    for account in UPLOAD_ACCOUNT_POOL:
+        try:
+            stats = await create_or_get_account_stats(db, account.session_name)
+            if stats:
+                logger.info(f"✅ Account {account.session_name} initialized in database")
+                initialized_count += 1
+            else:
+                logger.error(f"❌ Failed to initialize account {account.session_name} in database")
+        except Exception as e:
+            logger.error(f"❌ Error initializing account {account.session_name}: {e}")
+    
+    logger.info(f"🎯 Database initialization complete: {initialized_count}/{len(UPLOAD_ACCOUNT_POOL)} accounts initialized")
+    return initialized_count
+
+async def diagnose_account_distribution(db: AsyncSession):
+    """Diagnose the current distribution of accounts in the database"""
+    logger.info("🔍 Diagnosing account distribution in database...")
+    
+    try:
+        # Get all accounts from database
+        db_accounts = await get_all_stats(db)
+        db_account_names = {acc.session_name for acc in db_accounts}
+        
+        # Get all configured accounts
+        configured_account_names = {acc.session_name for acc in UPLOAD_ACCOUNT_POOL}
+        
+        # Find missing accounts
+        missing_accounts = configured_account_names - db_account_names
+        extra_accounts = db_account_names - configured_account_names
+        
+        logger.info(f"📊 Account Distribution Analysis:")
+        logger.info(f"   Configured accounts: {len(configured_account_names)}")
+        logger.info(f"   Database accounts: {len(db_account_names)}")
+        logger.info(f"   Missing from DB: {len(missing_accounts)}")
+        logger.info(f"   Extra in DB: {len(extra_accounts)}")
+        
+        if missing_accounts:
+            logger.warning(f"⚠️ Missing accounts in database: {list(missing_accounts)}")
+        
+        if extra_accounts:
+            logger.warning(f"⚠️ Extra accounts in database: {list(extra_accounts)}")
+        
+        # Show usage statistics
+        if db_accounts:
+            logger.info(f"📈 Current usage statistics:")
+            for acc in sorted(db_accounts, key=lambda x: getattr(x, 'today_uploads', 0)):
+                today_uploads = getattr(acc, 'today_uploads', 0) or 0
+                total_uploads = getattr(acc, 'total_uploads', 0) or 0
+                last_upload_date = getattr(acc, 'last_upload_date', 'Never')
+                logger.info(f"   {acc.session_name}: {today_uploads} today, {total_uploads} total, last: {last_upload_date}")
+        
+        return {
+            "configured_count": len(configured_account_names),
+            "database_count": len(db_account_names),
+            "missing_accounts": list(missing_accounts),
+            "extra_accounts": list(extra_accounts),
+            "needs_initialization": len(missing_accounts) > 0
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error diagnosing account distribution: {e}")
+        return {
+            "error": str(e),
+            "needs_initialization": True
+        }
+
 async def increment_daily_stat(db: AsyncSession, session_name: str):
     await increment_uploads(db, session_name)
 
@@ -502,40 +639,53 @@ async def get_least_used_accounts(db: AsyncSession):
 
 async def select_upload_account(db: AsyncSession):
     """Select the best available upload account with improved rate limiting handling"""
-    # First try to get least used accounts
-    least_used = await get_least_used_accounts(db)
-    
-    # Check least used accounts first
-    for idx in least_used:
-        acc = UPLOAD_ACCOUNT_POOL[idx]
-        if not acc.busy:
-            # Check if account was recently used (within last 30 seconds)
-            if time.time() - acc.last_used > 30:
-                # Only check health if client exists, don't create new connections
-                if acc.client is None or await acc.is_client_healthy():
-                    return idx, acc
-                else:
-                    # Client is unhealthy, stop it and continue
-                    logger.warning(f"Account {acc.session_name} has unhealthy client, stopping it")
-                    await acc.stop_client()
-    
-    # If no least used accounts available, try any non-busy account
-    for idx, acc in enumerate(UPLOAD_ACCOUNT_POOL):
-        if not acc.busy:
-            # Check if account was recently used (within last 30 seconds)
-            if time.time() - acc.last_used > 30:
-                # Only check health if client exists, don't create new connections
-                if acc.client is None or await acc.is_client_healthy():
-                    return idx, acc
-                else:
-                    # Client is unhealthy, stop it and continue
-                    logger.warning(f"Account {acc.session_name} has unhealthy client, stopping it")
-                    await acc.stop_client()
-    
-    # If all accounts are busy or recently used, wait a bit and return the first one
-    logger.warning("All upload accounts are busy or recently used, waiting...")
-    await asyncio.sleep(10)  # Wait 10 seconds
-    return 0, UPLOAD_ACCOUNT_POOL[0]
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # First try to get least used accounts
+            least_used = await get_least_used_accounts(db)
+            
+            # Check least used accounts first
+            for idx in least_used:
+                acc = UPLOAD_ACCOUNT_POOL[idx]
+                if not acc.busy:
+                    # Check if account was recently used (within last 30 seconds)
+                    if time.time() - acc.last_used > 30:
+                        # Only check health if client exists, don't create new connections
+                        if acc.client is None or await acc.is_client_healthy():
+                            return idx, acc
+                        else:
+                            # Client is unhealthy, stop it and continue
+                            logger.warning(f"Account {acc.session_name} has unhealthy client, stopping it")
+                            await acc.stop_client()
+            
+            # If no least used accounts available, try any non-busy account
+            for idx, acc in enumerate(UPLOAD_ACCOUNT_POOL):
+                if not acc.busy:
+                    # Check if account was recently used (within last 30 seconds)
+                    if time.time() - acc.last_used > 30:
+                        # Only check health if client exists, don't create new connections
+                        if acc.client is None or await acc.is_client_healthy():
+                            return idx, acc
+                        else:
+                            # Client is unhealthy, stop it and continue
+                            logger.warning(f"Account {acc.session_name} has unhealthy client, stopping it")
+                            await acc.stop_client()
+            
+            # If all accounts are busy or recently used, wait a bit and return the first one
+            logger.warning("All upload accounts are busy or recently used, waiting...")
+            await asyncio.sleep(10)  # Wait 10 seconds
+            return 0, UPLOAD_ACCOUNT_POOL[0]
+            
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Database error in select_upload_account (attempt {attempt + 1}): {e}")
+                await asyncio.sleep(1 * (attempt + 1))  # Exponential backoff
+                continue
+            else:
+                logger.error(f"Database error in select_upload_account after {max_retries} attempts: {e}")
+                # Fallback to first account
+                return 0, UPLOAD_ACCOUNT_POOL[0]
 
 async def idle_client_cleanup():
     while True:

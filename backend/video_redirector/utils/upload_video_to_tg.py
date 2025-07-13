@@ -371,6 +371,25 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                 account.busy = True
                 try:
                     client = await account.ensure_client_ready()
+                    
+                    # Add null check for client
+                    if client is None:
+                        logger.error(f"❌ [{task_id}] Client initialization failed for account {account.session_name}")
+                        logger.error(f"   Account state - Busy: {account.busy}, Last used: {account.last_used}")
+                        logger.error(f"   Client state - Client: {account.client}, Last creation: {account.last_client_creation}")
+                        
+                        await notify_admin(f"🔐 [{task_id}] Client initialization failed for account {account.session_name}")
+                        await update_last_error(db, account.session_name, "Client initialization failed")
+                        await log_upload_metrics(task_id, file_size, False, retry_count)
+                        
+                        # Log failed upload
+                        total_duration = time.time() - upload_start_time
+                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+                        
+                        return None
+                    
+                    logger.info(f"✅ [{task_id}] Client ready for {account.session_name}")
+                    
                     # Upload with timeout
                     start_time = datetime.datetime.now()
                     logger.info(f"[{task_id}] [Part {part_num}] Starting upload at {start_time:%Y-%m-%d %H:%M:%S}")
@@ -497,8 +516,19 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     error_type = type(err).__name__
                     logger.error(f"❌ [{task_id}] Upload failed for part {part_num} (attempt {attempt + 1}): {error_type}: {err}")
 
-                    # Handle specific error types
-                    if "network" in str(err).lower() or "connection" in str(err).lower():
+                    # 🔍 ENHANCED DIAGNOSTICS: Detailed error classification
+                    if "database is locked" in str(err).lower() or "OperationalError" in error_type:
+                        logger.warning(f"🔒 [{task_id}] Database lock detected, waiting longer...")
+                        logger.warning(f"   Error details: {error_type} - {err}")
+                        logger.warning(f"   Account: {account.session_name}")
+                        logger.warning(f"   Attempt: {attempt + 1}/{MAX_RETRIES}")
+                        
+                        # Log database pool status (removed due to type issues)
+                        logger.warning(f"   Database lock detected, pool status unavailable")
+                        
+                        await asyncio.sleep(RETRY_DELAY * (attempt + 1) * 3)  # Longer delay for DB issues
+                        continue
+                    elif "network" in str(err).lower() or "connection" in str(err).lower():
                         logger.info(f"[{task_id}] Network error detected, will retry...")
                     elif "rate" in str(err).lower() or "flood" in str(err).lower():
                         logger.warning(f"[{task_id}] Rate limit detected, waiting longer...")
@@ -750,7 +780,7 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db):
                     continue
 
                 # Upload parts sequentially with delays to avoid rate limits
-                for idx, part_path in enumerate(part_paths):
+                for idx, part_path in enumerate(part_paths or []):
                     try:
                         # Add delay between uploads to avoid rate limits
                         if idx > 0:
