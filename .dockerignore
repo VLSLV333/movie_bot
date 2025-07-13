@@ -73,3 +73,4 @@ backend/session_files/
 *.vscode/
 
 *upload_accounts.json
+test_if_file_available_in_tg.py

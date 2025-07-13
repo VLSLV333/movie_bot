@@ -62,4 +62,4 @@ pgadmin_config_local.py
 
 bot/locales/__pycache__/
 bot/locales/*.pot
-bot/locales/*.pyc
+test_if_file_available_in_tg.py
