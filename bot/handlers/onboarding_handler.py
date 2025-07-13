@@ -149,17 +149,19 @@ async def start_handler(message: types.Message, state: FSMContext):
     logger.info(f"[User {user_id}] FSM locale set to: {user_lang}")
 
     # Show welcome message and start onboarding
-    keyboard = get_bot_language_selection_keyboard()
+    keyboard = get_main_menu_keyboard()
     await message.answer_animation(
         animation=WELCOME_GIF_URL,
         caption=gettext(WELCOME_MESSAGE),
         reply_markup=keyboard
     )
+
+    lang_keyboard = get_bot_language_selection_keyboard()
     
     # Ask first question: Bot interface language
     await message.answer(
         gettext(ONBOARDING_BOT_LANG_QUESTION),
-        reply_markup=keyboard
+        reply_markup=lang_keyboard
     )
 
     if not user_data:
@@ -190,8 +192,10 @@ async def handle_bot_language_selection(query: types.CallbackQuery, state: FSMCo
     # Ask second question: Movies language preference
     keyboard = get_movies_language_selection_keyboard()
     if query.message:
-        await query.message.edit_text(
-            gettext(ONBOARDING_MOVIES_LANG_QUESTION),
+        await query.message.delete()
+        await query.bot.send_message(
+            chat_id=query.from_user.id,
+            text=gettext(ONBOARDING_MOVIES_LANG_QUESTION),
             reply_markup=keyboard
         )
     
