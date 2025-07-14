@@ -52,7 +52,9 @@ async def get_all_movie_parts(
             ]
         }
 
-
+    except HTTPException:
+        # Re-raise HTTPExceptions (like 404) without modification
+        raise
     except Exception as e:
         logger.exception(f"Failed to get file_id: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -74,7 +76,9 @@ async def get_all_movie_parts_by_id(
             ]
         }
 
-
+    except HTTPException:
+        # Re-raise HTTPExceptions without modification
+        raise
     except Exception as e:
         logger.exception(f"Failed to get file_id: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -98,6 +102,9 @@ async def get_all_dubs_in_db_for_selected_movie_route(
             }
             for entry in entries
         ]
+    except HTTPException:
+        # Re-raise HTTPExceptions without modification
+        raise
     except Exception as e:
         logger.exception(f"Failed to get files_id: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -124,6 +131,9 @@ async def cleanup_expired_file_route(
             
         return result
         
+    except HTTPException:
+        # Re-raise HTTPExceptions without modification
+        raise
     except Exception as e:
         logger.exception(f"Failed to cleanup expired file ID {payload.telegram_file_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error during cleanup")
@@ -151,6 +161,9 @@ async def validate_file_ids_route(
                 "stats": stats
             }
         
+    except HTTPException:
+        # Re-raise HTTPExceptions without modification
+        raise
     except Exception as e:
         logger.exception(f"Failed to validate file IDs: {e}")
         raise HTTPException(status_code=500, detail=f"File ID validation failed: {str(e)}")
