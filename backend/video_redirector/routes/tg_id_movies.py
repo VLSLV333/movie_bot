@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.video_redirector.db.session import get_db
-from backend.video_redirector.db.crud_downloads import get_file_id, get_parts_for_downloaded_file, get_files_by_tmdb_and_lang
+from backend.video_redirector.db.crud_downloads import get_file_id, get_parts_for_downloaded_file, get_files_by_tmdb_and_lang, cleanup_expired_file
 from pydantic import BaseModel
 from typing import Optional
 
@@ -19,6 +19,8 @@ class FileIDCreateRequest(BaseModel):
     telegram_file_id: str
     quality: Optional[str] = "unknown"
 
+class CleanupExpiredFileRequest(BaseModel):
+    telegram_file_id: str
 
 @router.get("/all_movie_parts")
 async def get_all_movie_parts(
@@ -96,39 +98,28 @@ async def get_all_dubs_in_db_for_selected_movie_route(
         logger.exception(f"Failed to get files_id: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-
-# @router.post("/file_id")
-# async def save_file_id_route(
-#     payload: FileIDCreateRequest,
-#     db: AsyncSession = Depends(get_db),
-# ):
-#     try:
-#         await save_file_id(
-#             session=db,
-#             tmdb_id=payload.tmdb_id,
-#             lang=payload.lang,
-#             dub=payload.dub,
-#             telegram_file_id=payload.telegram_file_id,
-#             quality=payload.quality,
-#             tg_bot_token_file_owner=payload.tg_bot_token_file_owner
-#         )
-#         logger.info(f"Saved file_id for tmdb_id={payload.tmdb_id}, dub={payload.dub}, quality={payload.quality}")
-#         return {"status": "saved"}
-#     except Exception as e:
-#         logger.exception(f"Failed to save file_id: {e}")
-#         raise HTTPException(status_code=500, detail="Internal server error")
-#
-# @router.delete("/file_id")
-# async def delete_file_id_route(
-#     tmdb_id: int = Query(...),
-#     lang: str = Query(...),
-#     dub: str = Query(...),
-#     db: AsyncSession = Depends(get_db),
-# ):
-#     try:
-#         await delete_file_id(db, tmdb_id, lang, dub)
-#         logger.info(f"Deleted file_id for tmdb_id={tmdb_id}, lang={lang}, dub={dub}")
-#         return {"status": "deleted"}
-#     except Exception as e:
-#         logger.exception(f"Failed to delete file_id: {e}")
-#         raise HTTPException(status_code=500, detail="Internal server error")
+@router.post("/cleanup-expired-file")
+async def cleanup_expired_file_route(
+    payload: CleanupExpiredFileRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Clean up expired Telegram file ID and all related database records.
+    This endpoint is called by the delivery bot when it encounters
+    'wrong file identifier' errors from Telegram.
+    """
+    try:
+        logger.info(f"Attempting to cleanup expired file ID: {payload.telegram_file_id}")
+        
+        result = await cleanup_expired_file(db, payload.telegram_file_id)
+        
+        if result["success"]:
+            logger.info(f"Successfully cleaned up expired file: {result}")
+        else:
+            logger.warning(f"Cleanup failed: {result}")
+            
+        return result
+        
+    except Exception as e:
+        logger.exception(f"Failed to cleanup expired file ID {payload.telegram_file_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during cleanup")

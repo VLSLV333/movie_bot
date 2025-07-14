@@ -398,7 +398,7 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     send_video_params = {
                         "chat_id": str(TG_DELIVERY_BOT_USERNAME),
                         "video": file_path,
-                        "caption": f"🎬{part_num}",
+                        "caption": "video",
                         "disable_notification": True,
                         "supports_streaming": True
                     }

@@ -9,9 +9,11 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import Message
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
+from aiogram.exceptions import TelegramBadRequest
 from redis.asyncio import Redis
 from dotenv import load_dotenv
 from aiogram.client.default import DefaultBotProperties
+from delivery_bot.cleanup_expired_file_id import clean_up_expired_file_id
 
 load_dotenv()
 
@@ -143,7 +145,16 @@ async def handle_start(message: Message):
 
                 if "telegram_file_id" in result:
                     await message.answer("Enjoy your content❤️")
-                    await bot.send_video(chat_id=user_id, video=result["telegram_file_id"])
+                    try:
+                        await bot.send_video(chat_id=user_id, video=result["telegram_file_id"])
+                    except TelegramBadRequest as e:
+                        if "wrong file identifier" in str(e).lower():
+                            logger.warning(f"Expired file ID detected for user {user_id}: {result['telegram_file_id']}")
+                            await clean_up_expired_file_id(result["telegram_file_id"])
+                            await message.answer("😭 This video has expired. Please, download from the main bot, it will work 😇")
+                            await notify_admin(f"Expired file ID cleaned up for user {user_id}, task_id: {task_id}")
+                        else:
+                            raise e
                 elif "db_id_to_get_parts" in result:
                     db_id = result["db_id_to_get_parts"]
                     async with aiohttp.ClientSession() as session:
@@ -155,9 +166,33 @@ async def handle_start(message: Message):
                             data = await resp.json()
                     parts = data.get("parts", [])
                     logger.info(f"Sending {len(parts)} parts to user {user_id}")
+                    
+                    expired_parts = []
                     for part in parts:
-                        await bot.send_video(chat_id=user_id, video=part["telegram_file_id"])
-                    await message.answer("Enjoy your content❤️")
+                        try:
+                            await bot.send_video(chat_id=user_id, video=part["telegram_file_id"])
+                        except TelegramBadRequest as e:
+                            if "wrong file identifier" in str(e).lower():
+                                logger.warning(f"Expired file ID detected in multipart for user {user_id}: {part['telegram_file_id']}")
+                                expired_parts.append(part["telegram_file_id"])
+                                
+                                # Clean up expired file and break loop if successful
+                                cleanup_result = await clean_up_expired_file_id(part["telegram_file_id"])
+                                if cleanup_result and cleanup_result.get('success') == True:
+                                    logger.info(f"Successfully cleaned up file: {cleanup_result['message']}")
+                                    logger.info(f"Deleted {cleanup_result['deleted_parts']} parts and file record: {cleanup_result['deleted_file']}")
+                                    await notify_admin(f"Expired file cleaned up for user {user_id}, task_id: {task_id}. "
+                                                     f"Deleted {cleanup_result['deleted_parts']} parts, file_id: {cleanup_result['downloaded_file_id']}")
+                                    break  # Exit loop since all parts for this file are now deleted
+                                else:
+                                    logger.error(f"Failed to cleanup expired file ID: {part['telegram_file_id']}")
+                            else:
+                                raise e
+                    
+                    if expired_parts:
+                        await message.answer("😭 I could not give you full movie. Please, download from the main bot again, it will work 😇")
+                    else:
+                        await message.answer("Enjoy your content❤️")
                 else:
                     logger.error(f"Invalid result format for user {user_id}: {result}")
                     raise ValueError("Invalid result format")
@@ -226,9 +261,33 @@ async def handle_start(message: Message):
                         data = await resp.json()
                 parts = data.get("parts", [])
                 logger.info(f"Sending {len(parts)} parts to user {user_id}")
+                
+                expired_parts = []
                 for part in parts:
-                    await bot.send_video(chat_id=user_id, video=part["telegram_file_id"])
-                await message.answer("Enjoy your content❤️")
+                    try:
+                        await bot.send_video(chat_id=user_id, video=part["telegram_file_id"])
+                    except TelegramBadRequest as e:
+                        if "wrong file identifier" in str(e).lower():
+                            logger.warning(f"Expired file ID detected in watch flow for user {user_id}: {part['telegram_file_id']}")
+                            expired_parts.append(part["telegram_file_id"])
+                            
+                            # Clean up expired file and break loop if successful
+                            cleanup_result = await clean_up_expired_file_id(part["telegram_file_id"])
+                            if cleanup_result and cleanup_result.get('success') == True:
+                                logger.info(f"Successfully cleaned up file: {cleanup_result['message']}")
+                                logger.info(f"Deleted {cleanup_result['deleted_parts']} parts and file record: {cleanup_result['deleted_file']}")
+                                await notify_admin(f"Expired file cleaned up for user {user_id}, watch_token: {watch_token}. "
+                                                 f"Deleted {cleanup_result['deleted_parts']} parts, file_id: {cleanup_result['downloaded_file_id']}")
+                                break  # Exit loop since all parts for this file are now deleted
+                            else:
+                                logger.error(f"Failed to cleanup expired file ID: {part['telegram_file_id']}")
+                        else:
+                            raise e
+                
+                if expired_parts:
+                    await message.answer("😭 I could not give you full movie. Please, download  from the main bot again, it will work 😇")
+                else:
+                    await message.answer("Enjoy your content❤️")
 
             except Exception as e:
                 logger.error(f"Failed to handle watch_downloaded flow for user {user_id}: {e}", exc_info=e)

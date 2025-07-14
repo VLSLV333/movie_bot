@@ -47,25 +47,60 @@ async def get_parts_for_downloaded_file(session: AsyncSession, file_id: int):
     result = await session.execute(stmt)
     return result.scalars().all()
 
-# async def save_file_id(session: AsyncSession, tmdb_id: int, lang: str, dub: str, telegram_file_id: str, quality: str,tg_bot_token_file_owner:str):
-#     file_entry = DownloadedFile(
-#         tmdb_id=tmdb_id,
-#         lang=lang,
-#         dub=dub,
-#         quality=quality,
-#         created_at=datetime.utcnow(),
-#         tg_bot_token_file_owner=tg_bot_token_file_owner
-#     )
-#     session.add(file_entry)
-#     await session.commit()
-#
-#
-# async def delete_file_id(session: AsyncSession, tmdb_id: int, lang: str, dub: str):
-#     stmt = delete(DownloadedFile).where(
-#         DownloadedFile.tmdb_id == tmdb_id,
-#         DownloadedFile.lang == lang,
-#         DownloadedFile.dub == dub
-#     )
-#     await session.execute(stmt)
-#     await session.commit()
-
+async def cleanup_expired_file(session: AsyncSession, telegram_file_id: str):
+    """
+    Clean up expired Telegram file ID and all related records.
+    
+    Args:
+        session: Database session
+        telegram_file_id: The expired Telegram file ID
+        
+    Returns:
+        dict: Cleanup result with details about what was deleted
+    """
+    try:
+        # First, find the DownloadedFilePart with the expired telegram_file_id
+        stmt = select(DownloadedFilePart).where(
+            DownloadedFilePart.telegram_file_id == telegram_file_id
+        )
+        result = await session.execute(stmt)
+        file_part = result.scalar_one_or_none()
+        
+        if not file_part:
+            return {
+                "success": False,
+                "message": f"No file part found with telegram_file_id: {telegram_file_id}",
+                "deleted_parts": 0,
+                "deleted_file": False
+            }
+        
+        downloaded_file_id = file_part.downloaded_file_id
+        
+        # Delete all parts for this downloaded file
+        delete_parts_stmt = delete(DownloadedFilePart).where(
+            DownloadedFilePart.downloaded_file_id == downloaded_file_id
+        )
+        result = await session.execute(delete_parts_stmt)
+        deleted_parts_count = result.rowcount
+        
+        # Delete the corresponding DownloadedFile record
+        delete_file_stmt = delete(DownloadedFile).where(
+            DownloadedFile.id == downloaded_file_id
+        )
+        result = await session.execute(delete_file_stmt)
+        deleted_file_count = result.rowcount
+        
+        # Commit the transaction
+        await session.commit()
+        
+        return {
+            "success": True,
+            "message": f"Successfully cleaned up expired file ID: {telegram_file_id}",
+            "deleted_parts": deleted_parts_count,
+            "deleted_file": deleted_file_count > 0,
+            "downloaded_file_id": downloaded_file_id
+        }
+        
+    except Exception as e:
+        await session.rollback()
+        raise e
