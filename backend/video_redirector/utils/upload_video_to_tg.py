@@ -743,7 +743,8 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db):
                         logger.info(f"✅ [{task_id}] Single-part upload complete. file_id: {file_id}")
                         return {
                             "bot_token": token,
-                            "parts": [{"part": 1, "file_id": file_id}]
+                            "parts": [{"part": 1, "file_id": file_id}],
+                            "session_name": account.session_name
                         }
                     else:
                         logger.error(f"[{task_id}] Upload of single-part file failed.")
@@ -806,7 +807,8 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db):
                     logger.info(f"✅ [{task_id}] Multipart upload complete. {len(parts_result)} parts uploaded.")
                     return {
                         "bot_token": token,
-                        "parts": parts_result
+                        "parts": parts_result,
+                        "session_name": account.session_name
                     }
                 else:
                     logger.warning(f"[{task_id}] Upload incomplete with bot {token[:10]}... Trying another...")

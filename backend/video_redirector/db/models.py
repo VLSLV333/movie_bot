@@ -57,6 +57,7 @@ class DownloadedFile(Base):
     movie_poster = Column(String, nullable=True)
     movie_url = Column(String, nullable=True)
     checked_by_admin = Column(Boolean, default=False)
+    session_name = Column(String, nullable=True)
 
 class DownloadedFilePart(Base):
     __tablename__ = "downloaded_file_parts"

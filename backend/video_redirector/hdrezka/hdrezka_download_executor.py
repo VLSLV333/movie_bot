@@ -47,6 +47,7 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
 
         tg_bot_token_file_owner = upload_result["bot_token"]
         parts = upload_result["parts"]
+        session_name = upload_result["session_name"]
 
         # Save in DB
         async for session in get_db():
@@ -59,7 +60,8 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
                 created_at=datetime.now(timezone.utc),
                 movie_title=movie_title,
                 movie_poster=movie_poster,
-                movie_url=movie_url
+                movie_url=movie_url,
+                session_name=session_name
             )
             session.add(db_entry)
             await session.flush()  # Get db_entry.id

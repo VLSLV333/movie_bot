@@ -61,5 +61,6 @@ async def get_downloaded_file_by_tmdb_id(tmdb_id: int, db: AsyncSession = Depend
         "movie_title": file.movie_title,
         "movie_poster": file.movie_poster,
         "movie_url": file.movie_url,
-        "checked_by_admin": file.checked_by_admin
+        "checked_by_admin": file.checked_by_admin,
+        "session_name": file.session_name
     }
