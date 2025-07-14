@@ -248,7 +248,6 @@ async def download_mirror_handler(query: types.CallbackQuery):
 
         for file in list_of_available_dubs_for_tmdb_id_and_lang:
             logger.info(f'file: {file}')
-            logger.info(f'dub: {file['dub']}')
 
             dub = file['dub']
             token = generate_token(tmdb_id, user_lang, dub)
