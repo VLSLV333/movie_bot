@@ -264,7 +264,6 @@ async def handle_start(message: Message):
                         if resp.status == 404:
                             logger.warning(f"Database file not found for user {user_id}, tmdb_id={tmdb_id}, lang={lang}, dub={dub}")
                             await message.answer('😭 This video has expired. Please, click "📥 Download" in the main bot, it will work 😇')
-                            await notify_admin(f"Tried to get from DB movie for user {user_id}, watch_token: {watch_token}, but no such file was found in DB (tmdb_id={tmdb_id}, lang={lang}, dub={dub})")
                             return
                         elif resp.status != 200:
                             logger.error(f"Failed to fetch movie parts for user {user_id}, status={resp.status}")
