@@ -235,8 +235,6 @@ async def download_mirror_handler(query: types.CallbackQuery):
         async with session.get(ALL_DUBS_FOR_TMDB_ID, params={"tmdb_id": tmdb_id, "lang": user_lang}) as resp:
             list_of_available_dubs_for_tmdb_id_and_lang = await resp.json()
 
-            logger.info(f'list_of_available_dubs_for_tmdb_id_and_lang: {list_of_available_dubs_for_tmdb_id_and_lang}')
-
             await redis.set(f"ready_to_download_dubs_list:{stream_id}", json.dumps({
                 "dubs_list": list_of_available_dubs_for_tmdb_id_and_lang,
                 "lang": user_lang,
@@ -247,7 +245,6 @@ async def download_mirror_handler(query: types.CallbackQuery):
         kb = []
 
         for file in list_of_available_dubs_for_tmdb_id_and_lang:
-            logger.info(f'file: {file}')
 
             dub = file['dub']
             token = generate_token(tmdb_id, user_lang, dub)

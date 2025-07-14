@@ -54,7 +54,6 @@ async def log_database_pool_status():
         logger.info(f"   Checked Out: {pool.checkedout()}")
         logger.info(f"   Checked In: {pool.checkedin()}")
         logger.info(f"   Overflow: {pool.overflow()}")
-        logger.info(f"   Invalid: {pool.invalid()}")
         logger.info(f"   Total Operations: {_db_operation_count}")
         logger.info(f"   Total Errors: {_db_error_count}")
         logger.info(f"   Lock Errors: {_db_lock_count}")
