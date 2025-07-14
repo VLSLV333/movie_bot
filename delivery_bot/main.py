@@ -151,7 +151,7 @@ async def handle_start(message: Message):
                         if "wrong file identifier" in str(e).lower():
                             logger.warning(f"Expired file ID detected for user {user_id}: {result['telegram_file_id']}")
                             await clean_up_expired_file_id(result["telegram_file_id"])
-                            await message.answer("😭 This video has expired. Please, download from the main bot, it will work 😇")
+                            await message.answer('😭 This video has expired. Please, click "📥 Download" in the main bot, it will work 😇')
                             await notify_admin(f"Expired file ID cleaned up for user {user_id}, task_id: {task_id}")
                         else:
                             raise e
@@ -160,7 +160,13 @@ async def handle_start(message: Message):
                     async with aiohttp.ClientSession() as session:
                         async with session.get(
                                 f"https://moviebot.click/all_movie_parts_by_id?db_id={db_id}") as resp:
-                            if resp.status != 200:
+                            if resp.status == 404:
+                                # Database file was deleted but Redis token still exists
+                                logger.warning(f"Database file not found for user {user_id}, db_id={db_id}")
+                                await message.answer('😭 This video has expired. Please, click "📥 Download" in the main bot, it will work 😇')
+                                await notify_admin(f"Tried to get from DB movie for user {user_id}, task_id: {task_id}, but no such file was found in DB (db_id={db_id})")
+                                return
+                            elif resp.status != 200:
                                 logger.error(f"Failed to retrieve multipart file info from backend, status={resp.status}")
                                 raise Exception("Failed to retrieve multipart file info from backend")
                             data = await resp.json()
@@ -190,7 +196,7 @@ async def handle_start(message: Message):
                                 raise e
                     
                     if expired_parts:
-                        await message.answer("😭 I could not give you full movie. Please, download from the main bot again, it will work 😇")
+                        await message.answer('😭 I could not give you full movie. Please, click "📥 Download" in the main bot, it will work 😇')
                     else:
                         await message.answer("Enjoy your content❤️")
                 else:
@@ -255,7 +261,12 @@ async def handle_start(message: Message):
                     async with session.get(
                             f"https://moviebot.click/all_movie_parts?tmdb_id={tmdb_id}&lang={lang}&dub={quote(dub)}"
                     ) as resp:
-                        if resp.status != 200:
+                        if resp.status == 404:
+                            logger.warning(f"Database file not found for user {user_id}, tmdb_id={tmdb_id}, lang={lang}, dub={dub}")
+                            await message.answer('😭 This video has expired. Please, click "📥 Download" in the main bot, it will work 😇')
+                            await notify_admin(f"Tried to get from DB movie for user {user_id}, watch_token: {watch_token}, but no such file was found in DB (tmdb_id={tmdb_id}, lang={lang}, dub={dub})")
+                            return
+                        elif resp.status != 200:
                             logger.error(f"Failed to fetch movie parts for user {user_id}, status={resp.status}")
                             raise Exception("Failed to fetch movie parts")
                         data = await resp.json()
@@ -285,7 +296,7 @@ async def handle_start(message: Message):
                             raise e
                 
                 if expired_parts:
-                    await message.answer("😭 I could not give you full movie. Please, download  from the main bot again, it will work 😇")
+                    await message.answer('😭 I could not give you full movie. Please, click "📥 Download" in the main bot, it will work 😇')
                 else:
                     await message.answer("Enjoy your content❤️")
 

@@ -514,6 +514,14 @@ async def watch_downloaded_handler(query: types.CallbackQuery):
     user_id = query.from_user.id
     token = query.data.split("watch_downloaded:")[1]  # type: ignore
 
+    # Delete the original message with dub selection options
+    try:
+        if query.message is not None:
+            await query.message.delete()
+    except Exception as e:
+        logger.error(f"[User {user_id}] Failed to delete original message: {e}")
+        # Continue with the flow even if deletion fails
+
     redis = RedisClient.get_client()
     selected_data_json = await redis.get(f"downloaded_dub_info:{token}")
     if selected_data_json:
@@ -525,14 +533,19 @@ async def watch_downloaded_handler(query: types.CallbackQuery):
     signed = f"{token}_{hmac.new(os.getenv('BACKEND_DOWNLOAD_SECRET').encode(), token.encode(), hashlib.sha256).hexdigest()[:10]}"  # type: ignore
     delivery_bot_link = f"https://t.me/deliv3ry_bot?start=2_{signed}"
 
-    await query.message.answer(
-        gettext(MOVIE_READY_TO_WATCH_DELIVERY).format(movie_title=movie_title),
-        reply_markup=types.InlineKeyboardMarkup(
-            inline_keyboard=[
-                [types.InlineKeyboardButton(text=gettext(GET_MOVIE_FROM_DELIVERY_BOT), url=delivery_bot_link)]
-            ]
+    if query is not None and getattr(query, 'bot', None) is not None:
+        await query.bot.send_message(
+            chat_id=user_id,
+            text=gettext(MOVIE_READY_TO_WATCH_DELIVERY).format(movie_title=movie_title),
+            reply_markup=types.InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [types.InlineKeyboardButton(text=gettext(GET_MOVIE_FROM_DELIVERY_BOT), url=delivery_bot_link)]
+                ]
+            )
         )
-    )  # type: ignore
+    else:
+        logger.error("query or query.bot is None, cannot send message to user.")
+    
     await query.answer()  # type: ignore
 
 @router.callback_query(F.data.startswith("select_dub:"))
