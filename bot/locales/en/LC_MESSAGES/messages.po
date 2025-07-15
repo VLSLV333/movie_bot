@@ -92,7 +92,7 @@ msgid "set_preferences_btn"
 msgstr "⚙️ Set Preferences"
 
 msgid "maybe_later_btn"
-msgstr "❌ Maybe Later"
+msgstr "🤔 Maybe Later"
 
 msgid "continue_btn"
 msgstr "▶️ Continue"
@@ -117,7 +117,7 @@ msgid "success"
 msgstr "✅ Success!"
 
 msgid "error_occurred"
-msgstr "❌ An error occurred."
+msgstr "😭 An error occurred."
 
 # Language Names
 msgid "lang_english"
@@ -212,13 +212,13 @@ msgid "select_language_for_movies"
 msgstr "🌍 Select your preferred language for watching movies:"
 
 msgid "error_cannot_show_language_options"
-msgstr "❌ Error: Cannot show language options"
+msgstr "😭 Error: Cannot show language options"
 
 msgid "language_updated_successfully"
 msgstr "✅ Language set to: {language}\n\nPress ▶️Watch or 💾Download — the movie will be in the selected language."
 
 msgid "error_update_language_failed"
-msgstr "❌ Couldn't update language, please try later"
+msgstr "😭 Couldn't update language, please try later"
 
 msgid "session_expired_restart_search"
 msgstr "😅 I already forgot what we were searching! Please start a new search 👇"
@@ -260,7 +260,7 @@ msgid "end_onboarding_success"
 msgstr "✅ Perfect! Your preferences have been saved.\n\n🎬 You are set to start finding amazing movies!"
 
 msgid "end_onboarding_fail"
-msgstr "❌ Sorry, there was an issue saving your preferences. You can try again later in settings."
+msgstr "😭 Sorry, there was an issue saving your preferences. You can try again later in settings."
 
 msgid "search_by_name_prompt"
 msgstr "🎬 I'm ready! Just type the name of the movie you're looking for 👇"
@@ -269,7 +269,7 @@ msgid "no_search_results_try_again"
 msgstr "🧐 Hmm, I couldn't find anything matching. Try searching for something else👇\n\nOr press Back to return."
 
 msgid "movie_link_no_longer_valid"
-msgstr "❌ This movie link is no longer valid. Please re-search from the main menu."
+msgstr "🫠 This movie link is no longer valid. Please re-search from the main menu."
 
 msgid "lost_movie_data_research"
 msgstr "I lost the movie somewhere along the way😭\n Please re-search from the main menu."

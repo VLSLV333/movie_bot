@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from uuid import uuid4
 from urllib.parse import quote
 
-from backend.video_redirector.hdrezka.hdrezka_extract_to_watch import extract_from_hdrezka
+from backend.video_redirector.hdrezka.hdrezka_extract_to_watch import extract_with_recovery
 from backend.video_redirector.hdrezka.hdrezka_proxy_handler import proxy_video, proxy_segment
 from backend.video_redirector.utils.templates import templates
 from backend.video_redirector.utils.redis_client import RedisClient
@@ -31,8 +31,8 @@ async def extract_and_generate_master_m3u8(task_id: str, url: str, lang: str):
     redis = RedisClient.get_client()
 
     try:
-        # Step 1: Extraction
-        result = await extract_from_hdrezka(url, user_lang=lang, task_id=task_id)
+        # Step 1: Extraction with recovery
+        result = await extract_with_recovery(url, user_lang=lang, task_id=task_id)
         await redis.set(f"extract:{task_id}:status", "extracted", ex=3600)
         await redis.set(f"extract:{task_id}:raw", json.dumps(result), ex=3600)
         logger.info(f"[extract:{task_id}] Extraction done.")

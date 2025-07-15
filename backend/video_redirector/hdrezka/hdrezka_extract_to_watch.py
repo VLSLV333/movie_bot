@@ -14,11 +14,15 @@ f2id_to_quality = {
 }
 logger = logging.getLogger(__name__)
 
-async def extract_from_hdrezka(url: str, user_lang: str, task_id: str = None) -> Dict:
+async def extract_from_hdrezka(url: str, user_lang: str, task_id: str | None = None) -> Dict:
     final_result = {user_lang: {}}
 
     async with AsyncCamoufox(window=(1280, 720), humanize=True, headless=True) as browser:
         page = await browser.new_page()
+        
+        # Add navigation protection
+        page.on("framenavigated", lambda frame: logger.info(f"Frame navigated: {frame.url}"))
+        
         await page.goto(url, wait_until="domcontentloaded")
         await asyncio.sleep(0.5)
 
@@ -27,28 +31,90 @@ async def extract_from_hdrezka(url: str, user_lang: str, task_id: str = None) ->
         dub_names = [dub_name for dub_name, _ in dub_elements]
 
         for dub_name in dub_names:
-            print(f"\n🎙️ Extracting for dub: {dub_name}")
+            logger.info(f"\n🎙️ Extracting for dub: {dub_name}")
 
             dub_result = {"all_m3u8": [], "subtitles": []}
 
+            # Add safety check for page state
+            if page.is_closed():
+                logger.error("Page was closed during extraction")
+                raise Exception("Page closed during extraction - will retry")
+
             vtt_handler = await start_listening_for_vtt(page, dub_result, task_id)
-            # Re-query the dub element by name each time
+            
+            # Re-query the dub element by name each time with error handling
             li_element = await find_dub_element_by_name(page, dub_name, user_lang)
             if li_element:
-                try:
-                    await li_element.evaluate("(el) => el.click()")
-                    await asyncio.sleep(1)
-                except Exception as e:
-                    print(f"⚠️ Failed to click dub '{dub_name}': {e}")
+                # Try primary click method with retry
+                primary_click_success = False
+                for attempt in range(3):
+                    try:
+                        await li_element.evaluate("(el) => el.click()")
+                        await asyncio.sleep(1)
+                        primary_click_success = True
+                        break
+                    except Exception as e:
+                        logger.warning(f"⚠️ Primary dub click attempt {attempt + 1} failed for '{dub_name}': {e}")
+                        if attempt < 2:
+                            await asyncio.sleep(0.5)
+                
+                # If primary method failed, try alternative click method with retry
+                if not primary_click_success:
+                    alternative_click_success = False
+                    for attempt in range(3):
+                        try:
+                            await page.evaluate("""
+                                (dubName) => {
+                                    const elements = document.querySelectorAll('#translators-list li, #translators-list a');
+                                    for (let el of elements) {
+                                        if (el.textContent.trim() === dubName) {
+                                            el.click();
+                                            return true;
+                                        }
+                                    }
+                                    return false;
+                                }
+                            """, arg=dub_name)
+                            await asyncio.sleep(1.5)
+                            alternative_click_success = True
+                            break
+                        except Exception as e2:
+                            logger.warning(f"⚠️ Alternative dub click attempt {attempt + 1} failed for '{dub_name}': {e2}")
+                            if attempt < 2:
+                                await asyncio.sleep(0.5)
+                    
+                    if not alternative_click_success:
+                        logger.error(f"⚠️ All dub click attempts failed for '{dub_name}'")
 
             await extract_all_quality_variants(page, dub_result)
             # Remove the VTT listener before extracting subtitles
             page.remove_listener("response", vtt_handler)
-            await extract_subtitles_if_available(page, dub_result, task_id=task_id, dub_name=dub_name)
+            if task_id:
+                await extract_subtitles_if_available(page, dub_result, task_id=task_id, dub_name=dub_name)
 
             final_result[user_lang][dub_name] = dub_result
 
         return final_result
+
+async def extract_with_recovery(url: str, user_lang: str, task_id: str | None = None) -> Dict:
+    """Extract with browser context recovery - 5 max attempts"""
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        try:
+            logger.info(f"Starting extraction attempt {attempt + 1}/{max_attempts}")
+            return await extract_from_hdrezka(url, user_lang, task_id)
+        except Exception as e:
+            logger.error(f"Extraction attempt {attempt + 1} failed: {e}")
+            if attempt < max_attempts - 1:
+                wait_time = 2 ** attempt  # Exponential backoff: 1, 2, 4, 8 seconds
+                logger.info(f"Waiting {wait_time} seconds before retry...")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.error(f"All {max_attempts} extraction attempts failed")
+                # Raise exception to maintain compatibility with existing logic
+                raise Exception(f"All {max_attempts} extraction attempts failed")
+    # This line should never be reached, but linter needs it
+    raise Exception("Unexpected end of extraction attempts")
 
 async def get_matching_dubs(page, user_lang: str):
     matching = []
@@ -59,7 +125,7 @@ async def get_matching_dubs(page, user_lang: str):
 
     # ✅ Handle NO dubs present at all
     if not li_items:
-        print("⚠️ No dubs listed. Assuming single dub mode.")
+        logger.info("⚠️ No dubs listed. Assuming single dub mode.")
         return [("🎧 Default Dub", None)]
 
     for li in li_items:
@@ -116,7 +182,7 @@ async def select_preferred_dub(page, user_lang: str):
             await li.evaluate("(el) => el.click()")
             return
 
-    print("⚠️ No matching dub found for user_lang. Using default active.")
+    logger.info("⚠️ No matching dub found for user_lang. Using default active.")
 
 
 async def start_listening_for_vtt(page, extracted: Dict, task_id):
@@ -132,7 +198,7 @@ async def start_listening_for_vtt(page, extracted: Dict, task_id):
             largest_vtt["size"] = size
             largest_vtt["url"] = url
             proxy_url = f"/hd/subs/{task_id}.vtt"
-            print(f"[🎯] Found larger subtitle VTT (initial): {url} (size: {size})")
+            logger.info(f"[🎯] Found larger subtitle VTT (initial): {url} (size: {size})")
 
             # Save to Redis so fallback route can find it
             redis = RedisClient.get_client()
@@ -148,7 +214,7 @@ async def start_listening_for_vtt(page, extracted: Dict, task_id):
                     "lang": "Unknown"
                 })
         else:
-            print(f"[🎯] Skipped smaller subtitle VTT (size: {size})")
+            logger.info(f"[🎯] Skipped smaller subtitle VTT (size: {size})")
 
     page.on("response", handle_vtt_response)
     return handle_vtt_response
@@ -164,10 +230,10 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
         """)
 
     if not has_subs:
-        print("⛔ No subtitles available for selected dub")
+        logger.info("⛔ No subtitles available for selected dub")
         return
 
-    print("🟡 Subtitles detected")
+    logger.info("🟡 Subtitles detected")
 
     # Step 2: Click the subtitles menu (CC button)
     try:
@@ -177,9 +243,9 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
                 if (el) el.click();
             }
         """, arg='//*[@id="cdnplayer_control_cc"]/pjsdiv[3]')
-        print("✅ Forced subtitle button click via JS")
+        logger.info("✅ Forced subtitle button click via JS")
     except Exception as e:
-        print(f"⚠️ Subtitle button failed to become interactable: {e}")
+        logger.error(f"⚠️ Subtitle button failed to become interactable: {e}")
         return
 
     # Step 3: Setup shared subtitle event listener
@@ -201,7 +267,7 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
                 "lang": lang_code
             })
 
-            print(f"[🎯] Captured subtitle {subtitle_state['current_lang']} → {response.url}")
+            logger.info(f"[🎯] Captured subtitle {subtitle_state['current_lang']} → {response.url}")
             subtitle_state["current_lang"] = None
             vtt_event.set()
 
@@ -228,7 +294,7 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
                             return el.textContent.trim();
                         }
                     ''', arg=item)
-            print(f"🟢 Already active subtitle detected: {lang}")
+            logger.info(f"🟢 Already active subtitle detected: {lang}")
             if extracted["subtitles"]:
                 extracted["subtitles"][0]["lang"] = lang
                 extracted["subtitles"][0]["url"] = f"/hd/subs/{task_id}/{quote(dub_name)}/{quote(lang)}.vtt"
@@ -236,7 +302,7 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
                 fallback_url = await redis.get(f"subs:{task_id}:fallback")
                 if fallback_url:
                     await redis.set(f"subs:{task_id}:{quote(dub_name)}:{quote(lang)}", fallback_url, ex=86400)
-                print(f"resaved first captured vtt with new key in redis")
+                logger.info(f"resaved first captured vtt with new key in redis")
             break
 
     # Step 5: Iterate through subtitle options (skip first & last)
@@ -281,29 +347,34 @@ async def extract_subtitles_if_available(page, extracted: Dict, task_id: str,dub
             """,
             arg=f2id_val
         )
-        print(f"🔍 Clicked subtitle option f2id={f2id_val} ({lang})")
+        logger.info(f"🔍 Clicked subtitle option f2id={f2id_val} ({lang})")
 
         try:
             await asyncio.wait_for(vtt_event.wait(), timeout=10)
         except asyncio.TimeoutError:
-            print(f"⚠️ No .vtt received for subtitle: {lang}")
+            logger.info(f"⚠️ No .vtt received for subtitle: {lang}")
 
         await asyncio.sleep(0.3)
 
 
 async def extract_all_quality_variants(page, extracted: Dict):
-    print("📥 Extracting all quality variants...")
+    logger.info("📥 Extracting all quality variants...")
 
     quality_button_xpath = '//*[@id="oframecdnplayer"]/pjsdiv[15]/pjsdiv[3]'
     f2id_list = ["1", "2", "3", "4", "5"]
 
     async def click_xpath(xpath: str):
-        await page.evaluate("""
-            (xpath) => {
-                const el = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                if (el) el.click();
-            }
-        """, arg=xpath)
+        try:
+            await page.evaluate("""
+                (xpath) => {
+                    const el = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                    if (el) el.click();
+                }
+            """, arg=xpath)
+        except Exception as e:
+            logger.warning(f"Failed to click xpath {xpath}: {e}")
+            return False
+        return True
 
     quality_state = {"current": None}
     quality_event = asyncio.Event()
@@ -313,27 +384,69 @@ async def extract_all_quality_variants(page, extracted: Dict):
         quality_state["current"] = quality_label
         quality_event.clear()
 
-        await click_xpath(quality_button_xpath)
-        await asyncio.sleep(0.3)
-
-        await page.evaluate("""() => {
-            const btn = document.querySelector('[fid="1"]');
-            if (btn) btn.click();
-        }""")
-        await asyncio.sleep(0.3)
-
-        el = await page.query_selector(f'[f2id="{f2idx}"]')
-        if not el:
-            print(f"❌ Element for f2id={f2idx} not found")
+        # Add page state check
+        if page.is_closed():
+            logger.error("Page closed during quality extraction")
             return False
 
-        # Click quality button first
-        await page.evaluate("""(f2idx) => {
-            const el = document.querySelector(`[f2id="${f2idx}"]`);
-            if (el) el.click();
-        }""", arg=f2idx)
+        # Click quality button with retry
+        for attempt in range(3):
+            if await click_xpath(quality_button_xpath):
+                break
+            await asyncio.sleep(0.5)
+        else:
+            logger.error(f"Failed to click quality button after 3 attempts")
 
-        print(f"[🔁] Clicked quality option f2id={f2idx} ({quality_label})")
+        await asyncio.sleep(0.5)
+
+        # Click settings button with retry
+        for attempt in range(3):
+            try:
+                await page.evaluate("""() => {
+                    const btn = document.querySelector('[fid="1"]');
+                    if (btn) btn.click();
+                }""")
+                break
+            except Exception as e:
+                logger.warning(f"Settings button click attempt {attempt + 1} failed: {e}")
+                await asyncio.sleep(0.5)
+        else:
+            logger.error("Failed to click settings button")
+
+        await asyncio.sleep(0.5)
+
+        # Check if element exists with retry
+        el = None
+        for attempt in range(3):
+            try:
+                el = await page.query_selector(f'[f2id="{f2idx}"]')
+                if el:
+                    break
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                logger.warning(f"Element query attempt {attempt + 1} failed: {e}")
+                await asyncio.sleep(0.3)
+        
+        if not el:
+            logger.info(f"❌ Element for f2id={f2idx} not found after retries")
+            return False
+
+        # Click quality button with error handling
+        for attempt in range(3):
+            try:
+                await page.evaluate("""(f2idx) => {
+                    const el = document.querySelector(`[f2id="${f2idx}"]`);
+                    if (el) el.click();
+                }""", arg=f2idx)
+                break
+            except Exception as e:
+                logger.warning(f"Quality button click attempt {attempt + 1} failed: {e}")
+                if attempt < 2:
+                    await asyncio.sleep(0.5)
+                else:
+                    logger.error(f"Failed to click quality f2id={f2idx} after 3 attempts")
+
+        logger.info(f"[🔁] Clicked quality option f2id={f2idx} ({quality_label})")
 
         # Attach listener only AFTER click
         async def handle_response(response):
@@ -353,7 +466,7 @@ async def extract_all_quality_variants(page, extracted: Dict):
                 }
                 if m3u8_data not in extracted["all_m3u8"]:
                     extracted["all_m3u8"].append(m3u8_data)
-                    print(f"[🎥] {quality_state['current']} → {url}")
+                    logger.info(f"[🎥] {quality_state['current']} → {url}")
                     quality_event.set()
 
         page.on("response", handle_response)
@@ -363,7 +476,7 @@ async def extract_all_quality_variants(page, extracted: Dict):
             page.remove_listener("response", handle_response)
             return True
         except asyncio.TimeoutError:
-            print(f"⚠️ Timeout waiting for .m3u8 after clicking {quality_label}")
+            logger.info(f"⚠️ Timeout waiting for .m3u8 after clicking {quality_label}")
             page.remove_listener("response", handle_response)
             return False
 
@@ -372,15 +485,20 @@ async def extract_all_quality_variants(page, extracted: Dict):
     missing_set = set(f2id_list)
 
     while missing_set and retry_count < MAX_RETRIES:
-        print(f"🔁 Retry pass #{retry_count + 1} for missing qualities: {sorted(missing_set)}")
+        logger.info(f"🔁 Retry pass #{retry_count + 1} for missing qualities: {sorted(missing_set)}")
         current_missing = set()
 
         for f2id in sorted(missing_set):
+            # Add page state check before each attempt
+            if page.is_closed():
+                logger.error("Page closed during retry loop")
+                raise Exception("Page closed during extraction - will retry")
+
             # Reset state if only 1 retry left
             if len(missing_set) == 1:
                 for alt in f2id_list:
                     if alt != f2id:
-                        print(f"🔄 Resetting player by clicking alt f2id={alt} before retrying f2id={f2id}")
+                        logger.info(f"🔄 Resetting player by clicking alt f2id={alt} before retrying f2id={f2id}")
                         await try_f2id(alt)  # Ignore result
                         break
 
@@ -392,7 +510,7 @@ async def extract_all_quality_variants(page, extracted: Dict):
         retry_count += 1
 
     if missing_set:
-        print(f"❌ Failed to extract the following qualities after {MAX_RETRIES} retries: {sorted(missing_set)}")
+        logger.info(f"❌ Failed to extract the following qualities after {MAX_RETRIES} retries: {sorted(missing_set)}")
 
     quality_state["current"] = None
 
