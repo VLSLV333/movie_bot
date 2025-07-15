@@ -14,6 +14,7 @@ from redis.asyncio import Redis
 from dotenv import load_dotenv
 from aiogram.client.default import DefaultBotProperties
 from delivery_bot.cleanup_expired_file_id import clean_up_expired_file_id
+from delivery_bot.i18n import get_text
 
 load_dotenv()
 
@@ -70,9 +71,10 @@ async def handle_start(message: Message):
         logger.info(f"Received /start from user_id={getattr(message.from_user, 'id', None)}, text='{message.text}'")
         # Manually parse args from message.text
         text = getattr(message, 'text', None)
+        user_lang = getattr(message.from_user, 'language_code', None)
         if not text:
             logger.error("Message has no text!")
-            await message.answer("❌ Internal error: no message text. Pls start download from beginning:(")
+            await message.answer(get_text('internal_error_no_text', user_lang))
             return
         parts = text.split(maxsplit=1)
         args = parts[1] if len(parts) > 1 else None
@@ -80,11 +82,11 @@ async def handle_start(message: Message):
         user_id = getattr(message.from_user, 'id', None)
         if user_id is None:
             logger.error("Message has no from_user.id!")
-            await message.answer("❌ Internal error: no user ID found.")
+            await message.answer(get_text('internal_error_no_user_id', user_lang))
             return
 
         if not args or "_" not in args:
-            await message.answer("❌ Malformed or missing start link.")
+            await message.answer(get_text('malformed_start_link', user_lang))
             logger.error(f"❌ Malformed or missing start link for user {user_id}, args: {args}")
             return
 
@@ -94,13 +96,13 @@ async def handle_start(message: Message):
         if flow_type == "1":
             if not TASK_ID_SECRET:
                 logger.error("TASK_ID_SECRET is not set!")
-                await message.answer("❌ Internal error: missing secret. Pls start download from beginning:(")
+                await message.answer(get_text('internal_error_missing_secret', user_lang))
                 return
             task_id = verify_task_id(signed_payload, TASK_ID_SECRET)
             logger.info(f"Verified task_id={task_id} for user {user_id}")
             if not task_id:
                 logger.warning(f"Invalid signature: user {user_id} sent {signed_payload}")
-                await message.answer("❌ Invalid or malformed download link. Pls start download from beginning:(")
+                await message.answer(get_text('invalid_download_link', user_lang))
                 return
 
             redis_key_user = f"download:{task_id}:user_id"
@@ -108,7 +110,7 @@ async def handle_start(message: Message):
             logger.info(f"Redis user for task_id={task_id}: {stored_user_id}")
 
             if not stored_user_id:
-                await message.answer("⚠️ This download link has expired or is no longer available. Pls start download from beginning:(")
+                await message.answer(get_text('download_link_expired', user_lang))
                 logger.warning(f"No stored user for task_id={task_id}")
                 return
 
@@ -117,7 +119,7 @@ async def handle_start(message: Message):
                 await notify_admin(
                     f"❗ Tampering in delivery bot: user {user_id} tried task {task_id} belonging to {stored_user_id}")
                 await redis.incr(f"tamper:{user_id}")
-                await message.answer("🚫 This download link was not created for your account.")
+                await message.answer(get_text('wrong_account', user_lang))
                 return
 
             redis_key_result = f"download:{task_id}:result"
@@ -129,13 +131,13 @@ async def handle_start(message: Message):
                 ttl_minutes = ttl // 60
                 logger.info(f"User {user_id}, download session is valid for {ttl_minutes} min.")
             elif ttl == -2:
-                await message.answer("⚠️ This download has expired. Pls start download from beginning:(")
+                await message.answer(get_text('download_expired', user_lang))
                 logger.info(f"User {user_id}, download session expired.")
                 await notify_admin(f"User {user_id}, download session expired.")
                 return
 
             if not result_json:
-                await message.answer("⚠️ The video is not ready yet or the link expired. Pls start download from beginning:(")
+                await message.answer(get_text('video_not_ready', user_lang))
                 logger.warning(f"No result found for task_id={task_id}")
                 return
 
@@ -144,14 +146,14 @@ async def handle_start(message: Message):
                 logger.info(f"Parsed result for user {user_id}: {result}")
 
                 if "telegram_file_id" in result:
-                    await message.answer("Enjoy your content❤️")
+                    await message.answer(get_text('enjoy_content', user_lang))
                     try:
                         await bot.send_video(chat_id=user_id, video=result["telegram_file_id"])
                     except TelegramBadRequest as e:
                         if "wrong file identifier" in str(e).lower():
                             logger.warning(f"Expired file ID detected for user {user_id}: {result['telegram_file_id']}")
                             await clean_up_expired_file_id(result["telegram_file_id"])
-                            await message.answer('😭 This video has expired. Please, click "📥 Download" in the main bot, it will work 😇')
+                            await message.answer(get_text('video_expired_retry', user_lang))
                             await notify_admin(f"Expired file ID cleaned up for user {user_id}, task_id: {task_id}")
                         else:
                             raise e
@@ -163,7 +165,7 @@ async def handle_start(message: Message):
                             if resp.status == 404:
                                 # Database file was deleted but Redis token still exists
                                 logger.warning(f"Database file not found for user {user_id}, db_id={db_id}")
-                                await message.answer('😭 This video has expired. Please, click "📥 Download" in the main bot, it will work 😇')
+                                await message.answer(get_text('video_expired_retry', user_lang))
                                 await notify_admin(f"Tried to get from DB movie for user {user_id}, task_id: {task_id}, but no such file was found in DB (db_id={db_id})")
                                 return
                             elif resp.status != 200:
@@ -196,9 +198,9 @@ async def handle_start(message: Message):
                                 raise e
                     
                     if expired_parts:
-                        await message.answer('😭 I could not give you full movie. Please, click "📥 Download" in the main bot, it will work 😇')
+                        await message.answer(get_text('could_not_give_full_movie', user_lang))
                     else:
-                        await message.answer("Enjoy your content❤️")
+                        await message.answer(get_text('enjoy_content', user_lang))
                 else:
                     logger.error(f"Invalid result format for user {user_id}: {result}")
                     raise ValueError("Invalid result format")
@@ -207,25 +209,25 @@ async def handle_start(message: Message):
 
             except Exception as e:
                 logger.error(f"❌ Failed to deliver file for task {task_id} to user {user_id}", exc_info=e)
-                await message.answer("❌ An error occurred while delivering your video. Please try again later.")
+                await message.answer(get_text('delivery_error', user_lang))
                 await notify_admin(
                     f"❌ An error occurred while delivering your video. Please try again later. task_id:{task_id} tg_user_id:{user_id}")
 
         elif flow_type == "2":
             if not TASK_ID_SECRET:
                 logger.error("TASK_ID_SECRET is not set!")
-                await message.answer("❌ Internal error: missing secret. Pls start download from beginning:(")
+                await message.answer(get_text('internal_error_missing_secret', user_lang))
                 return
             try:
                 watch_token, sig = signed_payload.split("_")
                 expected_sig = hmac.new(TASK_ID_SECRET.encode(), watch_token.encode(), hashlib.sha256).hexdigest()[:10]
             except Exception as e:
                 logger.error(f"Malformed watch token or signature for user {user_id}: {signed_payload}", exc_info=e)
-                await message.answer("❌ Malformed watch link. Pls start download from beginning:(")
+                await message.answer(get_text('malformed_watch_link', user_lang))
                 return
 
             if sig != expected_sig:
-                await message.answer("❌ Invalid or tampered watch link.")
+                await message.answer(get_text('invalid_watch_link', user_lang))
                 logger.error(f"❌ User {user_id}, tried to use wrong signature, he used this sig:{sig} expected was {expected_sig}. Watch token he passed was: {watch_token}")
                 return
 
@@ -234,7 +236,7 @@ async def handle_start(message: Message):
             info_json = await redis.get(redis_key)
 
             if not info_json:
-                await message.answer("⚠️ Watch session expired. Please try again from the main bot.")
+                await message.answer(get_text('watch_session_expired', user_lang))
                 logger.info(f"❌ User's {user_id},watch session expired.")
                 return
 
@@ -242,7 +244,7 @@ async def handle_start(message: Message):
                 ttl_minutes = ttl // 60
                 logger.info(f"User {user_id}, watch session is valid for {ttl_minutes} min.")
             elif ttl == -2:
-                await message.answer("⚠️ This link has already expired.")
+                await message.answer(get_text('watch_link_expired', user_lang))
                 logger.info(f"❌ User's {user_id},watch session expired.")
                 await notify_admin(f"❌ Watch session expired. Pls start download from beginning:(")
                 return
@@ -253,7 +255,7 @@ async def handle_start(message: Message):
                 if str(info.get("tg_user_id")) != str(user_id):
                     await notify_admin(
                         f"❗ Tampering: user {user_id} tried to watch token {watch_token} belonging to {info.get('tg_user_id')}")
-                    await message.answer("🚫 This link was not created for your account.")
+                    await message.answer(get_text('wrong_watch_account', user_lang))
                     return
 
                 tmdb_id, lang, dub = info.get("tmdb_id"), info.get("lang"), info.get("dub")
@@ -263,7 +265,7 @@ async def handle_start(message: Message):
                     ) as resp:
                         if resp.status == 404:
                             logger.warning(f"Database file not found for user {user_id}, tmdb_id={tmdb_id}, lang={lang}, dub={dub}")
-                            await message.answer('😭 This video has expired. Please, click "📥 Download" in the main bot, it will work 😇')
+                            await message.answer(get_text('video_expired_watch', user_lang))
                             return
                         elif resp.status != 200:
                             logger.error(f"Failed to fetch movie parts for user {user_id}, status={resp.status}")
@@ -295,27 +297,29 @@ async def handle_start(message: Message):
                             raise e
                 
                 if expired_parts:
-                    await message.answer('😭 I could not give you full movie. Please, click "📥 Download" in the main bot, it will work 😇')
+                    await message.answer(get_text('could_not_give_full_movie', user_lang))
                 else:
-                    await message.answer("Enjoy your content❤️")
+                    await message.answer(get_text('enjoy_content', user_lang))
 
             except Exception as e:
                 logger.error(f"Failed to handle watch_downloaded flow for user {user_id}: {e}", exc_info=e)
-                await message.answer("❌ Failed to load your content. Please try again later.")
+                await message.answer(get_text('load_content_error', user_lang))
 
         else:
             logger.error(f"Unknown flow_type '{flow_type}' for user {user_id}")
-            await message.answer("❌ Unknown start link type.")
+            await message.answer(get_text('unknown_start_link', user_lang))
 
     except Exception as e:
         logger.error(f"Exception in handle_start for user {getattr(message.from_user, 'id', None)}: {e}", exc_info=e)
-        await message.answer("❌ Internal error in delivery bot. Please try again later.")
+        user_lang = getattr(message.from_user, 'language_code', None)
+        await message.answer(get_text('internal_error_delivery', user_lang))
 
 #TODO: add some logic for when user is trying to type in bot or interact with it in any way
 @dp.message()
 async def catch_all(message: Message):
     logger.info(f"CATCH-ALL: Received message: {message.text} from user {getattr(message.from_user, 'id', None)}")
-    await message.answer("I am just a delivery bot😁 Hope you enjoy!")
+    user_lang = getattr(message.from_user, 'language_code', None)
+    await message.answer(get_text('catch_all_message', user_lang))
 
 # === Run the bot ===
 if __name__ == "__main__":
