@@ -76,13 +76,12 @@ async def download_movie_handler(query: types.CallbackQuery):
     await query.answer(gettext(DOWNLOAD_COMING_SOON), show_alert=True)
 
 
-# handler for back_to_main_menu_btn
 @router.callback_query(F.data.startswith("back_to_main"))
 async def back_to_main_menu_handler(query: types.CallbackQuery):
-    logger.info(f"[User {query.from_user.id}] Clicked 'Back to Main Menu'")
+    logger.debug(f"[User {query.from_user.id}] Clicked 'Back to Main Menu'")
 
     await SessionManager.clear_state(query.from_user.id)
-    logger.info(f"[User {query.from_user.id}] session state was cleared in bot.handlers.main_menu_btns back_to_main_menu_handler")
+    logger.debug(f"[User {query.from_user.id}] session state was cleared in bot.handlers.main_menu_btns back_to_main_menu_handler")
 
     keyboard = get_main_menu_keyboard()
 

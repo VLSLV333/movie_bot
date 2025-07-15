@@ -71,11 +71,6 @@ def render_navigation_panel(
     # Build navigation buttons
     buttons = []
 
-    logger.info(f'\n\ncurrent_result_idx: {context.current_result_idx}')
-    logger.info(f'\n\nbatch_size: {batch_size}')
-    logger.info(f'\n\ncurrent page: {context.current_page}')
-    logger.info(f'\n\ntotal_results: {context.total_results}')
-
     # "Previous" button — disable if at first batch
     if context.current_result_idx > batch_size or context.current_page != 1:
         buttons.append(types.InlineKeyboardButton(

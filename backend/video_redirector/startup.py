@@ -46,10 +46,10 @@ async def scheduled_file_id_validation():
         try:
             # Calculate next run time (4 AM Kyiv time)
             now_kyiv = datetime.now(kyiv_tz)
-            next_run = now_kyiv.replace(hour=14, minute=47, second=0, microsecond=0)
+            next_run = now_kyiv.replace(hour=4, minute=0, second=0, microsecond=0)
             
             # If it's already past 4 AM today, schedule for tomorrow
-            if next_run <= now_kyiv:
+            if now_kyiv.hour >= 4:
                 next_run += timedelta(days=1)
             
             # Calculate seconds until next run

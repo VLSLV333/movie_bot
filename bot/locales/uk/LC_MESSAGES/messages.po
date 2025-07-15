@@ -41,20 +41,23 @@ msgid "custom_name_prompt"
 msgstr "Як до вас звертатися? Напишіть та надішліть мені, будь ласка:"
 
 msgid "back_to_main_menu"
-msgstr "🏠 Ви повернулися до головного меню!"
+msgstr "🏠 Ви повернулися до головного меню"
+
+msgid "go_back_to_main_menu"
+msgstr "🏃‍♀️ Повернутися до головного меню"
 
 # Main Menu Buttons
 msgid "find_movie_btn"
 msgstr "🎬 Знайти кіно"
 
 msgid "recommend_btn"
-msgstr "💯 Ми рекомендуємо"
+msgstr "💯 Рекомендуємо"
 
 msgid "download_btn"
-msgstr "📥 Завантажити кіно"
+msgstr "📥 Завантажити"
 
 msgid "watch_history_btn"
-msgstr "🧩 Історія переглядів"
+msgstr "🧩 Історія"
 
 msgid "favorites_btn"
 msgstr "⭐ Улюблені"
@@ -67,16 +70,16 @@ msgid "search_type_question"
 msgstr "🎯 Як будемо шукати кіно?"
 
 msgid "search_by_name_btn"
-msgstr "🔤 Пошук за назвою"
+msgstr "🔤 За назвою"
 
 msgid "search_by_genre_btn"
-msgstr "🎭 Пошук за жанром"
+msgstr "🎭 За жанром"
 
 msgid "search_by_actor_btn"
-msgstr "🧑‍🎤 Пошук за актором"
+msgstr "🧑‍🎤 За актором"
 
 msgid "search_by_director_btn"
-msgstr "🎬 Пошук за режисером"
+msgstr "🎬 За режисером"
 
 # Common Buttons
 msgid "back_btn"

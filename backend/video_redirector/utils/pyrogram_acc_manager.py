@@ -93,9 +93,9 @@ _active_uploads = set()  # Track active upload task IDs
 _rotation_in_progress = False  # Flag to indicate rotation is happening
 
 # Initialize UPLOAD_ACCOUNTS with fallback
-logger.info(f"🔍 Looking for upload accounts config at: {MULTI_ACCOUNT_CONFIG_PATH}")
-logger.info(f"🔍 Current working directory: {os.getcwd()}")
-logger.info(f"🔍 Config file exists: {MULTI_ACCOUNT_CONFIG_PATH.exists()}")
+logger.debug(f"🔍 Looking for upload accounts config at: {MULTI_ACCOUNT_CONFIG_PATH}")
+logger.debug(f"🔍 Current working directory: {os.getcwd()}")
+logger.debug(f"🔍 Config file exists: {MULTI_ACCOUNT_CONFIG_PATH.exists()}")
 
 if MULTI_ACCOUNT_CONFIG_PATH.exists():
     with open(MULTI_ACCOUNT_CONFIG_PATH, 'r') as f:
@@ -770,6 +770,76 @@ async def rotate_proxy_ip():
     finally:
         # Clear rotation flag to allow new uploads
         _rotation_in_progress = False
+
+async def rotate_proxy_ip_immediate(reason: str = "emergency"):
+    """Rotate the proxy IP address immediately without waiting for uploads to complete"""
+    global _last_ip_rotation, _current_ip
+    
+    if not PROXY_CONFIG["enabled"] or not PROXY_CONFIG["rotation_url"]:
+        logger.info("🔄 Immediate proxy rotation skipped - proxy not enabled or no rotation URL")
+        return
+    
+    current_time = time.time()
+    # Prevent too frequent rotations (minimum 20 seconds between immediate rotations)
+    if current_time - _last_ip_rotation < 20:
+        logger.info("🔄 Immediate proxy rotation skipped - too recent (minimum 10s between rotations)")
+        return
+    
+    # Get current IP before rotation
+    old_ip = await get_current_ip()
+    
+    logger.warning(f"🚨 EMERGENCY: Immediate proxy rotation triggered due to: {reason}")
+    logger.warning(f"   Bypassing upload wait - rotation will proceed immediately")
+    
+    try:
+        # Perform the actual IP rotation immediately
+        async with aiohttp.ClientSession() as session:
+            if PROXY_CONFIG["rotation_method"].upper() == "POST":
+                async with session.post(
+                    PROXY_CONFIG["rotation_url"],
+                    headers=PROXY_CONFIG["rotation_headers"],
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as response:
+                    if response.status == 200:
+                        logger.info("✅ Immediate proxy rotation request successful")
+                        _last_ip_rotation = current_time
+                    else:
+                        logger.warning(f"⚠️ Immediate proxy rotation failed with status {response.status}")
+                        logger.warning(f"   Response: {await response.text()}")
+            else:
+                async with session.get(
+                    PROXY_CONFIG["rotation_url"],
+                    headers=PROXY_CONFIG["rotation_headers"],
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as response:
+                    if response.status == 200:
+                        logger.info("✅ Immediate proxy rotation request successful")
+                        _last_ip_rotation = current_time
+                    else:
+                        logger.warning(f"⚠️ Immediate proxy rotation failed with status {response.status}")
+                        logger.warning(f"   Response: {await response.text()}")
+        
+        # Wait a moment for the new IP to be active
+        await asyncio.sleep(5)
+        
+        # Get new IP after rotation
+        new_ip = await get_current_ip()
+        
+        # Log IP change details
+        await log_ip_change(old_ip, new_ip)
+        
+        # Update global IP tracker
+        _current_ip = new_ip
+        
+        # Clear rate limit events after successful rotation
+        clear_rate_limit_events()
+        
+        logger.info(f"✅ Immediate proxy rotation completed successfully due to: {reason}")
+        
+    except Exception as e:
+        logger.error(f"❌ Immediate proxy rotation error: {e}")
+        logger.error(f"   Error type: {type(e).__name__}")
+        logger.error(f"   Reason: {reason}")
 
 def should_rotate_ip():
     """Check if we should rotate IP based on upload count or rate limiting signals"""

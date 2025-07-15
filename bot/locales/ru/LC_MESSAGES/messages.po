@@ -41,20 +41,23 @@ msgid "custom_name_prompt"
 msgstr "Пожалуйста, напишите и отправьте мне ваше предпочитаемое имя:"
 
 msgid "back_to_main_menu"
-msgstr "🏠 Вы вернулись в главное меню!"
+msgstr "🏠 Вы вернулись в главное меню"
+
+msgid "go_back_to_main_menu"
+msgstr "🏃‍♀️ Вернуться в главное меню"
 
 # Main Menu Buttons
 msgid "find_movie_btn"
 msgstr "🎬 Найти фильм"
 
 msgid "recommend_btn"
-msgstr "💯 Мы рекомендуем"
+msgstr "💯 Рекомендую"
 
 msgid "download_btn"
-msgstr "📥 Скачать фильм"
+msgstr "📥 Скачать"
 
 msgid "watch_history_btn"
-msgstr "🧩 История просмотров"
+msgstr "🧩 История"
 
 msgid "favorites_btn"
 msgstr "⭐ Избранное"
@@ -67,16 +70,16 @@ msgid "search_type_question"
 msgstr "🎯 Как будем искать фильм?"
 
 msgid "search_by_name_btn"
-msgstr "🔤 Поиск по названию"
+msgstr "🔤 По названию"
 
 msgid "search_by_genre_btn"
-msgstr "🎭 Поиск по жанру"
+msgstr "🎭 По жанру"
 
 msgid "search_by_actor_btn"
-msgstr "🧑‍🎤 Поиск по актеру"
+msgstr "🧑‍🎤 По актеру"
 
 msgid "search_by_director_btn"
-msgstr "🎬 Поиск по режиссеру"
+msgstr "🎬 По режиссеру"
 
 # Common Buttons
 msgid "back_btn"

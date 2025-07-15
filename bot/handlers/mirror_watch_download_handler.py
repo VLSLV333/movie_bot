@@ -125,24 +125,7 @@ async def watch_mirror_handler(query: types.CallbackQuery):
         query=query
     )
     if not config:
-        try:
-            await loading_gif_msg.delete()
-        except Exception as e:
-            logger.error(f"Error while deleting gif: {e}")
-        if query.message is not None:
-            await query.message.answer(
-                gettext(SORRY_COULDNT_EXTRACT_MOVIE_TRY_AGAIN),
-                reply_markup=get_main_menu_keyboard()
-            )
-        else:
-            if query is not None and getattr(query, 'bot', None) is not None:
-                await query.bot.send_message(  # type: ignore
-                    chat_id=query.from_user.id,
-                    text=gettext(SORRY_COULDNT_EXTRACT_MOVIE_TRY_AGAIN),
-                    reply_markup=get_main_menu_keyboard()
-                )
-            else:
-                logger.error("query or query.bot is None, cannot send message to user.")
+        # user interaction handled by poll_watch_until_ready
         return
 
     selected_dub = None

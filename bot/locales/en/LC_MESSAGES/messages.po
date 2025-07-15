@@ -41,20 +41,23 @@ msgid "custom_name_prompt"
 msgstr "Please type and send me your preferred name:"
 
 msgid "back_to_main_menu"
-msgstr "🏠 You're back at the main menu!"
+msgstr "🏠 You're back at the main menu"
+
+msgid "go_back_to_main_menu"
+msgstr "🏃‍♀️ Go back to the main menu"
 
 # Main Menu Buttons
 msgid "find_movie_btn"
 msgstr "🎬 Find a movie"
 
 msgid "recommend_btn"
-msgstr "💯 We recommend"
+msgstr "💯 Recommended"
 
 msgid "download_btn"
-msgstr "📥 Download a movie"
+msgstr "📥 Download"
 
 msgid "watch_history_btn"
-msgstr "🧩 Watch History"
+msgstr "🧩 History"
 
 msgid "favorites_btn"
 msgstr "⭐ Favorites"
@@ -67,16 +70,16 @@ msgid "search_type_question"
 msgstr "🎯 How would you like to search for a movie?"
 
 msgid "search_by_name_btn"
-msgstr "🔤 Search by Name"
+msgstr "🔤 By Name"
 
 msgid "search_by_genre_btn"
-msgstr "🎭 Search by Genre"
+msgstr "🎭 By Genre"
 
 msgid "search_by_actor_btn"
-msgstr "🧑‍🎤 Search by Actor"
+msgstr "🧑‍🎤 By Actor"
 
 msgid "search_by_director_btn"
-msgstr "🎬 Search by Director"
+msgstr "🎬 By Director"
 
 # Common Buttons
 msgid "back_btn"

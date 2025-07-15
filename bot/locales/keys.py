@@ -13,6 +13,7 @@ ONBOARDING_SKIPPED = "onboarding_skipped"
 PREFERENCES_SUGGESTION = "preferences_suggestion"
 CUSTOM_NAME_PROMPT = "custom_name_prompt"
 BACK_TO_MAIN_MENU = "back_to_main_menu"
+GO_BACK_TO_MAIN_MENU = "go_back_to_main_menu"
 
 # Main Menu Buttons
 FIND_MOVIE_BTN = "find_movie_btn"

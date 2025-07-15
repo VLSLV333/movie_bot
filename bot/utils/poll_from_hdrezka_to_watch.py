@@ -60,7 +60,8 @@ async def poll_watch_until_ready(
 
             if not config:
                 logger.warning(f"[{user_id}] Extraction done, but config is missing.")
-                await query.message.answer(gettext(POLL_MOVIE_CONFIG_MISSING))
+                keyboard = get_main_menu_keyboard()
+                await query.message.answer(gettext(POLL_MOVIE_CONFIG_MISSING), reply_markup=keyboard)
                 return None
 
             logger.info(f"[{user_id}] Extraction complete.")
