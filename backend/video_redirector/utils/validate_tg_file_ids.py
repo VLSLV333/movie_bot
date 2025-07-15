@@ -1,5 +1,6 @@
 import logging
 import random
+import asyncio
 from typing import Dict, List
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -138,8 +139,8 @@ class FileIDValidator:
             self.stats["expired_files"] += batch_stats["expired_files"]
             self.stats["errors"] += batch_stats["errors"]
             
-            # Log progress
-            progress = (offset + BATCH_SIZE) / total_files * 100
+            # Log progress - Fix the calculation
+            progress = min((offset + len(batch_files)) / total_files * 100, 100.0)
             logger.info(f"📈 Progress: {progress:.1f}% - Batch: {batch_stats}")
             
             # Move to next batch
