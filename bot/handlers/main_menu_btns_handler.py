@@ -2,7 +2,7 @@ from aiogram import Router, types, F
 from aiogram.utils.i18n import gettext
 from bot.locales.keys import FIND_MOVIE_BTN, RECOMMEND_BTN, DOWNLOAD_BTN, WATCH_HISTORY_BTN, FAVORITES_BTN, OPTIONS_BTN, \
     SEARCH_TYPE_QUESTION, RECOMMENDATIONS_COMING_SOON, WATCH_HISTORY_COMING_SOON, FAVORITES_COMING_SOON, \
-    DOWNLOAD_COMING_SOON, BACK_TO_MAIN_MENU
+    BACK_TO_MAIN_MENU
 from bot.utils.logger import Logger
 from bot.utils.session_manager import SessionManager
 from bot.utils.message_utils import smart_edit_or_send
