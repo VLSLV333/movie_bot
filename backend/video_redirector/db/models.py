@@ -47,7 +47,7 @@ class DownloadedFile(Base):
     __table_args__ = (UniqueConstraint("tmdb_id", "lang", "dub", name="uq_tmdb_lang_dub"),)
 
     id = Column(Integer, primary_key=True)
-    tmdb_id = Column(Integer, nullable=False)
+    tmdb_id = Column(BigInteger, nullable=False)
     lang = Column(String, nullable=False)
     dub = Column(String, nullable=False)
     quality = Column(String, nullable=True)  # optional field if we track resolution
