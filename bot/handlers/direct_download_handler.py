@@ -6,12 +6,12 @@ from aiogram.filters import Filter
 from aiogram.utils.i18n import gettext
 from aiohttp import ClientSession
 from bot.locales.keys import (
-    DOWNLOAD_SOURCE_SELECTION, DOWNLOAD_SOURCE_HDREZKA, DOWNLOAD_SOURCE_YOUTUBE,
+    DOWNLOAD_SOURCE_SELECTION,
     DOWNLOAD_SEND_LINK_PROMPT, DOWNLOAD_INVALID_LINK, DOWNLOAD_LINK_PROCESSING,
-    BACK_TO_MAIN_MENU, SOMETHING_WENT_WRONG_TRY_MAIN_MENU,
-    CHOOSE_DUB_TO_DOWNLOAD, ONLY_ONE_DUB, NO_DUBS_FOR_LANG, 
-    NO_UA_DUBS, DOWNLOAD_DEFAULT_DUB, MOVIE_HAS_ONLY_DEFAULT_DUB, 
-    AVAILABLE_TO_DOWNLOAD
+     SOMETHING_WENT_WRONG_TRY_MAIN_MENU,
+    CHOOSE_DUB_TO_DOWNLOAD, ONLY_ONE_DUB,
+    NO_UA_DUBS, DOWNLOAD_DEFAULT_DUB, MOVIE_HAS_ONLY_DEFAULT_DUB,
+    AVAILABLE_TO_DOWNLOAD, NO_DUBS_AVAILABLE_IN_LANGUAGE
 )
 from bot.utils.logger import Logger
 from bot.utils.session_manager import SessionManager
@@ -142,9 +142,9 @@ async def handle_hdrezka_link_input(message: types.Message):
         await processing_msg.delete()
         
         if not dubs_result.get('dubs'):
-            logger.error(f"[User {user_id}] No dubs found in response: {dubs_result}")
+            logger.info(f"[User {user_id}] No dubs found in response: {dubs_result}")
             await message.answer(
-                gettext(SOMETHING_WENT_WRONG_TRY_MAIN_MENU),
+                gettext(NO_DUBS_AVAILABLE_IN_LANGUAGE),
                 reply_markup=get_main_menu_keyboard()
             )
             return
@@ -154,7 +154,7 @@ async def handle_hdrezka_link_input(message: types.Message):
             if dubs_result['message'] == "🥲 Only 1 dub found":
                 text_to_show = gettext(ONLY_ONE_DUB)
             elif dubs_result['message'] == "🥲 No available dubs found for this language.":
-                text_to_show = gettext(NO_DUBS_FOR_LANG)
+                text_to_show = gettext(NO_DUBS_AVAILABLE_IN_LANGUAGE)
             elif dubs_result['message'] == "️🎙️ Sorry, no Ukrainian dubs available for this movie.":
                 text_to_show = gettext(NO_UA_DUBS)
             else:
