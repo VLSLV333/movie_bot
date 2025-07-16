@@ -402,7 +402,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
             text_to_show = gettext(ONLY_ONE_DUB)
         elif dubs_scrapper_result['message'] == "🥲 No available dubs found for this language.":
             text_to_show = gettext(NO_DUBS_AVAILABLE_IN_LANGUAGE)
-        elif dubs_scrapper_result['message'] == "️🎙️ Sorry, no Ukrainian dubs available for this movie.":
+        elif "Sorry, no Ukrainian dubs available for this movie" in dubs_scrapper_result['message']:
             text_to_show = gettext(NO_UA_DUBS)
         await query.answer()
         if query.message is not None:

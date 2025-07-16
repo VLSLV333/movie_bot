@@ -155,7 +155,7 @@ async def handle_hdrezka_link_input(message: types.Message):
                 text_to_show = gettext(ONLY_ONE_DUB)
             elif dubs_result['message'] == "🥲 No available dubs found for this language.":
                 text_to_show = gettext(NO_DUBS_AVAILABLE_IN_LANGUAGE)
-            elif dubs_result['message'] == "️🎙️ Sorry, no Ukrainian dubs available for this movie.":
+            elif "Sorry, no Ukrainian dubs available for this movie" in dubs_result['message']:
                 text_to_show = gettext(NO_UA_DUBS)
             else:
                 text_to_show = dubs_result['message']
