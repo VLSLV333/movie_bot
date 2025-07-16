@@ -64,8 +64,15 @@ LANG_RUSSIAN = "lang_russian"
 RECOMMENDATIONS_COMING_SOON = "recommendations_coming_soon"
 WATCH_HISTORY_COMING_SOON = "watch_history_coming_soon"
 FAVORITES_COMING_SOON = "favorites_coming_soon"
-OPTIONS_COMING_SOON = "options_coming_soon"
 DOWNLOAD_COMING_SOON = "download_coming_soon"
+
+# Options Menu
+OPTIONS_WHAT_TO_CONFIGURE = "options_what_to_configure"
+OPTIONS_BOT_LANGUAGE_BTN = "options_bot_language_btn"
+OPTIONS_MOVIES_LANGUAGE_BTN = "options_movies_language_btn"
+OPTIONS_CHOOSE_BOT_LANGUAGE = "options_choose_bot_language"
+OPTIONS_CHOOSE_MOVIES_LANGUAGE = "options_choose_movies_language"
+OPTIONS_LANGUAGE_UPDATED = "options_language_updated"
 
 # Error Messages
 NETWORK_ERROR = "network_error"

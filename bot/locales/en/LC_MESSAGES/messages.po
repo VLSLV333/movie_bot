@@ -139,8 +139,24 @@ msgstr "🧩 Your watch history will be here soon!"
 msgid "favorites_coming_soon"
 msgstr "⭐ Your favorite movies will be stored here!"
 
-msgid "options_coming_soon"
-msgstr "⚙️ Options menu coming soon!"
+# Options Menu
+msgid "options_what_to_configure"
+msgstr "⚙️ What would you like to configure?"
+
+msgid "options_bot_language_btn"
+msgstr "😇 Bot language"
+
+msgid "options_movies_language_btn"
+msgstr "🎬 Movies language"
+
+msgid "options_choose_bot_language"
+msgstr "😇 Choose language for bot messages:"
+
+msgid "options_choose_movies_language"
+msgstr "🎬 Choose preferred language to watch movies:"
+
+msgid "options_language_updated"
+msgstr "✅ Language updated successfully!"
 
 msgid "download_coming_soon"
 msgstr "📥 Download Movie coming soon!"
@@ -150,7 +166,7 @@ msgid "network_error"
 msgstr "🌐 Network error. Please try again."
 
 msgid "backend_error"
-msgstr "🔧 Server error. Please try again later."
+msgstr "🔧 Server error. Please try again."
 
 msgid "invalid_input"
 msgstr "⚠️ Invalid input. Please try again."
@@ -218,7 +234,7 @@ msgid "language_updated_successfully"
 msgstr "✅ Language set to: {language}\n\nPress ▶️Watch or 💾Download — the movie will be in the selected language."
 
 msgid "error_update_language_failed"
-msgstr "😭 Couldn't update language, please try later"
+msgstr "😭 Couldn't update language. You can try again later in settings."
 
 msgid "session_expired_restart_search"
 msgstr "😅 I already forgot what we were searching! Please start a new search 👇"

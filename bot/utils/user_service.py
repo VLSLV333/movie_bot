@@ -177,3 +177,35 @@ class UserService:
         except Exception as e:
             logger.error(f"Error updating user {user_id} bot language: {e}")
             return False
+
+    @staticmethod
+    async def set_user_movies_language(user_id: int, movies_lang: str) -> bool:
+        """
+        Set user's preferred language for movies
+        Args:
+            user_id: Telegram user ID
+            movies_lang: Language code ('en', 'uk', 'ru')
+        Returns:
+            True if successful, False otherwise
+        """
+        if movies_lang not in ['en', 'uk', 'ru']:
+            logger.warning(f"Invalid movies language: {movies_lang}")
+            return False
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.put(
+                    f"{BACKEND_API_URL}/users/movies-language",
+                    json={
+                        "telegram_id": user_id,
+                        "movies_lang": movies_lang
+                    }
+                ) as response:
+                    if response.status == 200:
+                        logger.info(f"Successfully updated user {user_id} movies language to: {movies_lang}")
+                        return True
+                    else:
+                        logger.error(f"Failed to update user {user_id} movies language: {response.status}")
+                        return False
+        except Exception as e:
+            logger.error(f"Error updating user {user_id} movies language: {e}")
+            return False

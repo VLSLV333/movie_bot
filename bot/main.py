@@ -19,6 +19,7 @@ from bot.handlers.mirror_pagination_handler import router as mirror_pagination_r
 from bot.handlers.mirror_watch_download_handler import router as mirror_watch_download_router
 from bot.handlers.mirror_language_change_handler import router as mirror_language_change_router
 from bot.handlers.bot_lang_change_handler import router as bot_lang_change_router
+from bot.handlers.options_btn_handler import router as options_btn_handler_router
 
 logger = Logger().get_logger()
 logger.info("Bot started and logging initialized ")
@@ -40,6 +41,7 @@ def setup_routers(disp: Dispatcher):
     disp.include_router(mirror_watch_download_router)
     disp.include_router(mirror_language_change_router)
     disp.include_router(bot_lang_change_router)
+    disp.include_router(options_btn_handler_router)
     disp.include_router(fallback_input_handler_router)
 
 async def on_startup():
