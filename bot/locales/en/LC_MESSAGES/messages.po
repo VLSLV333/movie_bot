@@ -574,9 +574,8 @@ msgstr "😭 Download failed. Please, try again from the beginning 🥹"
 msgid "download_timeout_try_later"
 msgstr "😭 Sorry, it's taking too long. Please start over 🥹"
 
-# Direct Download Flow
 msgid "download_source_selection"
-msgstr "Where do you want to download from?"
+msgstr "😍 Where would you like to download from?"
 
 msgid "download_source_hdrezka"
 msgstr "🎬 HDRezka"
@@ -585,10 +584,10 @@ msgid "download_source_youtube"
 msgstr "📺 YouTube"
 
 msgid "download_send_link_prompt"
-msgstr "Please send me the link to the movie you are interested in:"
+msgstr "😇 Please, send me the link to the movie you're interested in:"
 
 msgid "download_invalid_link"
-msgstr "⚠️ Invalid link. Please send a valid HDRezka movie link."
+msgstr "😥 Invalid link. Please send a valid HDRezka movie link."
 
 msgid "download_link_processing"
 msgstr "🔍 Processing your link..."
