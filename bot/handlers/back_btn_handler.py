@@ -1,8 +1,9 @@
 from aiogram import Router, types, F
 from aiogram.utils.i18n import gettext
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
+from bot.handlers.direct_download_handler import get_download_source_keyboard
 from bot.locales.keys import BACK_TO_MAIN_MENU, SEARCH_TYPE_QUESTION, GENRE_SELECTION_PROMPT, \
-    YEAR_RANGE_SELECTION_PROMPT
+    YEAR_RANGE_SELECTION_PROMPT, DOWNLOAD_SOURCE_SELECTION
 from bot.utils.session_manager import SessionManager
 from bot.utils.logger import Logger
 from bot.keyboards.search_type_keyboard import get_search_type_keyboard
@@ -36,6 +37,13 @@ async def handle_back_btn(query: types.CallbackQuery):
         await query.message.edit_text(
             gettext(SEARCH_TYPE_QUESTION),
             reply_markup=get_search_type_keyboard()
+        )
+    elif destination == "download_source":
+        logger.info(f"[User {user_id}] Navigated back to download source selection via Back button.")
+        await SessionManager.clear_state(user_id)
+        await query.message.edit_text(
+            gettext(DOWNLOAD_SOURCE_SELECTION),
+            reply_markup=get_download_source_keyboard()
         )
     elif destination == "select_genre":
         logger.info(f"[User {user_id}] Navigated back to select_genre via Back button.")

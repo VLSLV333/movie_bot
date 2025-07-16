@@ -65,12 +65,6 @@ async def favorites_handler(query: types.CallbackQuery):
     await query.answer(gettext(FAVORITES_COMING_SOON), show_alert=True)
 
 
-@router.callback_query(F.data == "download_movie")
-async def download_movie_handler(query: types.CallbackQuery):
-    logger.info(f"[User {query.from_user.id}] Clicked 'Download Movie' button")
-    await query.answer(gettext(DOWNLOAD_COMING_SOON), show_alert=True)
-
-
 @router.callback_query(F.data.startswith("back_to_main"))
 async def back_to_main_menu_handler(query: types.CallbackQuery):
     logger.debug(f"[User {query.from_user.id}] Clicked 'Back to Main Menu'")

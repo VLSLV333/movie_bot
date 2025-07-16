@@ -64,7 +64,6 @@ LANG_RUSSIAN = "lang_russian"
 RECOMMENDATIONS_COMING_SOON = "recommendations_coming_soon"
 WATCH_HISTORY_COMING_SOON = "watch_history_coming_soon"
 FAVORITES_COMING_SOON = "favorites_coming_soon"
-DOWNLOAD_COMING_SOON = "download_coming_soon"
 
 # Options Menu
 OPTIONS_WHAT_TO_CONFIGURE = "options_what_to_configure"
@@ -244,3 +243,11 @@ DOWNLOAD_UPLOADING_TO_TELEGRAM = "download_uploading_to_telegram"
 DOWNLOAD_PROCESSING_STATUS = "download_processing_status"
 DOWNLOAD_FAILED_START_AGAIN = "download_failed_start_again"
 DOWNLOAD_TIMEOUT_TRY_LATER = "download_timeout_try_later"
+
+# Direct Download Flow
+DOWNLOAD_SOURCE_SELECTION = "download_source_selection"
+DOWNLOAD_SOURCE_HDREZKA = "download_source_hdrezka"
+DOWNLOAD_SOURCE_YOUTUBE = "download_source_youtube"
+DOWNLOAD_SEND_LINK_PROMPT = "download_send_link_prompt"
+DOWNLOAD_INVALID_LINK = "download_invalid_link"
+DOWNLOAD_LINK_PROCESSING = "download_link_processing"

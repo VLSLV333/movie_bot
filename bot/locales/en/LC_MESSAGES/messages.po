@@ -158,9 +158,6 @@ msgstr "🎬 Choose preferred language to watch movies:"
 msgid "options_language_updated"
 msgstr "✅ Language updated successfully!"
 
-msgid "download_coming_soon"
-msgstr "📥 Download Movie coming soon!"
-
 # Error Messages
 msgid "network_error"
 msgstr "🌐 Network error. Please try again."
@@ -545,16 +542,16 @@ msgstr "🎭 You are looking for: {}"
 
 # Utils polling and download messages
 msgid "poll_error_occurred_watch_again"
-msgstr "😭 An error occurred. Please tap \"▶️ Watch\" on the movie card again (even if it’s not your first time 😵)"
+msgstr "😭 An error occurred. Please tap \"▶️ Watch\" on the movie card again (even if it's not your first time 😵)"
 
 msgid "poll_movie_config_missing"
-msgstr "😭 Something got broken. Please tap \"▶️ Watch\" on the movie card again (even if it’s not your first time 😵)"
+msgstr "😭 Something got broken. Please tap \"▶️ Watch\" on the movie card again (even if it's not your first time 😵)"
 
 msgid "poll_still_working_wait"
 msgstr "😮‍💨 I am still working, everything is fine, sorry you are waiting... Just a few more moments 🥰"
 
 msgid "poll_taking_too_long_watch_again"
-msgstr "😭 It is taking too long. Please tap \"▶️ Watch\" on the movie card again (even if it’s not your first time 😵)"
+msgstr "😭 It is taking too long. Please tap \"▶️ Watch\" on the movie card again (even if it's not your first time 😵)"
 
 msgid "download_queue_position"
 msgstr "⏳ You are in queue for download...\nYour position: {position}"
@@ -575,4 +572,23 @@ msgid "download_failed_start_again"
 msgstr "😭 Download failed. Please, try again from the beginning 🥹"
 
 msgid "download_timeout_try_later"
-msgstr "😭 Sorry, this is taking too long. Please, try again from the beginning 🥹"
+msgstr "😭 Sorry, it's taking too long. Please start over 🥹"
+
+# Direct Download Flow
+msgid "download_source_selection"
+msgstr "Where do you want to download from?"
+
+msgid "download_source_hdrezka"
+msgstr "🎬 HDRezka"
+
+msgid "download_source_youtube"
+msgstr "📺 YouTube"
+
+msgid "download_send_link_prompt"
+msgstr "Please send me the link to the movie you are interested in:"
+
+msgid "download_invalid_link"
+msgstr "⚠️ Invalid link. Please send a valid HDRezka movie link."
+
+msgid "download_link_processing"
+msgstr "🔍 Processing your link..."
