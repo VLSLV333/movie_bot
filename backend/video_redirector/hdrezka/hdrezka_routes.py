@@ -267,7 +267,9 @@ async def check_full_download_status(task_id: str):
 @router.post("/alldubs")
 async def get_all_dubs(data: MovieInput):
     try:
+        logger.info(f"Scraping dubs for URL: {data.url}, lang: {data.lang}")
         result = await scrape_dubs_for_movie(data.url, data.lang)
+        logger.info(f"Scraping result: {result}")
         return JSONResponse(content=result)
     except Exception as e:
         logger.error(f"Failed to scrape dubs: {e}")

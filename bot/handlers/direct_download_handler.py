@@ -21,6 +21,7 @@ from bot.utils.redis_client import RedisClient
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.utils.message_utils import smart_edit_or_send
 from bot.helpers.back_button import add_back_button
+from bot.keyboards.download_source_keyboard import get_download_source_keyboard
 
 router = Router()
 logger = Logger().get_logger()
@@ -34,6 +35,8 @@ HDREZKA_URL_PATTERN = r'https?://(?:www\.)?(?:hd)?rezka(?:-ua)?\.(?:ag|co|me|org
 # State filter for HDRezka link input
 class HDRezkaLinkInputStateFilter(Filter):
     async def __call__(self, message: types.Message) -> bool:
+        if message.from_user is None:
+            return False
         state = await SessionManager.get_state(message.from_user.id)
         return state == "direct_download:waiting_for_hdrezka_link"
 
@@ -41,24 +44,6 @@ def generate_token(tmdb_id: int, lang: str, dub: str) -> str:
     """Generate token for dub selection (same as in mirror_watch_download_handler)"""
     base = f"{tmdb_id}:{lang}:{dub}"
     return hashlib.md5(base.encode()).hexdigest()[:12]
-
-def get_download_source_keyboard() -> types.InlineKeyboardMarkup:
-    """Create keyboard for download source selection"""
-    keyboard = [
-        [
-            types.InlineKeyboardButton(
-                text=gettext(DOWNLOAD_SOURCE_HDREZKA),
-                callback_data="direct_download_source:hdrezka"
-            )
-        ],
-        [
-            types.InlineKeyboardButton(
-                text=gettext(DOWNLOAD_SOURCE_YOUTUBE),
-                callback_data="direct_download_source:youtube"
-            )
-        ]
-    ]
-    return add_back_button(types.InlineKeyboardMarkup(inline_keyboard=keyboard), source="main")
 
 @router.callback_query(F.data == "download_movie")
 async def direct_download_handler(query: types.CallbackQuery):
@@ -77,6 +62,12 @@ async def direct_download_handler(query: types.CallbackQuery):
 @router.callback_query(F.data.startswith("direct_download_source:"))
 async def download_source_selection_handler(query: types.CallbackQuery):
     """Handle download source selection"""
+    if query.data is None:
+        await query.answer(
+            gettext(SOMETHING_WENT_WRONG_TRY_MAIN_MENU),
+            reply_markup=get_main_menu_keyboard()
+        )
+        return
     user_id = query.from_user.id
     source = query.data.split(":")[1]
     
@@ -103,6 +94,12 @@ async def download_source_selection_handler(query: types.CallbackQuery):
 @router.message(F.text, HDRezkaLinkInputStateFilter())
 async def handle_hdrezka_link_input(message: types.Message):
     """Handle HDRezka link input from user"""
+    if message.from_user is None or message.text is None:
+        await message.answer(
+            gettext(SOMETHING_WENT_WRONG_TRY_MAIN_MENU),
+            reply_markup=get_main_menu_keyboard()
+        )
+        return
     user_id = message.from_user.id
     link = message.text.strip()
     
@@ -131,6 +128,7 @@ async def handle_hdrezka_link_input(message: types.Message):
         async with ClientSession() as session:
             async with session.post(SCRAP_ALL_DUBS, json={"url": link, "lang": user_lang}) as resp:
                 if resp.status != 200:
+                    logger.error(f"[User {user_id}] API returned status {resp.status}")
                     await processing_msg.delete()
                     await message.answer(
                         gettext(SOMETHING_WENT_WRONG_TRY_MAIN_MENU),
@@ -139,10 +137,12 @@ async def handle_hdrezka_link_input(message: types.Message):
                     return
                 
                 dubs_result = await resp.json()
+                logger.info(f"[User {user_id}] API response: {dubs_result}")
         
         await processing_msg.delete()
         
         if not dubs_result.get('dubs'):
+            logger.error(f"[User {user_id}] No dubs found in response: {dubs_result}")
             await message.answer(
                 gettext(SOMETHING_WENT_WRONG_TRY_MAIN_MENU),
                 reply_markup=get_main_menu_keyboard()
