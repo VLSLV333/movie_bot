@@ -25,3 +25,4 @@ pyrogram
 tgcrypto
 pymediainfo
 babel>=2.12.0
+polib
