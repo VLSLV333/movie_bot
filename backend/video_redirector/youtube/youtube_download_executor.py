@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePart
 from backend.video_redirector.db.session import get_db
+from backend.video_redirector.db.crud_downloads import get_file_id
 from backend.video_redirector.utils.upload_video_to_tg import check_size_upload_large_file
 from backend.video_redirector.utils.notify_admin import notify_admin
 from backend.video_redirector.exceptions import RetryableDownloadError, RETRYABLE_EXCEPTIONS
@@ -173,31 +174,55 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         parts = upload_result["parts"]
         session_name = upload_result["session_name"]
 
-        # Save in DB using existing structure
+        # Save in DB using existing structure - handle duplicates gracefully
         async for session in get_db():
-            db_entry = DownloadedFile(
-                tmdb_id=tmdb_id,
-                lang=lang,
-                dub=dub,
-                quality=selected_quality,
-                tg_bot_token_file_owner=tg_bot_token_file_owner,
-                created_at=datetime.now(timezone.utc),
-                movie_title=video_title,
-                movie_poster=video_poster,
-                movie_url=video_url,
-                session_name=session_name
-            )
-            session.add(db_entry)
-            await session.flush()  # Get db_entry.id
+            # Check if file already exists
+            existing_file = await get_file_id(session, tmdb_id, lang, dub)
+            
+            if existing_file:
+                # Update existing record with new file info
+                logger.info(f"[{task_id}] Updating existing YouTube file record (ID: {existing_file.id})")
+                existing_file.quality = selected_quality
+                existing_file.tg_bot_token_file_owner = tg_bot_token_file_owner
+                existing_file.movie_title = video_title
+                existing_file.movie_poster = video_poster
+                existing_file.movie_url = video_url
+                existing_file.session_name = session_name
+                
+                # Delete old parts and add new ones
+                from sqlalchemy import delete
+                delete_parts_stmt = delete(DownloadedFilePart).where(
+                    DownloadedFilePart.downloaded_file_id == existing_file.id
+                )
+                await session.execute(delete_parts_stmt)
+                
+                db_id_to_get_parts = existing_file.id
+            else:
+                # Create new record
+                db_entry = DownloadedFile(
+                    tmdb_id=tmdb_id,
+                    lang=lang,
+                    dub=dub,
+                    quality=selected_quality,
+                    tg_bot_token_file_owner=tg_bot_token_file_owner,
+                    created_at=datetime.now(timezone.utc),
+                    movie_title=video_title,
+                    movie_poster=video_poster,
+                    movie_url=video_url,
+                    session_name=session_name
+                )
+                session.add(db_entry)
+                await session.flush()  # Get db_entry.id
+                db_id_to_get_parts = db_entry.id
 
-            db_id_to_get_parts = db_entry.id
-
+            # Add parts (works for both new and updated records)
             for part in parts:
                 session.add(DownloadedFilePart(
-                    downloaded_file_id=db_entry.id,
+                    downloaded_file_id=db_id_to_get_parts,
                     part_number=part["part"],
                     telegram_file_id=part["file_id"]
                 ))
+            
             await session.commit()
             break  # Only need one iteration
 
