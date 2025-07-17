@@ -18,65 +18,128 @@ DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 async def get_best_format_id(video_url: str, target_quality: str, task_id: str) -> Optional[tuple]:
-    """Get the best format selector and determine if we can use copy vs re-encode"""
+    """Get the best format ID that has both video and audio"""
     try:
-        target_height = int(target_quality.replace('p', ''))
-        
-        # Format selector priority - prefer copy-friendly formats first
-        format_selectors = [
-            # Prefer MP4 with H.264+AAC (copy-friendly)
-            f"best[height<={target_height}][ext=mp4][vcodec^=avc][acodec^=mp4a]",
-            # Any MP4 at target quality (might need re-encode)
-            f"best[height<={target_height}][ext=mp4]",
-            # Any format at target quality (will need re-encode)
-            f"best[height<={target_height}]", 
-            # Fallback to best available (will need re-encode)
-            "best"
+        cmd = [
+            "yt-dlp",
+            "--list-formats",
+            "--no-playlist",
+            video_url
         ]
         
-        logger.info(f"[{task_id}] Testing format selectors for {target_quality}")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         
-        # Test each format selector
-        for format_selector in format_selectors:
-            cmd = [
-                "yt-dlp", 
-                "--print", "%(format_id)s %(ext)s %(width)sx%(height)s %(acodec)s %(vcodec)s",
-                "-f", format_selector,
-                "--no-playlist",
-                video_url
-            ]
-            
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                
-                if result.returncode == 0 and result.stdout.strip():
-                    format_info = result.stdout.strip()
-                    parts = format_info.split()
-                    
-                    if len(parts) >= 6:
-                        format_id, ext, resolution, acodec, vcodec = parts[0], parts[1], parts[2], parts[3], parts[4]
-                        
-                        # Determine if we can copy (fast) or need to re-encode (slow)
-                        can_copy = (
-                            ext == "mp4" and 
-                            acodec not in ["none", "unknown"] and 
-                            vcodec.startswith(("avc", "h264"))
-                        )
-                        
-                        logger.info(f"[{task_id}] Selected format: {format_info}")
-                        logger.info(f"[{task_id}] Can copy streams: {can_copy} (ext={ext}, vcodec={vcodec}, acodec={acodec})")
-                        
-                        return (format_selector, can_copy)
-                    
-            except Exception as e:
-                logger.warning(f"[{task_id}] Format selector '{format_selector}' failed: {e}")
+        if result.returncode != 0:
+            logger.error(f"[{task_id}] Failed to get formats: {result.stderr}")
+            return None
+        
+        # Parse yt-dlp output to extract format information
+        lines = result.stdout.strip().split('\n')
+        formats = []
+        
+        # Find the start of the format table
+        table_start = -1
+        for i, line in enumerate(lines):
+            if "ID      EXT   RESOLUTION" in line or "format code" in line.lower():
+                table_start = i + 1
+                break
+        
+        if table_start == -1:
+            logger.error(f"[{task_id}] Could not find format table in yt-dlp output")
+            return None
+        
+        logger.info(f"[{task_id}] Parsing available formats:")
+        
+        # Parse format lines
+        for line in lines[table_start:]:
+            line = line.strip()
+            if not line or line.startswith('---'):
                 continue
+            
+            # Parse format line: ID EXT RESOLUTION FPS CH | FILESIZE TBR PROTO | VCODEC VBR ACODEC ABR ASR MORE INFO
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            
+            format_id = parts[0]
+            ext = parts[1] 
+            resolution = parts[2]
+            
+            # Skip audio-only formats
+            if resolution == 'audio' or 'audio only' in line.lower():
+                continue
+                
+            # Skip video-only formats (look for "video only" in the line)
+            if 'video only' in line.lower():
+                continue
+            
+            # Parse resolution (e.g., "1920x1080", "1280x720")
+            if 'x' in resolution and resolution != 'audio':
+                try:
+                    width, height = map(int, resolution.split('x'))
+                    
+                    # Check if this format has both video and audio by looking at the line
+                    has_video = 'video only' not in line.lower()
+                    has_audio = 'audio only' not in line.lower() and 'video only' not in line.lower()
+                    
+                    # For combined formats, both should be true (not video-only, not audio-only)
+                    is_combined = has_video and has_audio
+                    
+                    formats.append({
+                        'id': format_id,
+                        'ext': ext,
+                        'width': width,
+                        'height': height,
+                        'line': line,
+                        'is_combined': is_combined
+                    })
+                    
+                    logger.info(f"[{task_id}]   {format_id}: {width}x{height} ({ext}) - Combined: {is_combined}")
+                    
+                except ValueError:
+                    continue
         
-        logger.error(f"[{task_id}] No suitable format found with any selector")
-        return None
+        if not formats:
+            logger.error(f"[{task_id}] No video formats found")
+            return None
+        
+        # Filter to only combined formats (video+audio)
+        combined_formats = [f for f in formats if f['is_combined']]
+        
+        if not combined_formats:
+            logger.warning(f"[{task_id}] No combined video+audio formats found, using best available and letting yt-dlp merge")
+            # Fallback: let yt-dlp auto-merge by using "best" selector
+            return ("best", False)  # Will need re-encoding to ensure compatibility
+        
+        # Sort combined formats: prefer MP4, then by height (descending)
+        combined_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
+        
+        logger.info(f"[{task_id}] Available combined (video+audio) formats:")
+        for fmt in combined_formats[:5]:  # Log first 5
+            logger.info(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']})")
+        
+        # Find target height
+        target_height = int(target_quality.replace('p', ''))
+        
+        # Find the best combined format at or below target quality
+        best_format = None
+        for fmt in combined_formats:
+            if fmt['height'] <= target_height:
+                best_format = fmt
+                break
+        
+        if not best_format:
+            # Fallback to highest available combined quality
+            best_format = combined_formats[0]
+        
+        # Determine if we can copy (MP4 format is usually copy-friendly)
+        can_copy = best_format['ext'] == 'mp4'
+        
+        logger.info(f"[{task_id}] Selected format: {best_format['id']} ({best_format['width']}x{best_format['height']} {best_format['ext']}) - Can copy: {can_copy}")
+        return (best_format['id'], can_copy)
         
     except Exception as e:
-        logger.error(f"[{task_id}] Error getting format selector: {e}")
+        logger.error(f"[{task_id}] Error getting format ID: {e}")
         return None
 
 async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
@@ -137,7 +200,7 @@ async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
 async def download_youtube_video(video_url: str, task_id: str):
     """Download YouTube video using yt-dlp with smart copy vs re-encode logic"""
     
-    # Get the best format selector and copy capability
+    # Get the best format ID and copy capability
     format_result = await get_best_format_id(video_url, "1080p", task_id)
     
     if not format_result:
