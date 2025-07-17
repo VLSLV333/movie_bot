@@ -18,7 +18,7 @@ DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 async def get_best_format_id(video_url: str, target_quality: str, task_id: str) -> Optional[tuple]:
-    """Get the best format ID that has both video and audio"""
+    """Get the best format ID that has both video and audio, or merge video+audio IDs"""
     try:
         cmd = [
             "yt-dlp",
@@ -35,7 +35,9 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
         
         # Parse yt-dlp output to extract format information
         lines = result.stdout.strip().split('\n')
-        formats = []
+        video_only_formats = []
+        audio_only_formats = []
+        combined_formats = []
         
         # Find the start of the format table
         table_start = -1
@@ -65,78 +67,108 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
             ext = parts[1] 
             resolution = parts[2]
             
-            # Skip audio-only formats
+            # Categorize formats
             if resolution == 'audio' or 'audio only' in line.lower():
-                continue
+                # Audio-only format
+                audio_only_formats.append({
+                    'id': format_id,
+                    'ext': ext,
+                    'line': line
+                })
+                logger.info(f"[{task_id}]   {format_id}: AUDIO-ONLY ({ext})")
                 
-            # Skip video-only formats (look for "video only" in the line)
-            if 'video only' in line.lower():
-                continue
-            
-            # Parse resolution (e.g., "1920x1080", "1280x720")
-            if 'x' in resolution and resolution != 'audio':
+            elif 'video only' in line.lower():
+                # Video-only format  
+                if 'x' in resolution:
+                    try:
+                        width, height = map(int, resolution.split('x'))
+                        video_only_formats.append({
+                            'id': format_id,
+                            'ext': ext,
+                            'width': width,
+                            'height': height,
+                            'line': line
+                        })
+                        logger.info(f"[{task_id}]   {format_id}: {width}x{height} ({ext}) - VIDEO-ONLY")
+                    except ValueError:
+                        continue
+                        
+            elif 'x' in resolution and resolution != 'audio':
+                # Combined video+audio format
                 try:
                     width, height = map(int, resolution.split('x'))
-                    
-                    # Check if this format has both video and audio by looking at the line
-                    has_video = 'video only' not in line.lower()
-                    has_audio = 'audio only' not in line.lower() and 'video only' not in line.lower()
-                    
-                    # For combined formats, both should be true (not video-only, not audio-only)
-                    is_combined = has_video and has_audio
-                    
-                    formats.append({
+                    combined_formats.append({
                         'id': format_id,
                         'ext': ext,
                         'width': width,
                         'height': height,
-                        'line': line,
-                        'is_combined': is_combined
+                        'line': line
                     })
-                    
-                    logger.info(f"[{task_id}]   {format_id}: {width}x{height} ({ext}) - Combined: {is_combined}")
-                    
+                    logger.info(f"[{task_id}]   {format_id}: {width}x{height} ({ext}) - COMBINED")
                 except ValueError:
                     continue
         
-        if not formats:
-            logger.error(f"[{task_id}] No video formats found")
-            return None
-        
-        # Filter to only combined formats (video+audio)
-        combined_formats = [f for f in formats if f['is_combined']]
-        
-        if not combined_formats:
-            logger.warning(f"[{task_id}] No combined video+audio formats found, using best available and letting yt-dlp merge")
-            # Fallback: let yt-dlp auto-merge by using "best" selector
-            return ("best", False)  # Will need re-encoding to ensure compatibility
-        
-        # Sort combined formats: prefer MP4, then by height (descending)
-        combined_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
-        
-        logger.info(f"[{task_id}] Available combined (video+audio) formats:")
-        for fmt in combined_formats[:5]:  # Log first 5
-            logger.info(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']})")
-        
-        # Find target height
         target_height = int(target_quality.replace('p', ''))
         
-        # Find the best combined format at or below target quality
-        best_format = None
-        for fmt in combined_formats:
-            if fmt['height'] <= target_height:
-                best_format = fmt
-                break
+        # Strategy 1: Try good quality combined formats first
+        if combined_formats:
+            # Sort combined formats: prefer MP4, then by height (descending)
+            combined_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
+            
+            logger.info(f"[{task_id}] Available combined (video+audio) formats:")
+            for fmt in combined_formats[:3]:
+                logger.info(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']})")
+            
+            # Find good quality combined format
+            for fmt in combined_formats:
+                if fmt['height'] >= 1080:  # Accept 1080p+ combined formats
+                    can_copy = fmt['ext'] == 'mp4'
+                    logger.info(f"[{task_id}] Selected COMBINED format: {fmt['id']} ({fmt['width']}x{fmt['height']} {fmt['ext']}) - Can copy: {can_copy}")
+                    return (fmt['id'], can_copy)
         
-        if not best_format:
-            # Fallback to highest available combined quality
-            best_format = combined_formats[0]
+        # Strategy 2: Merge best video-only + audio-only for higher quality
+        if video_only_formats and audio_only_formats:
+            # Sort video formats: prefer MP4, then by height (descending)
+            video_only_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
+            # Sort audio formats: prefer m4a/mp4, then others
+            audio_only_formats.sort(key=lambda x: x['ext'] in ['m4a', 'mp4'], reverse=True)
+            
+            logger.info(f"[{task_id}] Available video-only formats:")
+            for fmt in video_only_formats[:3]:
+                logger.info(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']})")
+            
+            logger.info(f"[{task_id}] Available audio-only formats:")
+            for fmt in audio_only_formats[:3]:
+                logger.info(f"[{task_id}]   {fmt['id']}: ({fmt['ext']})")
+            
+            # Find best video at target quality
+            best_video = None
+            for fmt in video_only_formats:
+                if fmt['height'] <= target_height:
+                    best_video = fmt
+                    break
+            
+            if not best_video:
+                # Use highest available video quality
+                best_video = video_only_formats[0]
+            
+            # Use best audio (prefer m4a/mp4 for compatibility)
+            best_audio = audio_only_formats[0]
+            
+            # Check if we can use fast copy (both MP4-compatible)
+            can_copy = (best_video['ext'] == 'mp4' and best_audio['ext'] in ['m4a', 'mp4'])
+            
+            merge_format = f"{best_video['id']}+{best_audio['id']}"
+            logger.info(f"[{task_id}] Selected MERGE format: {merge_format}")
+            logger.info(f"[{task_id}]   Video: {best_video['id']} ({best_video['width']}x{best_video['height']} {best_video['ext']})")
+            logger.info(f"[{task_id}]   Audio: {best_audio['id']} ({best_audio['ext']})")
+            logger.info(f"[{task_id}]   Can copy: {can_copy}")
+            
+            return (merge_format, can_copy)
         
-        # Determine if we can copy (MP4 format is usually copy-friendly)
-        can_copy = best_format['ext'] == 'mp4'
-        
-        logger.info(f"[{task_id}] Selected format: {best_format['id']} ({best_format['width']}x{best_format['height']} {best_format['ext']}) - Can copy: {can_copy}")
-        return (best_format['id'], can_copy)
+        # Strategy 3: Fallback to yt-dlp auto-selection
+        logger.warning(f"[{task_id}] No suitable formats found for merging, using yt-dlp auto-select")
+        return ("best", False)
         
     except Exception as e:
         logger.error(f"[{task_id}] Error getting format ID: {e}")
