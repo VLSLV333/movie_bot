@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 from backend.video_redirector.utils.redis_client import RedisClient
 from backend.video_redirector.hdrezka.hdrezka_download_executor import handle_download_task
+from backend.video_redirector.youtube.youtube_download_executor import handle_youtube_download_task
 from backend.video_redirector.exceptions import RetryableDownloadError
 from backend.video_redirector.config import MAX_CONCURRENT_DOWNLOADS, MAX_RETRIES_FOR_DOWNLOAD
 
@@ -75,15 +76,41 @@ class DownloadQueueManager:
                 await redis.set(f"download:{task_id}:error", f"Invalid tmdb_id: {task['tmdb_id']}", ex=3600)
                 return
 
-            await handle_download_task(
-                task_id=task["task_id"],
-                movie_url=task["movie_url"],
-                tmdb_id=tmdb_id,
-                lang=task["lang"],
-                dub=task["dub"],
-                movie_title=task.get("movie_title"),
-                movie_poster=task.get("movie_poster")
-            )
+            source_type = task.get("source_type")
+            if not source_type:
+                logger.error(f"❌ No source type provided for task {task_id}")
+                await redis.set(f"download:{task_id}:status", "error", ex=3600)
+                await redis.set(f"download:{task_id}:error", "No source type provided", ex=3600)
+                return
+
+            if source_type == "youtube":
+                # YouTube download
+                await handle_youtube_download_task(
+                    task_id=task["task_id"],
+                    video_url=task["video_url"],
+                    tmdb_id=tmdb_id,
+                    lang=task["lang"],
+                    dub=task["dub"],
+                    video_title=task.get("video_title", "YouTube Video"),
+                    video_poster=task.get("video_poster", "")
+                )
+            if source_type == "hdrezka":
+                # HDRezka download
+                await handle_download_task(
+                    task_id=task["task_id"],
+                    movie_url=task["movie_url"],
+                    tmdb_id=tmdb_id,
+                    lang=task["lang"],
+                    dub=task["dub"],
+                    movie_title=task.get("movie_title", ""),
+                    movie_poster=task.get("movie_poster", "")
+                )
+            else:
+                logger.error(f"❌ Invalid source type: {source_type}")
+                await redis.set(f"download:{task_id}:status", "error", ex=3600)
+                await redis.set(f"download:{task_id}:error", f"Invalid source type: {source_type}", ex=3600)
+                return
+
         except RetryableDownloadError as e:
             retries = int(await redis.get(f"download:{task_id}:retries") or 0)
             await redis.set(f"download:{task_id}:status", "error", ex=3600)

@@ -88,7 +88,7 @@ async def download_setup(data: str, sig: str, background_tasks: BackgroundTasks)
 
     # Track this download as active for the user
     await redis.sadd(user_active_key, task_id)  # type: ignore
-    await redis.expire(user_active_key, 3600)  # Optional: auto-expire
+    await redis.expire(user_active_key, 10800)  # Optional: auto-expire
 
     await redis.set(f"download:{task_id}:status", "queued", ex=3600)
     await redis.set(f"download:{task_id}:progress", 0, ex=3600)
@@ -105,10 +105,11 @@ async def download_setup(data: str, sig: str, background_tasks: BackgroundTasks)
         "tg_user_id": tg_user_id,
         "movie_title": movie_title,
         "movie_poster": movie_poster,
+        "source_type": "hdrezka"
     }
 
     # Store task data for duplicate checking
-    await redis.set(f"download:{task_id}:task_data", json.dumps(task), ex=3600)
+    await redis.set(f"download:{task_id}:task_data", json.dumps(task), ex=10800)
 
     # Enqueue the task
     position = await DownloadQueueManager.enqueue(task)

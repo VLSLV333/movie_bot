@@ -11,6 +11,7 @@ from backend.video_redirector.utils.redis_client import RedisClient
 from backend.video_redirector.routes.mirror_search_route import  router as mirror_search_route
 from backend.video_redirector.routes.tg_id_movies import router as tg_id_route
 from backend.video_redirector.routes.user_routes import router as user_routes
+from backend.video_redirector.routes.youtube_routes import router as youtube_routes
 from backend.video_redirector.utils.pyrogram_acc_manager import UPLOAD_ACCOUNT_POOL
 
 if not logging.getLogger().hasHandlers():
@@ -45,3 +46,4 @@ app.include_router(hdrezka_router)
 app.include_router(mirror_search_route)
 app.include_router(tg_id_route)
 app.include_router(user_routes)
+app.include_router(youtube_routes)

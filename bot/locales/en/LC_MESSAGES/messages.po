@@ -584,10 +584,16 @@ msgid "download_source_youtube"
 msgstr "📺 YouTube"
 
 msgid "download_send_link_prompt"
-msgstr "😇 Please, send me the link to the movie you're interested in:"
+msgstr "😇 Please, send me the link to the movie on HDRezka you want to download:"
+
+msgid "download_youtube_send_link_prompt"
+msgstr "😇 Please, send me the link to the movie on YouTube you want to download:"
 
 msgid "download_invalid_link"
 msgstr "😥 Invalid link. Please send a valid HDRezka movie link."
+
+msgid "download_invalid_youtube_link"
+msgstr "😥 Invalid link. Please send a valid YouTube video link."
 
 msgid "download_link_processing"
 msgstr "🔍 Processing your link..."
