@@ -613,6 +613,10 @@ async def split_video_by_duration(file_path: str, task_id: str, num_parts: int, 
         
         for i in range(num_parts):
             start_time = i * part_duration
+            
+            # For the last part, don't specify duration to avoid going beyond video length
+            is_last_part = (i == num_parts - 1)
+            
             part_output = os.path.join(PARTS_DIR, f"{task_id}_part{i+1}.mp4")
             
             # Remove existing part if it exists
@@ -622,20 +626,29 @@ async def split_video_by_duration(file_path: str, task_id: str, num_parts: int, 
                 except Exception as e:
                     logger.warning(f"⚠️ [{task_id}] Couldn't remove existing part {i+1}: {e}")
             
-            # Simple stream copy since mobile compatibility is already handled
+            # Build FFmpeg command with better seeking
             cmd = [
                 "ffmpeg",
                 "-ss", str(int(start_time)),
-                "-i", file_path,
-                "-t", str(int(part_duration)),
+                "-i", file_path
+            ]
+            
+            # Only add duration for non-last parts
+            if not is_last_part:
+                cmd.extend(["-t", str(int(part_duration))])
+            
+            cmd.extend([
                 "-c", "copy",  # Just copy, no re-processing
                 "-avoid_negative_ts", "make_zero",
                 "-movflags", "+faststart",
                 "-y",
                 part_output
-            ]
+            ])
             
-            logger.info(f"🎬 [{task_id}] Generating part {i+1}/{num_parts} (start: {int(start_time)}s, duration: {int(part_duration)}s)")
+            if is_last_part:
+                logger.info(f"🎬 [{task_id}] Generating part {i+1}/{num_parts} (start: {int(start_time)}s, duration: until end)")
+            else:
+                logger.info(f"🎬 [{task_id}] Generating part {i+1}/{num_parts} (start: {int(start_time)}s, duration: {int(part_duration)}s)")
             
             # Run FFmpeg with timeout
             try:
@@ -767,6 +780,16 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db):
                     if not result.stdout.strip():
                         raise ValueError("FFprobe returned empty duration.")
                     duration = float(result.stdout.strip())
+                    logger.info(f"[{task_id}] Video duration: {duration:.2f} seconds ({duration/60:.1f} minutes)")
+                    
+                    # Validate duration
+                    if duration <= 0:
+                        logger.error(f"❌ [{task_id}] Invalid video duration: {duration}")
+                        await notify_admin(f"❌ [Task {task_id}] Invalid video duration: {duration}")
+                        continue
+                    
+                    if duration < 60:  # Less than 1 minute
+                        logger.warning(f"⚠️ [{task_id}] Very short video duration: {duration:.2f}s - this might be an error")
                 except Exception as ero:
                     logger.exception(f"[{task_id}] FFprobe failed")
                     await notify_admin(f"❌ [Task {task_id}] Failed to get video duration: {ero}")
@@ -774,6 +797,16 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db):
 
                 num_parts = math.ceil(file_size_mb / MAX_MB)
                 part_duration = duration / num_parts
+                
+                # Ensure each part has at least 10 seconds (to avoid very short parts)
+                min_part_duration = 10
+                if part_duration < min_part_duration:
+                    logger.warning(f"⚠️ [{task_id}] Calculated part duration ({part_duration:.1f}s) is too short, adjusting...")
+                    num_parts = max(1, int(duration / min_part_duration))
+                    part_duration = duration / num_parts
+                    logger.info(f"[{task_id}] Adjusted to {num_parts} parts, each ~{part_duration:.1f} seconds ({part_duration/60:.1f} minutes)")
+                
+                logger.info(f"[{task_id}] Splitting into {num_parts} parts, each ~{part_duration:.1f} seconds ({part_duration/60:.1f} minutes)")
 
                 part_paths = await split_video_by_duration(file_path, task_id, num_parts, part_duration)
                 if not part_paths:
