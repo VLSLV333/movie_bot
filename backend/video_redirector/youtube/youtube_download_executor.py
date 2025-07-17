@@ -145,7 +145,7 @@ async def retry_with_aggressive_format(video_url: str, task_id: str, original_pa
             "--no-playlist",
             "--no-warnings",
             "--merge-output-format", "mp4",
-            "--postprocessor-args", "ffmpeg:-c:v copy -c:a copy",
+            "--postprocessor-args", "ffmpeg:-c:v copy -c:a copy -avoid_negative_ts make_zero -movflags +faststart",
             video_url
         ]
         
@@ -242,7 +242,7 @@ async def download_youtube_video(video_url: str, task_id: str):
             "--no-playlist",
             "--no-warnings",
             "--merge-output-format", "mp4",
-            "--postprocessor-args", "ffmpeg:-c:v copy -c:a copy",  # Copy streams without re-encoding
+            "--postprocessor-args", "ffmpeg:-c:v copy -c:a copy -avoid_negative_ts make_zero -movflags +faststart",
             video_url
         ]
         
