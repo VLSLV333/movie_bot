@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-async def get_available_qualities(video_url: str) -> list[str]:
-    """Get available qualities for a YouTube video using yt-dlp"""
+async def get_best_format_id(video_url: str, target_quality: str, task_id: str) -> Optional[str]:
+    """Get the best format ID for a specific quality target"""
     try:
         cmd = [
             "yt-dlp",
@@ -30,52 +30,91 @@ async def get_available_qualities(video_url: str) -> list[str]:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         
         if result.returncode != 0:
-            logger.error(f"Failed to get formats: {result.stderr}")
-            #TODO:analyse what happens on error outcomes
-            return []
+            logger.error(f"[{task_id}] Failed to get formats: {result.stderr}")
+            return None
         
-        # Parse yt-dlp output to extract available qualities
+        # Parse yt-dlp output to extract format information
         lines = result.stdout.strip().split('\n')
-        qualities = []
+        formats = []
         
-        for line in lines:
-            # Look for video formats with resolution information
-            if any(q in line for q in ['1080p', '720p', '480p', '360p', '240p']):
-                # Check if it's a video format (not just audio)
-                if any(ext in line.lower() for ext in ['mp4', 'webm', 'avi', 'mov']) or 'video' in line.lower():
-                    if '1080p' in line or '1920x1080' in line:
-                        qualities.append('1080p')
-                    elif '720p' in line or '1280x720' in line:
-                        qualities.append('720p')
-                    elif '480p' in line or '854x480' in line:
-                        qualities.append('480p')
-                    elif '360p' in line or '640x360' in line:
-                        qualities.append('360p')
-                    elif '240p' in line or '426x240' in line:
-                        qualities.append('240p')
+        # Find the start of the format table
+        table_start = -1
+        for i, line in enumerate(lines):
+            if "ID      EXT   RESOLUTION" in line:
+                table_start = i + 1
+                break
         
-        # Remove duplicates and sort by preference
-        unique_qualities = list(dict.fromkeys(qualities))
-        quality_order = ['1080p', '720p', '480p', '360p', '240p']
-        sorted_qualities = [q for q in quality_order if q in unique_qualities]
+        if table_start == -1:
+            logger.error(f"[{task_id}] Could not find format table in yt-dlp output")
+            return None
         
-        logger.info(f"Available qualities: {sorted_qualities}")
+        # Parse format lines
+        for line in lines[table_start:]:
+            line = line.strip()
+            if not line or line.startswith('---'):
+                continue
+            
+            # Parse format line: ID EXT RESOLUTION FPS CH | FILESIZE TBR PROTO | VCODEC VBR ACODEC ABR ASR MORE INFO
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            
+            format_id = parts[0]
+            ext = parts[1]
+            resolution = parts[2]
+            
+            # Skip audio-only formats
+            if resolution == 'audio' or 'audio' in line.lower():
+                continue
+            
+            # Parse resolution (e.g., "1920x1080", "1280x720")
+            if 'x' in resolution:
+                try:
+                    width, height = map(int, resolution.split('x'))
+                    formats.append({
+                        'id': format_id,
+                        'ext': ext,
+                        'width': width,
+                        'height': height,
+                        'line': line
+                    })
+                except ValueError:
+                    continue
         
-        # Log all available formats for debugging (first 10 lines)
-        logger.info(f"All available formats (first 10):")
-        for i, line in enumerate(lines[:10]):
-            logger.info(f"  {i+1}: {line}")
+        if not formats:
+            logger.error(f"[{task_id}] No video formats found")
+            return None
         
-        return sorted_qualities
+        # Sort formats by height (descending) and prefer MP4
+        formats.sort(key=lambda x: (x['height'], x['ext'] != 'mp4'), reverse=True)
         
-    except subprocess.TimeoutExpired:
-        logger.error("Timeout getting video formats")
-        #TODO:analyse what happens on error outcomes
-        return []
+        # Log all available formats for debugging
+        logger.info(f"[{task_id}] Available formats:")
+        for fmt in formats[:10]:  # Log first 10
+            logger.info(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']})")
+        
+        # Find target height
+        target_height = int(target_quality.replace('p', ''))
+        
+        # Find the best format at or below target quality
+        best_format = None
+        for fmt in formats:
+            if fmt['height'] <= target_height:
+                best_format = fmt
+                break
+        
+        if best_format:
+            logger.info(f"[{task_id}] Selected format: {best_format['id']} ({best_format['width']}x{best_format['height']} {best_format['ext']})")
+            return best_format['id']
+        else:
+            # Fallback to highest available quality
+            best_format = formats[0]
+            logger.info(f"[{task_id}] Target quality not available, using best: {best_format['id']} ({best_format['width']}x{best_format['height']} {best_format['ext']})")
+            return best_format['id']
+        
     except Exception as e:
-        logger.error(f"Error getting video formats: {e}")
-        #TODO:analyse what happens on error outcomes
-        return []
+        logger.error(f"[{task_id}] Error getting format ID: {e}")
+        return None
 
 async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
     """Verify the actual quality of a downloaded video using ffprobe"""
@@ -133,44 +172,23 @@ async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
         return None
 
 async def download_youtube_video(video_url: str, task_id: str):
-    """Download YouTube video using yt-dlp with quality fallback"""
+    """Download YouTube video using yt-dlp with specific format ID selection"""
     
-    # Get available qualities
-    available_qualities = await get_available_qualities(video_url)
+    # Try to get the best format ID for 1080p first
+    format_id = await get_best_format_id(video_url, "1080p", task_id)
     
-    if not available_qualities:
-        logger.error(f"[{task_id}] No available qualities found for video")
-        #TODO:analyse what happens on error outcomes
+    if not format_id:
+        logger.error(f"[{task_id}] No suitable format found for video")
         return None
-    
-    # Find the best available quality (fallback from preferred)
-    quality_order = ['1080p', '720p', '480p', '360p', '240p']
-    selected_quality = None
-    
-    for quality in quality_order:
-        if quality in available_qualities:
-            selected_quality = quality
-            break
-    
-    if not selected_quality:
-        logger.error(f"[{task_id}] No suitable quality found")
-        #TODO:analyse what happens on error outcomes
-        return None
-    
-    logger.info(f"[{task_id}] Selected quality: {selected_quality}")
     
     # Download the video
     output_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
     
     try:
-        # Build yt-dlp command for the selected quality
-        # Use simple format selection - yt-dlp will convert to MP4 anyway
-        height = selected_quality.replace('p', '')
-        format_spec = f"best[height={height}]/best"
-        
+        # Build yt-dlp command using specific format ID
         cmd = [
             "yt-dlp",
-            "-f", format_spec,
+            "-f", format_id,
             "-o", output_path,
             "--no-playlist",
             "--no-warnings",
@@ -180,29 +198,24 @@ async def download_youtube_video(video_url: str, task_id: str):
         ]
         
         logger.info(f"[{task_id}] Downloading with command: {' '.join(cmd)}")
-        
-        # Log the format specification for debugging
-        logger.info(f"[{task_id}] Format specification: {format_spec}")
+        logger.info(f"[{task_id}] Using format ID: {format_id}")
         
         # Run yt-dlp with timeout
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)  # 30 minutes timeout
         
         if result.returncode != 0:
             logger.error(f"[{task_id}] yt-dlp failed: {result.stderr}")
-            #TODO:analyse what happens on error outcomes
             return None
         
         # Check if file was created and has content
         if not os.path.exists(output_path):
             logger.error(f"[{task_id}] Output file not created")
-            #TODO:analyse what happens on error outcomes
             return None
         
         file_size = os.path.getsize(output_path)
         if file_size == 0:
             logger.error(f"[{task_id}] Downloaded file is empty")
             os.remove(output_path)
-            #TODO:analyse what happens on error outcomes
             return None
         
         logger.info(f"[{task_id}] Successfully downloaded: {output_path} ({file_size / (1024*1024):.1f}MB)")
@@ -211,10 +224,8 @@ async def download_youtube_video(video_url: str, task_id: str):
         actual_quality = await verify_video_quality(output_path, task_id)
         if actual_quality:
             logger.info(f"[{task_id}] Actual downloaded quality: {actual_quality}")
-            if actual_quality != selected_quality:
-                logger.warning(f"[{task_id}] Quality mismatch: requested {selected_quality}, got {actual_quality}")
         
-        return (output_path, actual_quality or selected_quality)
+        return (output_path, actual_quality or "unknown")
         
     except subprocess.TimeoutExpired:
         logger.error(f"[{task_id}] Download timeout (30 minutes)")
