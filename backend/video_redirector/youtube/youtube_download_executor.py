@@ -39,17 +39,20 @@ async def get_available_qualities(video_url: str) -> list[str]:
         qualities = []
         
         for line in lines:
-            if 'mp4' in line.lower() and any(q in line for q in ['1080p', '720p', '480p', '360p', '240p']):
-                if '1080p' in line:
-                    qualities.append('1080p')
-                elif '720p' in line:
-                    qualities.append('720p')
-                elif '480p' in line:
-                    qualities.append('480p')
-                elif '360p' in line:
-                    qualities.append('360p')
-                elif '240p' in line:
-                    qualities.append('240p')
+            # Look for video formats with resolution information
+            if any(q in line for q in ['1080p', '720p', '480p', '360p', '240p']):
+                # Check if it's a video format (not just audio)
+                if any(ext in line.lower() for ext in ['mp4', 'webm', 'avi', 'mov']) or 'video' in line.lower():
+                    if '1080p' in line or '1920x1080' in line:
+                        qualities.append('1080p')
+                    elif '720p' in line or '1280x720' in line:
+                        qualities.append('720p')
+                    elif '480p' in line or '854x480' in line:
+                        qualities.append('480p')
+                    elif '360p' in line or '640x360' in line:
+                        qualities.append('360p')
+                    elif '240p' in line or '426x240' in line:
+                        qualities.append('240p')
         
         # Remove duplicates and sort by preference
         unique_qualities = list(dict.fromkeys(qualities))
@@ -57,6 +60,12 @@ async def get_available_qualities(video_url: str) -> list[str]:
         sorted_qualities = [q for q in quality_order if q in unique_qualities]
         
         logger.info(f"Available qualities: {sorted_qualities}")
+        
+        # Log all available formats for debugging (first 10 lines)
+        logger.info(f"All available formats (first 10):")
+        for i, line in enumerate(lines[:10]):
+            logger.info(f"  {i+1}: {line}")
+        
         return sorted_qualities
         
     except subprocess.TimeoutExpired:
@@ -67,6 +76,109 @@ async def get_available_qualities(video_url: str) -> list[str]:
         logger.error(f"Error getting video formats: {e}")
         #TODO:analyse what happens on error outcomes
         return []
+
+async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
+    """Verify the actual quality of a downloaded video using ffprobe"""
+    try:
+        cmd = [
+            "ffprobe",
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_streams",
+            video_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode != 0:
+            logger.error(f"[{task_id}] Failed to get video info: {result.stderr}")
+            return None
+        
+        data = json.loads(result.stdout)
+        
+        # Find video stream
+        video_stream = None
+        for stream in data.get('streams', []):
+            if stream.get('codec_type') == 'video':
+                video_stream = stream
+                break
+        
+        if not video_stream:
+            logger.error(f"[{task_id}] No video stream found")
+            return None
+        
+        # Get resolution
+        width = video_stream.get('width', 0)
+        height = video_stream.get('height', 0)
+        
+        # Determine quality based on height
+        if height >= 1080:
+            quality = '1080p'
+        elif height >= 720:
+            quality = '720p'
+        elif height >= 480:
+            quality = '480p'
+        elif height >= 360:
+            quality = '360p'
+        elif height >= 240:
+            quality = '240p'
+        else:
+            quality = f"{height}p"
+        
+        logger.info(f"[{task_id}] Video resolution: {width}x{height} -> {quality}")
+        return quality
+        
+    except Exception as e:
+        logger.error(f"[{task_id}] Error verifying video quality: {e}")
+        return None
+
+async def retry_with_aggressive_format(video_url: str, task_id: str, original_path: str, actual_quality: str) -> tuple[str, str]:
+    """Retry download with more aggressive format selection for 1080p"""
+    try:
+        # Use a more aggressive format selection
+        aggressive_format = "bestvideo[height=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=1080]+bestaudio/best[height=1080]/best"
+        
+        cmd = [
+            "yt-dlp",
+            "-f", aggressive_format,
+            "-o", original_path,
+            "--no-playlist",
+            "--no-warnings",
+            "--merge-output-format", "mp4",
+            "--postprocessor-args", "ffmpeg:-c:v copy -c:a copy",
+            video_url
+        ]
+        
+        logger.info(f"[{task_id}] Retrying with aggressive format: {aggressive_format}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        
+        if result.returncode != 0:
+            logger.error(f"[{task_id}] Aggressive retry failed: {result.stderr}")
+            return (original_path, actual_quality)  # Fallback to previous quality
+        
+        if not os.path.exists(original_path):
+            logger.error(f"[{task_id}] Aggressive retry: output file not created")
+            return (original_path, actual_quality)
+        
+        file_size = os.path.getsize(original_path)
+        if file_size == 0:
+            logger.error(f"[{task_id}] Aggressive retry: downloaded file is empty")
+            os.remove(original_path)
+            return (original_path, actual_quality)
+        
+        # Check the actual quality
+        new_quality = await verify_video_quality(original_path, task_id)
+        if new_quality == '1080p':
+            logger.info(f"[{task_id}] Aggressive retry successful: got 1080p")
+            return (original_path, '1080p')
+        else:
+            logger.warning(f"[{task_id}] Aggressive retry still didn't get 1080p: {new_quality}")
+            return (original_path, new_quality or actual_quality)
+            
+    except Exception as e:
+        logger.error(f"[{task_id}] Error in aggressive retry: {e}")
+        return (original_path, actual_quality)
 
 async def download_youtube_video(video_url: str, task_id: str):
     """Download YouTube video using yt-dlp with quality fallback"""
@@ -100,16 +212,44 @@ async def download_youtube_video(video_url: str, task_id: str):
     
     try:
         # Build yt-dlp command for the selected quality
+        # Use more specific format selection to ensure we get the desired quality
+        height = selected_quality.replace('p', '')
+        if selected_quality == '1080p':
+            # For 1080p, try multiple approaches to get the best quality
+            format_spec = (
+                f"bestvideo[height={height}][ext=mp4]+bestaudio[ext=m4a]/"  # Best video + audio
+                f"bestvideo[height={height}]+bestaudio/"  # Best video + audio (any format)
+                f"best[height={height}][ext=mp4]/"  # Best combined with height constraint
+                f"best[height={height}]/"  # Best combined with height constraint (any format)
+                f"best"  # Fallback to best available
+            )
+        elif selected_quality == '720p':
+            format_spec = (
+                f"bestvideo[height={height}][ext=mp4]+bestaudio[ext=m4a]/"
+                f"bestvideo[height={height}]+bestaudio/"
+                f"best[height={height}][ext=mp4]/"
+                f"best[height={height}]/"
+                f"best"
+            )
+        else:
+            # For lower qualities, use simpler selection
+            format_spec = f"best[height={height}][ext=mp4]/best[height={height}]/best"
+        
         cmd = [
             "yt-dlp",
-            "-f", f"best[height<={selected_quality.replace('p', '')}]/best",
+            "-f", format_spec,
             "-o", output_path,
             "--no-playlist",
             "--no-warnings",
+            "--merge-output-format", "mp4",
+            "--postprocessor-args", "ffmpeg:-c:v copy -c:a copy",  # Copy streams without re-encoding
             video_url
         ]
         
         logger.info(f"[{task_id}] Downloading with command: {' '.join(cmd)}")
+        
+        # Log the format specification for debugging
+        logger.info(f"[{task_id}] Format specification: {format_spec}")
         
         # Run yt-dlp with timeout
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)  # 30 minutes timeout
@@ -133,6 +273,19 @@ async def download_youtube_video(video_url: str, task_id: str):
             return None
         
         logger.info(f"[{task_id}] Successfully downloaded: {output_path} ({file_size / (1024*1024):.1f}MB)")
+        
+        # Verify the actual quality of the downloaded video
+        actual_quality = await verify_video_quality(output_path, task_id)
+        if actual_quality:
+            logger.info(f"[{task_id}] Actual downloaded quality: {actual_quality}")
+            if actual_quality != selected_quality:
+                logger.warning(f"[{task_id}] Quality mismatch: requested {selected_quality}, got {actual_quality}")
+                
+                # If we didn't get the requested quality and it's 1080p, try a more aggressive approach
+                if selected_quality == '1080p' and actual_quality != '1080p':
+                    logger.info(f"[{task_id}] Retrying with more aggressive 1080p format selection")
+                    return await retry_with_aggressive_format(video_url, task_id, output_path, actual_quality)
+        
         return (output_path, selected_quality)
         
     except subprocess.TimeoutExpired:
@@ -182,12 +335,15 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             if existing_file:
                 # Update existing record with new file info
                 logger.info(f"[{task_id}] Updating existing YouTube file record (ID: {existing_file.id})")
-                existing_file.quality = selected_quality
-                existing_file.tg_bot_token_file_owner = tg_bot_token_file_owner
-                existing_file.movie_title = video_title
-                existing_file.movie_poster = video_poster
-                existing_file.movie_url = video_url
-                existing_file.session_name = session_name
+                for attr, value in [
+                    ("quality", selected_quality),
+                    ("tg_bot_token_file_owner", tg_bot_token_file_owner),
+                    ("movie_title", video_title),
+                    ("movie_poster", video_poster),
+                    ("movie_url", video_url),
+                    ("session_name", session_name)
+                ]:
+                    setattr(existing_file, attr, value)
                 
                 # Delete old parts and add new ones
                 from sqlalchemy import delete
@@ -216,12 +372,15 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                 db_id_to_get_parts = db_entry.id
 
             # Add parts (works for both new and updated records)
-            for part in parts:
-                session.add(DownloadedFilePart(
-                    downloaded_file_id=db_id_to_get_parts,
-                    part_number=part["part"],
-                    telegram_file_id=part["file_id"]
-                ))
+            if parts is None:
+                raise Exception("Upload to Telegram failed: parts is None")
+            else:
+                for part in parts:
+                    session.add(DownloadedFilePart(
+                        downloaded_file_id=db_id_to_get_parts,
+                        part_number=part["part"],
+                        telegram_file_id=part["file_id"]
+                    ))
             
             await session.commit()
             break  # Only need one iteration
