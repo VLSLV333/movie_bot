@@ -132,54 +132,6 @@ async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
         logger.error(f"[{task_id}] Error verifying video quality: {e}")
         return None
 
-async def retry_with_aggressive_format(video_url: str, task_id: str, original_path: str, actual_quality: str) -> tuple[str, str]:
-    """Retry download with more aggressive format selection for 1080p"""
-    try:
-        # Use a more aggressive format selection
-        aggressive_format = "bestvideo[height=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=1080]+bestaudio/best[height=1080]/best"
-        
-        cmd = [
-            "yt-dlp",
-            "-f", aggressive_format,
-            "-o", original_path,
-            "--no-playlist",
-            "--no-warnings",
-            "--merge-output-format", "mp4",
-            "--postprocessor-args", "ffmpeg:-c:v copy -c:a copy -avoid_negative_ts make_zero -movflags +faststart",
-            video_url
-        ]
-        
-        logger.info(f"[{task_id}] Retrying with aggressive format: {aggressive_format}")
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
-        
-        if result.returncode != 0:
-            logger.error(f"[{task_id}] Aggressive retry failed: {result.stderr}")
-            return (original_path, actual_quality)  # Fallback to previous quality
-        
-        if not os.path.exists(original_path):
-            logger.error(f"[{task_id}] Aggressive retry: output file not created")
-            return (original_path, actual_quality)
-        
-        file_size = os.path.getsize(original_path)
-        if file_size == 0:
-            logger.error(f"[{task_id}] Aggressive retry: downloaded file is empty")
-            os.remove(original_path)
-            return (original_path, actual_quality)
-        
-        # Check the actual quality
-        new_quality = await verify_video_quality(original_path, task_id)
-        if new_quality == '1080p':
-            logger.info(f"[{task_id}] Aggressive retry successful: got 1080p")
-            return (original_path, '1080p')
-        else:
-            logger.warning(f"[{task_id}] Aggressive retry still didn't get 1080p: {new_quality}")
-            return (original_path, new_quality or actual_quality)
-            
-    except Exception as e:
-        logger.error(f"[{task_id}] Error in aggressive retry: {e}")
-        return (original_path, actual_quality)
-
 async def download_youtube_video(video_url: str, task_id: str):
     """Download YouTube video using yt-dlp with quality fallback"""
     
@@ -212,28 +164,9 @@ async def download_youtube_video(video_url: str, task_id: str):
     
     try:
         # Build yt-dlp command for the selected quality
-        # Use more specific format selection to ensure we get the desired quality
+        # Use simple format selection - yt-dlp will convert to MP4 anyway
         height = selected_quality.replace('p', '')
-        if selected_quality == '1080p':
-            # For 1080p, try multiple approaches to get the best quality
-            format_spec = (
-                f"bestvideo[height={height}][ext=mp4]+bestaudio[ext=m4a]/"  # Best video + audio
-                f"bestvideo[height={height}]+bestaudio/"  # Best video + audio (any format)
-                f"best[height={height}][ext=mp4]/"  # Best combined with height constraint
-                f"best[height={height}]/"  # Best combined with height constraint (any format)
-                f"best"  # Fallback to best available
-            )
-        elif selected_quality == '720p':
-            format_spec = (
-                f"bestvideo[height={height}][ext=mp4]+bestaudio[ext=m4a]/"
-                f"bestvideo[height={height}]+bestaudio/"
-                f"best[height={height}][ext=mp4]/"
-                f"best[height={height}]/"
-                f"best"
-            )
-        else:
-            # For lower qualities, use simpler selection
-            format_spec = f"best[height={height}][ext=mp4]/best[height={height}]/best"
+        format_spec = f"best[height={height}]/best"
         
         cmd = [
             "yt-dlp",
@@ -280,13 +213,8 @@ async def download_youtube_video(video_url: str, task_id: str):
             logger.info(f"[{task_id}] Actual downloaded quality: {actual_quality}")
             if actual_quality != selected_quality:
                 logger.warning(f"[{task_id}] Quality mismatch: requested {selected_quality}, got {actual_quality}")
-                
-                # If we didn't get the requested quality and it's 1080p, try a more aggressive approach
-                if selected_quality == '1080p' and actual_quality != '1080p':
-                    logger.info(f"[{task_id}] Retrying with more aggressive 1080p format selection")
-                    return await retry_with_aggressive_format(video_url, task_id, output_path, actual_quality)
         
-        return (output_path, selected_quality)
+        return (output_path, actual_quality or selected_quality)
         
     except subprocess.TimeoutExpired:
         logger.error(f"[{task_id}] Download timeout (30 minutes)")
@@ -306,10 +234,12 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
     
     try:
         # Download the video
-        output_path, selected_quality = await download_youtube_video(video_url, task_id)
-        if not output_path:
+        download_result = await download_youtube_video(video_url, task_id)
+        if not download_result:
             #TODO:analyse what happens on error outcomes
             raise Exception("Failed to download YouTube video")
+        
+        output_path, selected_quality = download_result
 
         await redis.set(f"download:{task_id}:status", "uploading", ex=3600)
         
