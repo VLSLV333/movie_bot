@@ -94,7 +94,7 @@ class DownloadQueueManager:
                     video_title=task.get("video_title", "YouTube Video"),
                     video_poster=task.get("video_poster", "")
                 )
-            if source_type == "hdrezka":
+            elif source_type == "hdrezka":
                 # HDRezka download
                 await handle_download_task(
                     task_id=task["task_id"],

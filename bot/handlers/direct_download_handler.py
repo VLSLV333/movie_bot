@@ -511,7 +511,15 @@ async def handle_youtube_link_input(message: types.Message):
 
         if result and task_id is not None:
             task_id_str = str(task_id)
-            signed_task_id = f"{task_id_str}_{hmac.new(os.getenv('BACKEND_DOWNLOAD_SECRET').encode(), task_id_str.encode(), hashlib.sha256).hexdigest()[:10]}"
+            backend_secret = os.getenv('BACKEND_DOWNLOAD_SECRET')
+            if backend_secret is None:
+                logger.error("BACKEND_DOWNLOAD_SECRET environment variable is not set")
+                await message.answer(
+                    gettext(UNEXPECTED_ERROR_DURING_DOWNLOAD),
+                    reply_markup=get_main_menu_keyboard()
+                )
+                return
+            signed_task_id = f"{task_id_str}_{hmac.new(backend_secret.encode(), task_id_str.encode(), hashlib.sha256).hexdigest()[:10]}"
             delivery_bot_link = f"https://t.me/deliv3ry_bot?start=1_{signed_task_id}"
             await message.answer(
                 gettext(MOVIE_READY_START_DELIVERY_BOT).format(movie_title=payload["video_title"]),
