@@ -62,17 +62,13 @@ async def youtube_download_setup(data: str, sig: str):
     # Create task payload with source_type for routing
     task = {
         "task_id": task_id,
-        #TODO:analyse if we woun't get errors because of video_url instead of movie_url
         "video_url": video_url,
         "tmdb_id": tmdb_id,
         "lang": lang,
         "dub": dub,
         "tg_user_id": tg_user_id,
-        #TODO:analyse if we woun't get errors because of video_title instead of movie_title
         "video_title": video_title,
-        #TODO:analyse if we woun't get errors because of video_poster instead of movie_poster
         "video_poster": video_poster,
-        #TODO:analyse if our other flows set source_type correctly
         "source_type": "youtube"  # This will be used to route to YouTube executor
     }
 
