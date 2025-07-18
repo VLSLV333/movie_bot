@@ -3,32 +3,19 @@
 
 Telegram File ID Validation System
 
-This module validates Telegram file IDs to detect truly expired files and clean them from the database.
-
-IMPORTANT DESIGN DECISION:
-This validator is designed to match exactly how the delivery bot uses file IDs to prevent false positives.
-
-Key differences from naive validation:
-1. Uses aiogram Bot like delivery bot (not Pyrogram)
-2. Sends to admin chat for validation (matches delivery flow)
-3. Only treats "wrong file identifier" as expired (matches delivery bot)
+1. Uses aiogram Bot like delivery bot
+2. Sends to admin chat for validation
+3. Only treats "wrong file identifier" as expired
 4. Uses same cleanup API as delivery bot
 5. Proper timing: 1-2 sec between parts, 5-7 sec between files
 
-Why this matters:
-- "file_reference_expired" != completely expired file ID
-- Telegram is stricter with saved messages vs direct user delivery  
-- File references expire faster than actual file IDs
-- This prevents deleting files that still work for users
-
-The validation method must mirror the delivery method to be accurate.
 """
 import logging
 import random
 import asyncio
 import aiohttp
 from typing import Dict, List
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
 import os
@@ -61,22 +48,26 @@ async def clean_up_expired_file_id(telegram_file_id: str):
     """
     Call the backend API to clean up expired Telegram file ID (same as delivery bot)
     """
+    session = None
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://moviebot.click/cleanup-expired-file",
-                json={"telegram_file_id": telegram_file_id}
-            ) as resp:
-                if resp.status == 200:
-                    cleanup_result = await resp.json()
-                    logger.info(f"Successfully cleaned up expired file ID {telegram_file_id}: {cleanup_result}")
-                    return cleanup_result
-                else:
-                    logger.error(f"Failed to cleanup expired file ID {telegram_file_id}, status: {resp.status}")
-                    return None
+        session = aiohttp.ClientSession()
+        async with session.post(
+            "https://moviebot.click/cleanup-expired-file",
+            json={"telegram_file_id": telegram_file_id}
+        ) as resp:
+            if resp.status == 200:
+                cleanup_result = await resp.json()
+                logger.info(f"Successfully cleaned up expired file ID {telegram_file_id}: {cleanup_result}")
+                return cleanup_result
+            else:
+                logger.error(f"Failed to cleanup expired file ID {telegram_file_id}, status: {resp.status}")
+                return None
     except Exception as e:
         logger.error(f"Exception while cleaning up expired file ID {telegram_file_id}: {e}")
         return None
+    finally:
+        if session:
+            await session.close()
 
 class FileIDValidator:
     """
@@ -89,8 +80,7 @@ class FileIDValidator:
             "total_files_processed": 0,
             "valid_files": 0,
             "expired_files": 0,
-            "errors": 0,
-            "sessions_processed": 0
+            "errors": 0
         }
         self.bot = None
     
@@ -115,54 +105,81 @@ class FileIDValidator:
                 return False
         return True
     
-    async def validate_all_sessions(self) -> Dict[str, int]:
+    async def validate_all_files(self) -> Dict[str, int]:
         """
-        Validate file IDs for all session_names in the database
+        Validate file IDs for all DownloadedFiles in the database
         """
-        logger.info("🔍 Starting file ID validation for all sessions")
+        logger.info("🔍 Starting file ID validation for all files")
         
         # Check if we have required tokens for validation
         if not DELIVERY_BOT_TOKEN:
             error_msg = "❌ DELIVERY_BOT_TOKEN not set - cannot perform file ID validation"
             logger.error(error_msg)
             await notify_admin(error_msg)
-            return {"total_files_processed": 0, "valid_files": 0, "expired_files": 0, "errors": 1, "sessions_processed": 0}
+            return {"total_files_processed": 0, "valid_files": 0, "expired_files": 0, "errors": 1}
             
         if not ADMIN_CHAT_ID:
             error_msg = "❌ ADMIN_CHAT_ID not set - cannot perform file ID validation without test user"
             logger.error(error_msg)
             await notify_admin(error_msg)
-            return {"total_files_processed": 0, "valid_files": 0, "expired_files": 0, "errors": 1, "sessions_processed": 0}
+            return {"total_files_processed": 0, "valid_files": 0, "expired_files": 0, "errors": 1}
         
         # Initialize bot
         if not await self._ensure_bot_ready():
             error_msg = "❌ Failed to initialize delivery bot for validation"
             await notify_admin(error_msg)
-            return {"total_files_processed": 0, "valid_files": 0, "expired_files": 0, "errors": 1, "sessions_processed": 0}
+            return {"total_files_processed": 0, "valid_files": 0, "expired_files": 0, "errors": 1}
         
         logger.info(f"📋 Using delivery bot for validation to admin chat: {ADMIN_CHAT_ID}")
         
         async for db in get_db():
-            # Get unique session_names from database
-            stmt = select(DownloadedFile.session_name).distinct()
-            result = await db.execute(stmt)
-            session_names = [row[0] for row in result.fetchall() if row[0]]
+            # Get total count first
+            count_stmt = select(func.count(DownloadedFile.id))
+            result = await db.execute(count_stmt)
+            total_files = result.scalar() or 0
             
-            if not session_names:
+            if total_files == 0:
                 logger.info("📭 No files found in database to validate")
                 await notify_admin("📭 File ID validation: No files found in database")
                 return self.stats
             
-            logger.info(f"🎯 Found {len(session_names)} sessions to validate: {session_names}")
+            logger.info(f"📊 Found {total_files} files to validate")
             
-            for session_name in session_names:
-                try:
-                    await self.validate_session_files(session_name, db)
-                    self.stats["sessions_processed"] += 1
-                except Exception as e:
-                    logger.error(f"❌ Error validating session {session_name}: {e}")
-                    self.stats["errors"] += 1
-                    await notify_admin(f"❌ File ID validation failed for session {session_name}: {e}")
+            # Process in batches
+            offset = 0
+            
+            while offset < total_files:
+                # Get batch of files (sorted by ID for consistent processing)
+                stmt = select(DownloadedFile).order_by(DownloadedFile.id).offset(offset).limit(BATCH_SIZE)
+                
+                result = await db.execute(stmt)
+                batch_files = list(result.scalars().all())
+                
+                batch_num = offset // BATCH_SIZE + 1
+                total_batches = (total_files + BATCH_SIZE - 1) // BATCH_SIZE
+                
+                logger.info(f"📦 Processing batch {batch_num}/{total_batches}: files {offset+1}-{min(offset+BATCH_SIZE, total_files)}")
+                
+                # Process this batch
+                batch_stats = await self.process_file_batch(files=batch_files, db=db)
+                
+                # Update global stats
+                self.stats["total_files_processed"] += len(batch_files)
+                self.stats["valid_files"] += batch_stats["validated_files"]
+                self.stats["expired_files"] += batch_stats["expired_files"]
+                self.stats["errors"] += batch_stats["errors"]
+                
+                # Log progress
+                progress = min((offset + len(batch_files)) / total_files * 100, 100.0)
+                logger.info(f"📈 Progress: {progress:.1f}% - Batch: {batch_stats}")
+                
+                # Move to next batch
+                offset += BATCH_SIZE
+                
+                # Add delay between batches to be nice to Telegram
+                if offset < total_files:
+                    logger.info(f"⏳ Waiting {BATCH_DELAY} seconds before next batch...")
+                    await asyncio.sleep(BATCH_DELAY)
             
             break  # Only need one database session
         
@@ -170,70 +187,41 @@ class FileIDValidator:
         await self.send_validation_summary()
         return self.stats
     
-    async def validate_session_files(self, session_name: str, db: AsyncSession) -> Dict[str, int]:
+    async def validate_file_by_id(self, downloaded_file_id: int) -> Dict[str, int]:
         """
-        Validate file IDs for a specific session_name with batch processing
+        Validate file IDs for a specific DownloadedFile by ID
         """
-        logger.info(f"🔍 Starting validation for session: {session_name}")
+        logger.info(f"🔍 Starting validation for file ID: {downloaded_file_id}")
         
-        # Get total count first
-        count_stmt = select(func.count(DownloadedFile.id)).where(
-            DownloadedFile.session_name == session_name
-        )
-        result = await db.execute(count_stmt)
-        total_files = result.scalar() or 0  # Handle None case
+        # Initialize bot
+        if not await self._ensure_bot_ready():
+            error_msg = "❌ Failed to initialize delivery bot for validation"
+            await notify_admin(error_msg)
+            return {"validated_files": 0, "expired_files": 0, "errors": 1}
         
-        if total_files == 0:
-            logger.info(f"📭 No files found for session_name: {session_name}")
-            return {"validated_files": 0, "expired_files": 0, "errors": 0}
-        
-        logger.info(f"📊 Found {total_files} files to validate for {session_name}")
-        
-        # Process in batches
-        offset = 0
-        session_stats = {"validated_files": 0, "expired_files": 0, "errors": 0}
-        
-        while offset < total_files:
-            # Get batch of files
-            stmt = select(DownloadedFile).where(
-                DownloadedFile.session_name == session_name
-            ).offset(offset).limit(BATCH_SIZE)
-            
+        async for db in get_db():
+            # Get the specific file
+            stmt = select(DownloadedFile).where(DownloadedFile.id == downloaded_file_id)
             result = await db.execute(stmt)
-            batch_files = list(result.scalars().all())  # Convert to list
+            downloaded_file = result.scalar_one_or_none()
             
-            batch_num = offset // BATCH_SIZE + 1
-            total_batches = (total_files + BATCH_SIZE - 1) // BATCH_SIZE
+            if not downloaded_file:
+                logger.error(f"❌ File with ID {downloaded_file_id} not found in database")
+                return {"validated_files": 0, "expired_files": 0, "errors": 1}
             
-            logger.info(f"📦 Processing batch {batch_num}/{total_batches}: files {offset+1}-{min(offset+BATCH_SIZE, total_files)}")
-            
-            # Process this batch
-            batch_stats = await self.process_file_batch(files=batch_files, db=db)
-            
-            session_stats["validated_files"] += batch_stats["validated_files"]
-            session_stats["expired_files"] += batch_stats["expired_files"]
-            session_stats["errors"] += batch_stats["errors"]
+            # Process single file
+            stats = await self.process_file_batch(files=[downloaded_file], db=db)
             
             # Update global stats
-            self.stats["total_files_processed"] += len(batch_files)
-            self.stats["valid_files"] += batch_stats["validated_files"]
-            self.stats["expired_files"] += batch_stats["expired_files"]
-            self.stats["errors"] += batch_stats["errors"]
+            self.stats["total_files_processed"] += 1
+            self.stats["valid_files"] += stats["validated_files"]
+            self.stats["expired_files"] += stats["expired_files"]
+            self.stats["errors"] += stats["errors"]
             
-            # Log progress - Fix the calculation
-            progress = min((offset + len(batch_files)) / total_files * 100, 100.0)
-            logger.info(f"📈 Progress: {progress:.1f}% - Batch: {batch_stats}")
-            
-            # Move to next batch
-            offset += BATCH_SIZE
-            
-            # Add delay between batches to be nice to Telegram
-            if offset < total_files:
-                logger.info(f"⏳ Waiting {BATCH_DELAY} seconds before next batch...")
-                await asyncio.sleep(BATCH_DELAY)
+            break
         
-        logger.info(f"✅ Completed validation for {session_name}: {session_stats}")
-        return session_stats
+        await self.send_validation_summary()
+        return stats
     
     async def process_file_batch(self, files: List[DownloadedFile], db: AsyncSession) -> Dict[str, int]:
         """
@@ -335,25 +323,6 @@ class FileIDValidator:
             "errors": error_count
         }
     
-    async def validate_specific_session(self, session_name: str) -> Dict[str, int]:
-        """
-        Validate file IDs for a specific session_name
-        """
-        logger.info(f"🔍 Starting validation for specific session: {session_name}")
-        
-        # Initialize bot
-        if not await self._ensure_bot_ready():
-            error_msg = "❌ Failed to initialize delivery bot for validation"
-            await notify_admin(error_msg)
-            return {"validated_files": 0, "expired_files": 0, "errors": 1}
-        
-        async for db in get_db():
-            stats = await self.validate_session_files(session_name, db)
-            break
-        
-        await self.send_validation_summary()
-        return stats
-    
     async def send_validation_summary(self):
         """
         Send validation summary to admin
@@ -368,7 +337,6 @@ class FileIDValidator:
         summary = f"""
 📊 **File ID Validation Summary**
 
-🎯 **Sessions Processed:** {stats['sessions_processed']}
 📁 **Total Files:** {stats['total_files_processed']}
 ✅ **Valid Files:** {stats['valid_files']} ({success_rate:.1f}%)
 ❌ **Expired Files:** {stats['expired_files']}
@@ -382,30 +350,26 @@ class FileIDValidator:
         
         await notify_admin(summary.strip())
         logger.info(f"📊 Validation summary sent: {stats}")
+        
+        # Close bot session to prevent resource leaks
+        if self.bot:
+            try:
+                await self.bot.session.close()
+                logger.info("✅ Bot session closed successfully")
+            except Exception as e:
+                logger.warning(f"⚠️ Error closing bot session: {e}")
 
 # Convenience functions for easy usage
 async def validate_all_file_ids() -> Dict[str, int]:
     """
-    Validate file IDs for all session_names in the database
+    Validate file IDs for all DownloadedFiles in the database
     """
     validator = FileIDValidator()
-    return await validator.validate_all_sessions()
+    return await validator.validate_all_files()
 
-async def validate_session_file_ids(session_name: str) -> Dict[str, int]:
+async def validate_file_by_id(downloaded_file_id: int) -> Dict[str, int]:
     """
-    Validate file IDs for a specific session_name
+    Validate file IDs for a specific DownloadedFile by ID
     """
     validator = FileIDValidator()
-    return await validator.validate_specific_session(session_name)
-
-# For testing and manual execution
-if __name__ == "__main__":
-    import asyncio
-    
-    async def main():
-        # Example usage
-        print("Starting file ID validation...")
-        stats = await validate_all_file_ids()
-        print(f"Validation complete: {stats}")
-    
-    asyncio.run(main())
+    return await validator.validate_file_by_id(downloaded_file_id)

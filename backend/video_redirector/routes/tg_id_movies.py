@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.video_redirector.db.session import get_db
 from backend.video_redirector.db.crud_downloads import get_file_id, get_parts_for_downloaded_file, get_files_by_tmdb_and_lang, cleanup_expired_file
-from backend.video_redirector.utils.validate_tg_file_ids import validate_all_file_ids, validate_session_file_ids
+from backend.video_redirector.utils.validate_tg_file_ids import validate_all_file_ids, validate_file_by_id
 from pydantic import BaseModel
 from typing import Optional
 
@@ -24,7 +24,7 @@ class CleanupExpiredFileRequest(BaseModel):
     telegram_file_id: str
 
 class ValidationRequest(BaseModel):
-    session_name: Optional[str] = None  # If None, validate all sessions
+    downloaded_file_id: Optional[int] = None  # If None, validate all files
 
 @router.get("/all_movie_parts")
 async def get_all_movie_parts(
@@ -143,21 +143,21 @@ async def validate_file_ids_route(
     payload: ValidationRequest,
 ):
     """
-    Manually trigger file ID validation for all sessions or a specific session
+    Manually trigger file ID validation for all files or a specific file
     """
     try:
-        if payload.session_name:
-            logger.info(f"Manual file ID validation requested for session: {payload.session_name}")
-            stats = await validate_session_file_ids(payload.session_name)
+        if payload.downloaded_file_id:
+            logger.info(f"Manual file ID validation requested for file ID: {payload.downloaded_file_id}")
+            stats = await validate_file_by_id(payload.downloaded_file_id)
             return {
-                "message": f"File ID validation completed for session {payload.session_name}",
+                "message": f"File ID validation completed for file {payload.downloaded_file_id}",
                 "stats": stats
             }
         else:
-            logger.info("Manual file ID validation requested for all sessions")
+            logger.info("Manual file ID validation requested for all files")
             stats = await validate_all_file_ids()
             return {
-                "message": "File ID validation completed for all sessions",
+                "message": "File ID validation completed for all files",
                 "stats": stats
             }
         
