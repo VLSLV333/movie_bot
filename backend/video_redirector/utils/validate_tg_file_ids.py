@@ -1,3 +1,24 @@
+"""
+Telegram File ID Validation System
+
+This module validates Telegram file IDs to detect truly expired files and clean them from the database.
+
+IMPORTANT DESIGN DECISION:
+This validator is designed to match exactly how the delivery bot uses file IDs to prevent false positives.
+
+Key differences from naive validation:
+1. Sends to real user (admin chat) instead of "saved messages" 
+2. Only treats "wrong file identifier" as expired (matches delivery bot)
+3. Ignores "file_reference_expired" errors since delivery still works
+
+Why this matters:
+- "file_reference_expired" != completely expired file ID
+- Telegram is stricter with saved messages vs direct user delivery  
+- File references expire faster than actual file IDs
+- This prevents deleting files that still work for users
+
+The validation method must mirror the delivery method to be accurate.
+"""
 import logging
 import random
 import asyncio
@@ -5,6 +26,7 @@ from typing import Dict, List
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
+import os
 
 from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePart
 from backend.video_redirector.db.session import get_db
@@ -21,10 +43,14 @@ FILE_CHECK_DELAY_MAX = 3.0  # Maximum seconds to wait between individual file ch
 MAX_RETRIES = 3  # Maximum retries for client connection issues
 VALIDATION_TIMEOUT = 5  # Seconds timeout for each file validation (reduced from 30)
 
+# Test user ID for validation (this should be an admin or test account)
+# We need a real user ID to test with, not "me" (saved messages)
+VALIDATION_TEST_USER_ID = os.getenv("ADMIN_CHAT_ID")  # Use admin chat ID for testing
+
 class FileIDValidator:
     """
-    Validates Telegram file IDs by attempting to send them to saved messages
-    and removes expired files from the database
+    Validates Telegram file IDs by attempting to send them to a test user (admin chat)
+    and removes expired files from the database.
     """
     
     def __init__(self):
@@ -41,6 +67,15 @@ class FileIDValidator:
         Validate file IDs for all session_names in the database
         """
         logger.info("🔍 Starting file ID validation for all sessions")
+        
+        # Check if we have a test user ID for validation
+        if not VALIDATION_TEST_USER_ID:
+            error_msg = "❌ ADMIN_CHAT_ID not set - cannot perform file ID validation without test user"
+            logger.error(error_msg)
+            await notify_admin(error_msg)
+            return {"total_files_processed": 0, "valid_files": 0, "expired_files": 0, "errors": 1, "sessions_processed": 0}
+        
+        logger.info(f"📋 Using test user ID for validation: {VALIDATION_TEST_USER_ID}")
         
         async for db in get_db():
             # Get unique session_names from database
@@ -201,7 +236,7 @@ class FileIDValidator:
                         # Use timeout to prevent hanging
                         async with asyncio.timeout(VALIDATION_TIMEOUT):
                             await client.send_video(
-                                chat_id="me",  # Saved messages
+                                chat_id=VALIDATION_TEST_USER_ID,  # Test user ID
                                 video=part.telegram_file_id,
                                 disable_notification=True
                             )
@@ -218,13 +253,14 @@ class FileIDValidator:
                         continue
                     except Exception as e:
                         error_str = str(e).lower()
-                        # Updated error detection based on actual Telegram error messages
-                        if any(keyword in error_str for keyword in ["wrong file identifier", "file identifier", "invalid", "expired", "bad request"]):
+                        # Match exactly what the delivery bot looks for: "wrong file identifier"
+                        # This is the ONLY error type that indicates a truly expired file ID
+                        if "wrong file identifier" in error_str:
                             logger.warning(f"❌ File ID expired: {part.telegram_file_id[:20]}... (Error: {error_str})")
                             file_expired = True
                             break
                         else:
-                            logger.error(f"⚠️ Error checking file ID {part.telegram_file_id[:20]}...: {e}")
+                            logger.warning(f"⚠️ Non-fatal error checking file ID {part.telegram_file_id[:20]}...: {e}")
                             error_count += 1
                             continue
                 
