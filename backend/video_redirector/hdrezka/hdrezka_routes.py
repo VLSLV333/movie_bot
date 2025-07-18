@@ -238,6 +238,7 @@ async def download(data: str, sig: str, background_tasks: BackgroundTasks):
 @router.get("/status/download/{task_id}")
 async def check_full_download_status(task_id: str):
     from backend.video_redirector.utils.download_queue_manager import DownloadQueueManager
+    from datetime import datetime
     redis = RedisClient.get_client()
 
     status = await redis.get(f"download:{task_id}:status")
@@ -261,6 +262,9 @@ async def check_full_download_status(task_id: str):
     position = await DownloadQueueManager.get_position_by_task_id(task_id)
     if position:
         response["queue_position"] = position
+
+    # Log what we're returning
+    logger.info(f"📊 [{task_id}] Status endpoint returning at {datetime.now().isoformat()}: {response}")
 
     return response
 

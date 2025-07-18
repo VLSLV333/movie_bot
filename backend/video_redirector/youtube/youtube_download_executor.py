@@ -519,9 +519,6 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         await redis.set(f"download:{task_id}:status", "downloading", ex=3600)
         logger.info(f"[{task_id}] ✅ Status set to 'downloading' at {datetime.now().isoformat()}")
         
-        # Give polling function time to detect the status change
-        await asyncio.sleep(2)
-        
         # Download the video
         download_result = await download_youtube_video(video_url, task_id)
         if not download_result:

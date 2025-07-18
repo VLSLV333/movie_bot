@@ -88,6 +88,10 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                     new_text = None
                     animation_url = None
 
+                    # Log what we received
+                    from datetime import datetime
+                    logger.info(f"🔍 [User {user_id}] Poll #{attempt + 1} at {datetime.now().isoformat()}: Received status='{status}', data={data}")
+
                     # Determine which animation/caption to use
                     if status == "queued":
                         animation_url = "https://media.giphy.com/media/F99PZtJC8Hxm0/giphy.gif"
@@ -140,6 +144,8 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
 
                     # If status changed, delete old animation and send new one, and update text message
                     if status != last_status:
+                        logger.info(f"🎬 [User {user_id}] STATUS CHANGE: '{last_status}' → '{status}', showing text: '{new_text}'")
+                        
                         try:
                             await last_animation_msg.delete()
                         except Exception as err:
@@ -166,6 +172,8 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                         
                         last_status = status
                         last_text = new_text
+                    else:
+                        logger.info(f"🔄 [User {user_id}] No status change, staying on '{status}'")  
 
             except Exception as e:
                 error_str = str(e)
@@ -460,6 +468,7 @@ async def handle_youtube_link_input(message: types.Message):
             animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
             caption=gettext(ADDED_TO_DOWNLOAD_QUEUE)
         )
+        logger.info(f"🎬 [User {user_id}] Initial message shown: '{gettext(ADDED_TO_DOWNLOAD_QUEUE)}'")
 
         # Call YouTube download endpoint
         async with ClientSession() as session:
