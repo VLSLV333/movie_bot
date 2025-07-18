@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -508,23 +509,29 @@ async def download_youtube_video(video_url: str, task_id: str):
 async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: int, lang: str, dub: str, video_title: str, video_poster: str):
     """Handle YouTube video download task - follows same interface as HDRezka executor"""
     redis = RedisClient.get_client()
-    await redis.set(f"download:{task_id}:status", "downloading", ex=3600)
-
+    
     # Remove from user's active downloads set when done (success or error)
     tg_user_id = None
     output_path = None
     
     try:
+        # Set downloading status and ensure it's visible for polling
+        await redis.set(f"download:{task_id}:status", "downloading", ex=3600)
+        logger.info(f"[{task_id}] ✅ Status set to 'downloading' at {datetime.now().isoformat()}")
+        
+        # Give polling function time to detect the status change
+        await asyncio.sleep(2)
+        
         # Download the video
         download_result = await download_youtube_video(video_url, task_id)
         if not download_result:
-            #TODO:analyse what happens on error outcomes
             raise Exception("Failed to download YouTube video")
         
         output_path, selected_quality = download_result
 
         await redis.set(f"download:{task_id}:status", "uploading", ex=3600)
-        
+        logger.info(f"[{task_id}] ✅ Status set to 'uploading' at {datetime.now().isoformat()}")
+         
         # Upload to Telegram using existing infrastructure
         upload_result: Optional[dict] = None
         async for db in get_db():
@@ -532,7 +539,6 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             break  # Only need one session
 
         if not upload_result:
-            #TODO:analyse what happens on error outcomes
             raise Exception("Upload to Telegram failed across all delivery bots.")
 
         tg_bot_token_file_owner = upload_result["bot_token"]
@@ -612,10 +618,10 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         logger.info(f"[{task_id}] YouTube download completed successfully")
         
     except RETRYABLE_EXCEPTIONS as e:
-        logger.error(f"[Download Task {task_id}] Failed RETRYABLE_EXCEPTIONS: {e}")
+        logger.error(f"[{task_id}] 🔁 RETRYABLE_EXCEPTION at {datetime.now().isoformat()}: {type(e).__name__}: {e}")
         raise RetryableDownloadError(f"Temporary issue during YouTube download: {e}")
     except Exception as e:
-        logger.error(f"[Download Task {task_id}] Failed Exception: {e}")
+        logger.error(f"[{task_id}] ❌ NON-RETRYABLE_EXCEPTION at {datetime.now().isoformat()}: {type(e).__name__}: {e}")
         await redis.set(f"download:{task_id}:status", "error", ex=3600)
         await redis.set(f"download:{task_id}:error", str(e), ex=3600)
         await notify_admin(f"[Download Task {task_id}] YouTube download failed: {e}")
