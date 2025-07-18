@@ -57,7 +57,7 @@ async def clean_up_expired_file_id(telegram_file_id: str):
         ) as resp:
             if resp.status == 200:
                 cleanup_result = await resp.json()
-                logger.info(f"Successfully cleaned up expired file ID {telegram_file_id}: {cleanup_result}")
+                logger.debug(f"Successfully cleaned up expired file ID {telegram_file_id}: {cleanup_result}")
                 return cleanup_result
             else:
                 logger.error(f"Failed to cleanup expired file ID {telegram_file_id}, status: {resp.status}")
@@ -98,7 +98,7 @@ class FileIDValidator:
                     token=DELIVERY_BOT_TOKEN,
                     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
                 )
-                logger.info("✅ Delivery bot initialized for validation")
+                logger.debug("✅ Delivery bot initialized for validation")
                 return True
             except Exception as e:
                 logger.error(f"❌ Failed to initialize delivery bot: {e}")
@@ -109,7 +109,7 @@ class FileIDValidator:
         """
         Validate file IDs for all DownloadedFiles in the database
         """
-        logger.info("🔍 Starting file ID validation for all files")
+        logger.debug("🔍 Starting file ID validation for all files")
         
         # Check if we have required tokens for validation
         if not DELIVERY_BOT_TOKEN:
@@ -130,7 +130,7 @@ class FileIDValidator:
             await notify_admin(error_msg)
             return {"total_files_processed": 0, "valid_files": 0, "expired_files": 0, "errors": 1}
         
-        logger.info(f"📋 Using delivery bot for validation to admin chat: {ADMIN_CHAT_ID}")
+        logger.debug(f"📋 Using delivery bot for validation to admin chat: {ADMIN_CHAT_ID}")
         
         async for db in get_db():
             # Get total count first
@@ -139,11 +139,11 @@ class FileIDValidator:
             total_files = result.scalar() or 0
             
             if total_files == 0:
-                logger.info("📭 No files found in database to validate")
+                logger.debug("📭 No files found in database to validate")
                 await notify_admin("📭 File ID validation: No files found in database")
                 return self.stats
             
-            logger.info(f"📊 Found {total_files} files to validate")
+            logger.debug(f"📊 Found {total_files} files to validate")
             
             # Process in batches
             offset = 0
@@ -158,7 +158,7 @@ class FileIDValidator:
                 batch_num = offset // BATCH_SIZE + 1
                 total_batches = (total_files + BATCH_SIZE - 1) // BATCH_SIZE
                 
-                logger.info(f"📦 Processing batch {batch_num}/{total_batches}: files {offset+1}-{min(offset+BATCH_SIZE, total_files)}")
+                logger.debug(f"📦 Processing batch {batch_num}/{total_batches}: files {offset+1}-{min(offset+BATCH_SIZE, total_files)}")
                 
                 # Process this batch
                 batch_stats = await self.process_file_batch(files=batch_files, db=db)
@@ -171,14 +171,14 @@ class FileIDValidator:
                 
                 # Log progress
                 progress = min((offset + len(batch_files)) / total_files * 100, 100.0)
-                logger.info(f"📈 Progress: {progress:.1f}% - Batch: {batch_stats}")
+                logger.debug(f"📈 Progress: {progress:.1f}% - Batch: {batch_stats}")
                 
                 # Move to next batch
                 offset += BATCH_SIZE
                 
                 # Add delay between batches to be nice to Telegram
                 if offset < total_files:
-                    logger.info(f"⏳ Waiting {BATCH_DELAY} seconds before next batch...")
+                    logger.debug(f"⏳ Waiting {BATCH_DELAY} seconds before next batch...")
                     await asyncio.sleep(BATCH_DELAY)
             
             break  # Only need one database session
@@ -191,7 +191,7 @@ class FileIDValidator:
         """
         Validate file IDs for a specific DownloadedFile by ID
         """
-        logger.info(f"🔍 Starting validation for file ID: {downloaded_file_id}")
+        logger.debug(f"🔍 Starting validation for file ID: {downloaded_file_id}")
         
         # Initialize bot
         if not await self._ensure_bot_ready():
@@ -301,8 +301,8 @@ class FileIDValidator:
                 # Use the same cleanup function as delivery bot
                 cleanup_result = await clean_up_expired_file_id(str(parts[0].telegram_file_id))
                 if cleanup_result and cleanup_result.get('success') == True:
-                    logger.info(f"🗑️ Successfully cleaned up file: {cleanup_result['message']}")
-                    logger.info(f"Deleted {cleanup_result['deleted_parts']} parts and file record: {cleanup_result['deleted_file']}")
+                    logger.debug(f"🗑️ Successfully cleaned up file: {cleanup_result['message']}")
+                    logger.debug(f"Deleted {cleanup_result['deleted_parts']} parts and file record: {cleanup_result['deleted_file']}")
                     expired_count += 1
                     await notify_admin(f"Expired file cleaned up during validation. "
                                      f"Deleted {cleanup_result['deleted_parts']} parts, file_id: {cleanup_result['downloaded_file_id']}")
@@ -349,13 +349,13 @@ class FileIDValidator:
         """
         
         await notify_admin(summary.strip())
-        logger.info(f"📊 Validation summary sent: {stats}")
+        logger.debug(f"📊 Validation summary sent: {stats}")
         
         # Close bot session to prevent resource leaks
         if self.bot:
             try:
                 await self.bot.session.close()
-                logger.info("✅ Bot session closed successfully")
+                logger.debug("✅ Bot session closed successfully")
             except Exception as e:
                 logger.warning(f"⚠️ Error closing bot session: {e}")
 

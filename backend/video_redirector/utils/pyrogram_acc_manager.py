@@ -210,11 +210,11 @@ async def log_ip_change(old_ip: str | None, new_ip: str | None):
     if old_ip and new_ip and old_ip != new_ip:
         logger.info(f"🌐 Previous IP: {old_ip}")
         logger.info(f"🌐 New IP: {new_ip}")
-        logger.info(f"IP Changed: ✅")
+        logger.debug(f"IP Changed: ✅")
     elif old_ip and new_ip and old_ip == new_ip:
         logger.warning(f"⚠️ IP Rotation Completed but IP remains the same")
-        logger.info(f"   Current IP: {new_ip}")
-        logger.info(f"   IP Changed: ❌ (same IP)")
+        logger.debug(f"   Current IP: {new_ip}")
+        logger.debug(f"   IP Changed: ❌ (same IP)")
     elif not old_ip and new_ip:
         logger.info(f"🌐 Initial IP detected: {new_ip}")
     else:
@@ -505,11 +505,11 @@ async def wait_for_ongoing_uploads(timeout: int | None = None):
         timeout = PROXY_CONFIG["rotation_timeout"]
     
     if not _active_uploads:
-        logger.info("🔄 No active uploads to wait for")
+        logger.debug("🔄 No active uploads to wait for")
         return True
     
     logger.info(f"⏳ Waiting for {len(_active_uploads)} ongoing uploads to complete...")
-    logger.info(f"   Active uploads: {list(_active_uploads)}")
+    logger.debug(f"   Active uploads: {list(_active_uploads)}")
     
     start_time = time.time()
     timeout_seconds = timeout or PROXY_CONFIG["rotation_timeout"]
@@ -569,7 +569,7 @@ async def initialize_all_accounts_in_db(db: AsyncSession):
 
 async def diagnose_account_distribution(db: AsyncSession):
     """Diagnose the current distribution of accounts in the database"""
-    logger.info("🔍 Diagnosing account distribution in database...")
+    logger.debug("🔍 Diagnosing account distribution in database...")
     
     try:
         # Get all accounts from database
@@ -583,11 +583,11 @@ async def diagnose_account_distribution(db: AsyncSession):
         missing_accounts = configured_account_names - db_account_names
         extra_accounts = db_account_names - configured_account_names
         
-        logger.info(f"📊 Account Distribution Analysis:")
+        logger.debug(f"📊 Account Distribution Analysis:")
         logger.info(f"   Configured accounts: {len(configured_account_names)}")
-        logger.info(f"   Database accounts: {len(db_account_names)}")
-        logger.info(f"   Missing from DB: {len(missing_accounts)}")
-        logger.info(f"   Extra in DB: {len(extra_accounts)}")
+        logger.debug(f"   Database accounts: {len(db_account_names)}")
+        logger.debug(f"   Missing from DB: {len(missing_accounts)}")
+        logger.debug(f"   Extra in DB: {len(extra_accounts)}")
         
         if missing_accounts:
             logger.warning(f"⚠️ Missing accounts in database: {list(missing_accounts)}")
@@ -602,7 +602,7 @@ async def diagnose_account_distribution(db: AsyncSession):
                 today_uploads = getattr(acc, 'today_uploads', 0) or 0
                 total_uploads = getattr(acc, 'total_uploads', 0) or 0
                 last_upload_date = getattr(acc, 'last_upload_date', 'Never')
-                logger.info(f"   {acc.session_name}: {today_uploads} today, {total_uploads} total, last: {last_upload_date}")
+                logger.debug(f"   {acc.session_name}: {today_uploads} today, {total_uploads} total, last: {last_upload_date}")
         
         return {
             "configured_count": len(configured_account_names),
@@ -731,7 +731,7 @@ async def rotate_proxy_ip():
                     timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     if response.status == 200:
-                        logger.info("✅ Proxy rotation request successful")
+                        logger.debug("✅ Proxy rotation request successful")
                         _last_ip_rotation = current_time
                     else:
                         logger.warning(f"⚠️ Proxy rotation failed with status {response.status}")
@@ -743,7 +743,7 @@ async def rotate_proxy_ip():
                     timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     if response.status == 200:
-                        logger.info("✅ Proxy rotation request successful")
+                        logger.debug("✅ Proxy rotation request successful")
                         _last_ip_rotation = current_time
                     else:
                         logger.warning(f"⚠️ Proxy rotation failed with status {response.status}")
@@ -801,7 +801,7 @@ async def rotate_proxy_ip_immediate(reason: str = "emergency"):
                     timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     if response.status == 200:
-                        logger.info("✅ Immediate proxy rotation request successful")
+                        logger.debug("✅ Immediate proxy rotation request successful")
                         _last_ip_rotation = current_time
                     else:
                         logger.warning(f"⚠️ Immediate proxy rotation failed with status {response.status}")
@@ -813,7 +813,7 @@ async def rotate_proxy_ip_immediate(reason: str = "emergency"):
                     timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     if response.status == 200:
-                        logger.info("✅ Immediate proxy rotation request successful")
+                        logger.debug("✅ Immediate proxy rotation request successful")
                         _last_ip_rotation = current_time
                     else:
                         logger.warning(f"⚠️ Immediate proxy rotation failed with status {response.status}")
