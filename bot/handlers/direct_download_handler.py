@@ -76,14 +76,37 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
 
     async with ClientSession() as session:
         for attempt in range(max_attempts):
-            try:
-                async with session.get(f"{status_url}/{task_id}") as resp:
-                    if resp.status != 200:
-                        logger.warning(f"[User {user_id}] Polling failed (status {resp.status}) on attempt {attempt}")
-                        await asyncio.sleep(interval)
+            # Try to poll with retries for network issues
+            data = None
+            for retry in range(4):  # 0, 1, 2, 3 = 4 attempts total
+                try:
+                    async with session.get(f"{status_url}/{task_id}") as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            break  # Success
+                        elif 500 <= resp.status < 600 and retry < 3:
+                            logger.warning(f"[User {user_id}] Server error {resp.status} on attempt {attempt}, retry {retry + 1}/3")
+                            await asyncio.sleep(5)
+                            continue
+                        else:
+                            logger.warning(f"[User {user_id}] Polling failed (status {resp.status}) on attempt {attempt}")
+                            break
+                            
+                except (asyncio.TimeoutError, Exception) as e:
+                    if retry < 3:
+                        logger.warning(f"[User {user_id}] Poll exception on attempt {attempt}, retry {retry + 1}/3: {e}")
+                        await asyncio.sleep(5)
                         continue
+                    else:
+                        logger.error(f"[User {user_id}] Poll failed after 3 retries: {e}")
+                        break
+            
+            # If polling failed completely, wait and try next interval
+            if data is None:
+                await asyncio.sleep(interval)
+                continue
 
-                    data = await resp.json()
+            try:
                     status = data.get("status")
                     new_text = None
                     animation_url = None
