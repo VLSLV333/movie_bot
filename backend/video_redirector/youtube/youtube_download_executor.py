@@ -50,7 +50,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
             logger.error(f"[{task_id}] Could not find format table in yt-dlp output")
             return None
         
-        logger.info(f"[{task_id}] Parsing available formats:")
+        logger.debug(f"[{task_id}] Parsing available formats:")
         
         # Parse format lines
         for line in lines[table_start:]:
@@ -75,7 +75,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
                     'ext': ext,
                     'line': line
                 })
-                logger.info(f"[{task_id}]   {format_id}: AUDIO-ONLY ({ext})")
+                logger.debug(f"[{task_id}]   {format_id}: AUDIO-ONLY ({ext})")
                 
             elif 'video only' in line.lower():
                 # Video-only format  
@@ -89,7 +89,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
                             'height': height,
                             'line': line
                         })
-                        logger.info(f"[{task_id}]   {format_id}: {width}x{height} ({ext}) - VIDEO-ONLY")
+                        logger.debug(f"[{task_id}]   {format_id}: {width}x{height} ({ext}) - VIDEO-ONLY")
                     except ValueError:
                         continue
                         
@@ -104,7 +104,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
                         'height': height,
                         'line': line
                     })
-                    logger.info(f"[{task_id}]   {format_id}: {width}x{height} ({ext}) - COMBINED")
+                    logger.debug(f"[{task_id}]   {format_id}: {width}x{height} ({ext}) - COMBINED")
                 except ValueError:
                     continue
         
@@ -115,15 +115,15 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
             # Sort combined formats: prefer MP4, then by height (descending)
             combined_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
             
-            logger.info(f"[{task_id}] Available combined (video+audio) formats:")
+            logger.debug(f"[{task_id}] Available combined (video+audio) formats:")
             for fmt in combined_formats[:3]:
-                logger.info(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']})")
+                logger.debug(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']})")
             
             # Find good quality combined format
             for fmt in combined_formats:
                 if fmt['height'] >= 1080:  # Accept 1080p+ combined formats
                     can_copy = fmt['ext'] == 'mp4'
-                    logger.info(f"[{task_id}] Selected COMBINED format: {fmt['id']} ({fmt['width']}x{fmt['height']} {fmt['ext']}) - Can copy: {can_copy}")
+                    logger.debug(f"[{task_id}] Selected COMBINED format: {fmt['id']} ({fmt['width']}x{fmt['height']} {fmt['ext']}) - Can copy: {can_copy}")
                     return (fmt['id'], can_copy)
         
         # Strategy 2: Merge best video-only + audio-only for higher quality
@@ -133,13 +133,13 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
             # Sort audio formats: prefer m4a/mp4, then others
             audio_only_formats.sort(key=lambda x: x['ext'] in ['m4a', 'mp4'], reverse=True)
             
-            logger.info(f"[{task_id}] Available video-only formats:")
+            logger.debug(f"[{task_id}] Available video-only formats:")
             for fmt in video_only_formats[:3]:
-                logger.info(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']})")
+                logger.debug(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']})")
             
-            logger.info(f"[{task_id}] Available audio-only formats:")
+            logger.debug(f"[{task_id}] Available audio-only formats:")
             for fmt in audio_only_formats[:3]:
-                logger.info(f"[{task_id}]   {fmt['id']}: ({fmt['ext']})")
+                logger.debug(f"[{task_id}]   {fmt['id']}: ({fmt['ext']})")
             
             # Find best video at target quality
             best_video = None
@@ -159,10 +159,10 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
             can_copy = (best_video['ext'] == 'mp4' and best_audio['ext'] in ['m4a', 'mp4'])
             
             merge_format = f"{best_video['id']}+{best_audio['id']}"
-            logger.info(f"[{task_id}] Selected MERGE format: {merge_format}")
-            logger.info(f"[{task_id}]   Video: {best_video['id']} ({best_video['width']}x{best_video['height']} {best_video['ext']})")
-            logger.info(f"[{task_id}]   Audio: {best_audio['id']} ({best_audio['ext']})")
-            logger.info(f"[{task_id}]   Can copy: {can_copy}")
+            logger.debug(f"[{task_id}] Selected MERGE format: {merge_format}")
+            logger.debug(f"[{task_id}]   Video: {best_video['id']} ({best_video['width']}x{best_video['height']} {best_video['ext']})")
+            logger.debug(f"[{task_id}]   Audio: {best_audio['id']} ({best_audio['ext']})")
+            logger.debug(f"[{task_id}]   Can copy: {can_copy}")
             
             return (merge_format, can_copy)
         
@@ -222,7 +222,7 @@ async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
         else:
             quality = f"{height}p"
         
-        logger.info(f"[{task_id}] Video resolution: {width}x{height} -> {quality}")
+        logger.debug(f"[{task_id}] Video resolution: {width}x{height} -> {quality}")
         return quality
         
     except Exception as e:
@@ -266,7 +266,7 @@ async def download_youtube_video(video_url: str, task_id: str):
             video_url
         ]
         
-        logger.info(f"[{task_id}] Downloading with format: {format_selector}")
+        logger.debug(f"[{task_id}] Downloading with format: {format_selector}")
         
         # Run yt-dlp with timeout
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)  # 30 minutes timeout
@@ -286,7 +286,7 @@ async def download_youtube_video(video_url: str, task_id: str):
             os.remove(output_path)
             return None
         
-        logger.info(f"[{task_id}] Successfully downloaded: {output_path} ({file_size / (1024*1024):.1f}MB)")
+        logger.debug(f"[{task_id}] Successfully downloaded: {output_path} ({file_size / (1024*1024):.1f}MB)")
         
         # Verify the actual quality of the downloaded video
         actual_quality = await verify_video_quality(output_path, task_id)
@@ -343,7 +343,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             
             if existing_file:
                 # Update existing record with new file info
-                logger.info(f"[{task_id}] Updating existing YouTube file record (ID: {existing_file.id})")
+                logger.debug(f"[{task_id}] Updating existing YouTube file record (ID: {existing_file.id})")
                 for attr, value in [
                     ("quality", selected_quality),
                     ("tg_bot_token_file_owner", tg_bot_token_file_owner),
@@ -421,7 +421,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         if output_path and os.path.exists(output_path):
             try:
                 os.remove(output_path)
-                logger.info(f"[{task_id}] Cleaned up downloaded file: {output_path}")
+                logger.debug(f"[{task_id}] Cleaned up downloaded file: {output_path}")
             except Exception as e:
                 logger.warning(f"[{task_id}] Failed to clean up file {output_path}: {e}")
         
