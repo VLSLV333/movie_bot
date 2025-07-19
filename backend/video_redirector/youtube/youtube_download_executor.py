@@ -18,9 +18,43 @@ logger = logging.getLogger(__name__)
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+async def debug_available_formats(video_url: str, task_id: str):
+    """Debug function to log all available formats for troubleshooting"""
+    try:
+        logger.info(f"[{task_id}] 🔍 Debug: Getting all available formats...")
+        
+        cmd = [
+            "yt-dlp",
+            "--list-formats",
+            "--no-playlist",
+            "--no-warnings",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "--add-header", "Accept-Language:en-US,en;q=0.9",
+            "--add-header", "Accept-Encoding:gzip, deflate",
+            video_url
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        if result.returncode == 0:
+            logger.info(f"[{task_id}] 🔍 Debug: Available formats preview:")
+            lines = result.stdout.strip().split('\n')
+            for i, line in enumerate(lines[:20]):  # Show first 20 lines
+                logger.info(f"[{task_id}] 🔍 {i+1:2d}: {line}")
+            if len(lines) > 20:
+                logger.info(f"[{task_id}] 🔍 ... and {len(lines) - 20} more lines")
+        else:
+            logger.warning(f"[{task_id}] 🔍 Debug: Failed to get formats: {result.stderr}")
+            
+    except Exception as e:
+        logger.warning(f"[{task_id}] 🔍 Debug: Error getting formats: {e}")
+
 async def get_best_format_id(video_url: str, target_quality: str, task_id: str) -> Optional[tuple]:
     """Get the best format ID that has both video and audio, or merge video+audio IDs - ROBUST VERSION"""
-    
+
+    # If all else fails, debug what formats are available
+    await debug_available_formats(video_url, task_id)
+
     # Strategy 1: Try JSON-based format detection (most reliable)
     try:
         logger.info(f"[{task_id}] Getting video formats using JSON method...")
@@ -124,7 +158,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
         except Exception as e:
             logger.info(f"[{task_id}] Format {format_selector} test failed: {e}")
             continue
-    
+
     # If all else fails
     logger.error(f"[{task_id}] All format detection methods failed")
     return None
@@ -153,6 +187,13 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         
         # Audio-only format
         if vcodec == 'none' and acodec != 'none':
+            is_original = (
+                language_preference == 0 or  # yt-dlp's primary indicator for original
+                language in ['original', 'default', 'primary'] or
+                language_preference == 1 or  # Often the first preference is original
+                'original' in str(fmt).lower()  # Check if 'original' appears anywhere in format data
+            )
+            
             audio_only_formats.append({
                 'id': format_id,
                 'ext': ext,
@@ -160,7 +201,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
                 'abr': fmt.get('abr', 0),
                 'language': language,
                 'language_preference': language_preference,
-                'is_original': language_preference == 0 or language in ['original','default', 'primary']  # Original audio indicators
+                'is_original': is_original
             })
             
         # Video-only format  
@@ -176,6 +217,14 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
             
         # Combined video+audio format
         elif vcodec != 'none' and acodec != 'none' and width and height:
+            # More flexible original audio detection for combined formats
+            is_original = (
+                language_preference == 0 or  # yt-dlp's primary indicator for original
+                language in ['original', 'default', 'primary'] or
+                language_preference == 1 or  # Often the first preference is original
+                'original' in str(fmt).lower()  # Check if 'original' appears anywhere in format data
+            )
+            
             combined_formats.append({
                 'id': format_id,
                 'ext': ext,
@@ -186,7 +235,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
                 'tbr': fmt.get('tbr', 0),
                 'language': language,
                 'language_preference': language_preference,
-                'is_original': language_preference == 0 or language in ['original','default', 'primary']
+                'is_original': is_original
             })
     
     logger.info(f"[{task_id}] Format analysis: {len(combined_formats)} combined, {len(video_only_formats)} video-only, {len(audio_only_formats)} audio-only")
@@ -196,6 +245,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         # Sort by: original audio first, then height (descending), then prefer MP4
         combined_formats.sort(key=lambda x: (not x.get('is_original', False), x['height'], x['ext'] == 'mp4'), reverse=True)
         
+        # original audio + 1080p+
         for fmt in combined_formats:
             if fmt['height'] >= 1080 and fmt.get('is_original', False):  # Accept 1080p+ combined formats + only original audio
                 can_copy = fmt['ext'] == 'mp4'
@@ -215,6 +265,11 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
             x.get('abr', 0)                   # Then by bitrate
         ), reverse=True)
         
+        # Log available audio formats for debugging
+        logger.info(f"[{task_id}] Available audio formats:")
+        for i, fmt in enumerate(audio_only_formats[:5]):
+            logger.info(f"[{task_id}]   {i+1}. {fmt['id']}: {fmt['ext']} - Original: {fmt.get('is_original', False)} - Lang: {fmt.get('language', 'unknown')} - Pref: {fmt.get('language_preference', -1)}")
+        
         # Find best video
         best_video = None
         for fmt in video_only_formats:
@@ -232,7 +287,11 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         merge_format = f"{best_video['id']}+{best_audio['id']}"
         
         is_original = best_audio.get('is_original', False)
-        logger.info(f"[{task_id}] Selected merge format: {merge_format} - Original audio: {is_original} - Copy: {can_copy}")
+        logger.info(f"[{task_id}] Selected merge format: {merge_format}")
+        logger.info(f"[{task_id}]   Video: {best_video['id']} ({best_video['width']}x{best_video['height']} {best_video['ext']})")
+        logger.info(f"[{task_id}]   Audio: {best_audio['id']} ({best_audio['ext']}) - Original: {is_original} - Lang: {best_audio.get('language', 'unknown')}")
+        logger.info(f"[{task_id}]   Can copy: {can_copy}")
+        
         return (merge_format, can_copy)
     
     # If we can't find good formats, return None to allow main function's Strategy 3
@@ -306,7 +365,7 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
         
         # Check if this is original audio (look for language indicators in the line)
         is_original = any(indicator in line.lower() for indicator in [
-            'original', 'default', 'primary'
+            'original', 'default', 'primary', 'first', 'main'
         ])
         
         # Categorize formats
@@ -385,7 +444,7 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
             logger.info(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']})")
         
         logger.info(f"[{task_id}] Available audio-only formats:")
-        for fmt in audio_only_formats[:3]:
+        for fmt in audio_only_formats[:5]:
             logger.info(f"[{task_id}]   {fmt['id']}: ({fmt['ext']}) - Original: {fmt.get('is_original', False)}")
         
         # Find best video at target quality
@@ -540,7 +599,8 @@ async def _try_youtube_download(video_url: str, task_id: str, attempt_num: int):
         postprocessor_args = "ffmpeg:-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -avoid_negative_ts make_zero -movflags +faststart"
         logger.info(f"[{task_id}] Using RE-ENCODE mode (attempt {attempt_num})")
     
-    # Build yt-dlp command with improved headers, user-agent, and audio language preference
+    # Build yt-dlp command with improved headers and user-agent
+    # Note: Removed --audio-lang since we handle audio selection in format_selector
     cmd = [
         "yt-dlp",
         "-f", format_selector,
