@@ -37,12 +37,36 @@ async def debug_available_formats(video_url: str, task_id: str):
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         
         if result.returncode == 0:
-            logger.info(f"[{task_id}] 🔍 Debug: Available formats preview:")
             lines = result.stdout.strip().split('\n')
-            for i, line in enumerate(lines[:20]):  # Show first 20 lines
-                logger.info(f"[{task_id}] 🔍 {i+1:2d}: {line}")
-            if len(lines) > 20:
-                logger.info(f"[{task_id}] 🔍 ... and {len(lines) - 20} more lines")
+            
+            # Log full format table for debugging
+            logger.info(f"[{task_id}] 🔍 Debug: FULL format list ({len(lines)} lines):")
+            for i, line in enumerate(lines):
+                logger.info(f"[{task_id}] 🔍 {i+1:3d}: {line}")
+            
+            # Focus on audio-only formats specifically
+            logger.info(f"[{task_id}] 🔍 Debug: AUDIO-ONLY formats analysis:")
+            audio_count = 0
+            for i, line in enumerate(lines):
+                line_lower = line.lower()
+                if 'audio only' in line_lower or ('audio' in line_lower and ('only' in line_lower or 'm4a' in line_lower)):
+                    audio_count += 1
+                    # Check for original/default indicators
+                    original_indicators = []
+                    if 'original' in line_lower:
+                        original_indicators.append('ORIGINAL')
+                    if 'default' in line_lower:
+                        original_indicators.append('DEFAULT')
+                    if 'primary' in line_lower:
+                        original_indicators.append('PRIMARY')
+                    if not any(lang in line_lower for lang in ['-auto', 'dubbed']):
+                        original_indicators.append('NO_DUB_MARKER')
+                    
+                    indicator_str = f" [{', '.join(original_indicators)}]" if original_indicators else " [NO_INDICATORS]"
+                    logger.info(f"[{task_id}] 🔍 AUDIO #{audio_count:2d}: {line}{indicator_str}")
+            
+            if audio_count == 0:
+                logger.warning(f"[{task_id}] 🔍 Debug: NO audio-only formats found in text output!")
         else:
             logger.warning(f"[{task_id}] 🔍 Debug: Failed to get formats: {result.stderr}")
             
@@ -171,6 +195,11 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
     
     target_height = int(target_quality.replace('p', ''))
     
+    # Debug: Show ALL available formats first
+    logger.info(f"[{task_id}] 🔍 JSON Debug: Analyzing {len(formats)} total formats")
+    
+    audio_format_debug = []
+    
     # Categorize formats using reliable JSON data
     for fmt in formats:
         format_id = fmt.get('format_id')
@@ -181,6 +210,29 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         height = fmt.get('height')
         language = fmt.get('language', 'unknown')  # Get audio language
         language_preference = fmt.get('language_preference', -1)  # YouTube's language preference
+        
+        # Debug: Capture audio format details for analysis
+        if vcodec == 'none' and acodec != 'none':
+            # Check ALL possible original indicators
+            original_checks = {
+                'lang_pref_0': language_preference == 0,
+                'lang_pref_1': language_preference == 1, 
+                'lang_in_original_list': language in ['original', 'default', 'primary'],
+                'lang_is_en': language and language.startswith('en'),
+                'lang_is_none': language is None,
+                'original_in_str': 'original' in str(fmt).lower(),
+                'has_no_dub_marker': not any(marker in str(fmt).lower() for marker in ['-auto', 'dubbed', 'dub'])
+            }
+            
+            audio_format_debug.append({
+                'id': format_id,
+                'ext': ext,
+                'acodec': acodec,
+                'language': language,
+                'language_preference': language_preference,
+                'original_checks': original_checks,
+                'raw_format': str(fmt)[:200] + "..." if len(str(fmt)) > 200 else str(fmt)
+            })
         
         if not format_id:
             continue
@@ -237,6 +289,16 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
                 'language_preference': language_preference,
                 'is_original': is_original
             })
+    
+    # Debug: Show detailed audio format analysis
+    logger.info(f"[{task_id}] 🔍 JSON Debug: Found {len(audio_format_debug)} audio-only formats:")
+    for i, audio_fmt in enumerate(audio_format_debug):
+        checks = audio_fmt['original_checks']
+        check_summary = [k for k, v in checks.items() if v]
+        logger.info(f"[{task_id}] 🔍 AUDIO #{i+1}: {audio_fmt['id']} ({audio_fmt['ext']}, {audio_fmt['acodec']})")
+        logger.info(f"[{task_id}] 🔍     Lang: {audio_fmt['language']}, Pref: {audio_fmt['language_preference']}")
+        logger.info(f"[{task_id}] 🔍     Original checks passed: {check_summary}")
+        logger.info(f"[{task_id}] 🔍     Raw: {audio_fmt['raw_format']}")
     
     logger.info(f"[{task_id}] Format analysis: {len(combined_formats)} combined, {len(video_only_formats)} video-only, {len(audio_only_formats)} audio-only")
     
@@ -559,14 +621,10 @@ async def download_youtube_video(video_url: str, task_id: str):
         except Exception as e:
             logger.error(f"[{task_id}] Download exception on attempt {attempt + 1}: {e}")
             if attempt < max_attempts - 1:
-                if attempt == 1:  # After second failure, try IP rotation
-                    from backend.video_redirector.utils.pyrogram_acc_manager import rotate_proxy_ip_immediate
-                    logger.warning(f"[{task_id}] Triggering IP rotation due to repeated YouTube failures")
-                    await rotate_proxy_ip_immediate("YouTube download failures")
-                    await asyncio.sleep(10)
-                else:
-                    logger.info(f"[{task_id}] Retrying after {sleep_between_retries}s...")
-                    await asyncio.sleep(sleep_between_retries)
+                from backend.video_redirector.utils.pyrogram_acc_manager import rotate_proxy_ip_immediate
+                logger.warning(f"[{task_id}] Triggering IP rotation due to repeated YouTube failures")
+                await rotate_proxy_ip_immediate("YouTube download failures")
+                await asyncio.sleep(10)
                 continue
             else:
                 return None
