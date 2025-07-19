@@ -130,7 +130,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
     return None
 
 async def _analyze_formats_from_json(formats: list, target_quality: str, task_id: str) -> Optional[tuple]:
-    """Analyze formats from JSON data"""
+    """Analyze formats from JSON data with original audio preference"""
     video_only_formats = []
     audio_only_formats = []  
     combined_formats = []
@@ -145,6 +145,8 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         acodec = fmt.get('acodec', 'none')
         width = fmt.get('width')
         height = fmt.get('height')
+        language = fmt.get('language', 'unknown')  # Get audio language
+        language_preference = fmt.get('language_preference', -1)  # YouTube's language preference
         
         if not format_id:
             continue
@@ -155,7 +157,10 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
                 'id': format_id,
                 'ext': ext,
                 'acodec': acodec,
-                'abr': fmt.get('abr', 0)
+                'abr': fmt.get('abr', 0),
+                'language': language,
+                'language_preference': language_preference,
+                'is_original': language_preference == 0 or language in ['original','default', 'primary']  # Original audio indicators
             })
             
         # Video-only format  
@@ -178,27 +183,37 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
                 'acodec': acodec,
                 'width': width,
                 'height': height,
-                'tbr': fmt.get('tbr', 0)
+                'tbr': fmt.get('tbr', 0),
+                'language': language,
+                'language_preference': language_preference,
+                'is_original': language_preference == 0 or language in ['original','default', 'primary']
             })
     
     logger.info(f"[{task_id}] Format analysis: {len(combined_formats)} combined, {len(video_only_formats)} video-only, {len(audio_only_formats)} audio-only")
     
-    # Strategy 1: Try good quality combined formats first
+    # Strategy 1: Try good quality combined formats with original audio first
     if combined_formats:
-        # Sort by height (descending), then prefer MP4
-        combined_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
+        # Sort by: original audio first, then height (descending), then prefer MP4
+        combined_formats.sort(key=lambda x: (not x.get('is_original', False), x['height'], x['ext'] == 'mp4'), reverse=True)
         
         for fmt in combined_formats:
-            if fmt['height'] >= 1080:  # Accept 1080p+ combined formats
+            if fmt['height'] >= 1080 and fmt.get('is_original', False):  # Accept 1080p+ combined formats + only original audio
                 can_copy = fmt['ext'] == 'mp4'
-                logger.info(f"[{task_id}] Selected combined format: {fmt['id']} ({fmt['width']}x{fmt['height']} {fmt['ext']}) - Copy: {can_copy}")
+                is_original = fmt.get('is_original', False)
+                logger.info(f"[{task_id}] Selected combined format: {fmt['id']} ({fmt['width']}x{fmt['height']} {fmt['ext']}) - Original: {is_original} - Copy: {can_copy}")
                 return (fmt['id'], can_copy)
     
-    # Strategy 2: Merge video-only + audio-only
+    # Strategy 2: Merge video-only + original audio-only
     if video_only_formats and audio_only_formats:
-        # Sort formats
+        # Sort video formats: prefer MP4, then by height (descending)
         video_only_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
-        audio_only_formats.sort(key=lambda x: x['ext'] in ['m4a', 'mp4'], reverse=True)
+        
+        # Sort audio formats: original audio first, then by quality (m4a/mp4 preferred)
+        audio_only_formats.sort(key=lambda x: (
+            not x.get('is_original', False),  # Original audio first
+            x['ext'] in ['m4a', 'mp4'],       # Then prefer m4a/mp4
+            x.get('abr', 0)                   # Then by bitrate
+        ), reverse=True)
         
         # Find best video
         best_video = None
@@ -210,12 +225,14 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         if not best_video:
             best_video = video_only_formats[0]  # Use highest quality
         
+        # Use best original audio
         best_audio = audio_only_formats[0]
         
         can_copy = (best_video['ext'] == 'mp4' and best_audio['ext'] in ['m4a', 'mp4'])
         merge_format = f"{best_video['id']}+{best_audio['id']}"
         
-        logger.info(f"[{task_id}] Selected merge format: {merge_format} - Copy: {can_copy}")
+        is_original = best_audio.get('is_original', False)
+        logger.info(f"[{task_id}] Selected merge format: {merge_format} - Original audio: {is_original} - Copy: {can_copy}")
         return (merge_format, can_copy)
     
     # If we can't find good formats, return None to allow main function's Strategy 3
@@ -223,7 +240,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
     return None
 
 async def _analyze_formats_from_text(output: str, target_quality: str, task_id: str) -> Optional[tuple]:
-    """Analyze formats from text output with flexible parsing"""
+    """Analyze formats from text output with original audio preference"""
     
     lines = output.strip().split('\n')
     
@@ -264,6 +281,7 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
     if table_start == -1:
         logger.warning(f"[{task_id}] Could not find format table in text output")
         return None  
+    
     # Parse what we can from the text output (simplified approach)
     video_only_formats = []
     audio_only_formats = []
@@ -286,15 +304,21 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
         ext = parts[1] 
         resolution = parts[2]
         
+        # Check if this is original audio (look for language indicators in the line)
+        is_original = any(indicator in line.lower() for indicator in [
+            'original', 'default', 'primary'
+        ])
+        
         # Categorize formats
         if resolution == 'audio' or 'audio only' in line.lower():
             # Audio-only format
             audio_only_formats.append({
                 'id': format_id,
                 'ext': ext,
-                'line': line
+                'line': line,
+                'is_original': is_original
             })
-            logger.info(f"[{task_id}]   {format_id}: AUDIO-ONLY ({ext})")
+            logger.info(f"[{task_id}]   {format_id}: AUDIO-ONLY ({ext}) - Original: {is_original}")
             
         elif 'video only' in line.lower():
             # Video-only format  
@@ -321,34 +345,40 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
                     'ext': ext,
                     'width': width,
                     'height': height,
-                    'line': line
+                    'line': line,
+                    'is_original': is_original
                 })
-                logger.info(f"[{task_id}]   {format_id}: {width}x{height} ({ext}) - COMBINED")
+                logger.info(f"[{task_id}]   {format_id}: {width}x{height} ({ext}) - COMBINED - Original: {is_original}")
             except ValueError:
                 continue
     
-    # Strategy 1: Try good quality combined formats first
+    # Strategy 1: Try good quality combined formats with original audio first
     if combined_formats:
-        # Sort combined formats: prefer MP4, then by height (descending)
-        combined_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
+        # Sort combined formats: original audio first, then prefer MP4, then by height (descending)
+        combined_formats.sort(key=lambda x: (not x.get('is_original', False), x['height'], x['ext'] == 'mp4'), reverse=True)
         
         logger.info(f"[{task_id}] Available combined (video+audio) formats:")
         for fmt in combined_formats[:3]:
-            logger.info(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']})")
+            logger.info(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']}) - Original: {fmt.get('is_original', False)}")
         
-        # Find good quality combined format
+        # Find good quality combined format with original audio
         for fmt in combined_formats:
-            if fmt['height'] >= 1080:  # Accept 1080+ combined formats
+            if fmt['height'] >= 1080 and fmt.get('is_original', False):  # Accept 1080+ combined formats + only original audio
                 can_copy = fmt['ext'] == 'mp4'
-                logger.info(f"[{task_id}] Selected COMBINED format: {fmt['id']} ({fmt['width']}x{fmt['height']} {fmt['ext']}) - Can copy: {can_copy}")
+                is_original = fmt.get('is_original', False)
+                logger.info(f"[{task_id}] Selected COMBINED format: {fmt['id']} ({fmt['width']}x{fmt['height']} {fmt['ext']}) - Original: {is_original} - Can copy: {can_copy}")
                 return (fmt['id'], can_copy)
     
-    # Strategy 2: Merge best video-only + audio-only for higher quality
+    # Strategy 2: Merge best video-only + original audio-only for higher quality
     if video_only_formats and audio_only_formats:
         # Sort video formats: prefer MP4, then by height (descending)
         video_only_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
-        # Sort audio formats: prefer m4a/mp4, then others
-        audio_only_formats.sort(key=lambda x: x['ext'] in ['m4a', 'mp4'], reverse=True)
+        
+        # Sort audio formats: original audio first, then prefer m4a/mp4, then others
+        audio_only_formats.sort(key=lambda x: (
+            not x.get('is_original', False),  # Original audio first
+            x['ext'] in ['m4a', 'mp4']        # Then prefer m4a/mp4
+        ), reverse=True)
         
         logger.info(f"[{task_id}] Available video-only formats:")
         for fmt in video_only_formats[:3]:
@@ -356,7 +386,7 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
         
         logger.info(f"[{task_id}] Available audio-only formats:")
         for fmt in audio_only_formats[:3]:
-            logger.info(f"[{task_id}]   {fmt['id']}: ({fmt['ext']})")
+            logger.info(f"[{task_id}]   {fmt['id']}: ({fmt['ext']}) - Original: {fmt.get('is_original', False)}")
         
         # Find best video at target quality
         best_video = None
@@ -369,16 +399,17 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
             # Use highest available video quality
             best_video = video_only_formats[0]
         
-        # Use best audio (prefer m4a/mp4 for compatibility)
+        # Use best original audio (prefer m4a/mp4 for compatibility)
         best_audio = audio_only_formats[0]
         
         # Check if we can use fast copy (both MP4-compatible)
         can_copy = (best_video['ext'] == 'mp4' and best_audio['ext'] in ['m4a', 'mp4'])
         
         merge_format = f"{best_video['id']}+{best_audio['id']}"
+        is_original = best_audio.get('is_original', False)
         logger.info(f"[{task_id}] Selected MERGE format: {merge_format}")
         logger.info(f"[{task_id}]   Video: {best_video['id']} ({best_video['width']}x{best_video['height']} {best_video['ext']})")
-        logger.info(f"[{task_id}]   Audio: {best_audio['id']} ({best_audio['ext']})")
+        logger.info(f"[{task_id}]   Audio: {best_audio['id']} ({best_audio['ext']}) - Original: {is_original}")
         logger.info(f"[{task_id}]   Can copy: {can_copy}")
         
         return (merge_format, can_copy)
@@ -486,7 +517,7 @@ async def download_youtube_video(video_url: str, task_id: str):
         return None  # No more attempts after attempt 3
 
 async def _try_youtube_download(video_url: str, task_id: str, attempt_num: int):
-    """Single attempt to download YouTube video with improved headers"""
+    """Single attempt to download YouTube video with improved headers and original audio preference"""
     
     # Get the best format ID and copy capability
     format_result = await get_best_format_id(video_url, "1080p", task_id)
@@ -509,7 +540,7 @@ async def _try_youtube_download(video_url: str, task_id: str, attempt_num: int):
         postprocessor_args = "ffmpeg:-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -avoid_negative_ts make_zero -movflags +faststart"
         logger.info(f"[{task_id}] Using RE-ENCODE mode (attempt {attempt_num})")
     
-    # Build yt-dlp command with improved headers and user-agent
+    # Build yt-dlp command with improved headers, user-agent, and audio language preference
     cmd = [
         "yt-dlp",
         "-f", format_selector,
