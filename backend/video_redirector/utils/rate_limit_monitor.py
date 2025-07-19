@@ -1,7 +1,9 @@
 import re
 import logging
 import asyncio
+import time
 from backend.video_redirector.utils.upload_video_to_tg import report_rate_limit_event
+from backend.video_redirector.config import PROXY_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +20,14 @@ NETWORK_ISSUE_PATTERN = re.compile(
 REQUEST_TIMEOUT_PATTERN = re.compile(
     r'Retrying "upload\.SaveBigFilePart" due to: Request timed out'
 )
+
+# Deduplication and rate limiting for immediate rotations
+_last_rotation_attempt = 0
+_rotation_task_running = False
+_rotation_lock = asyncio.Lock()
+
+# Get cooldown from config
+_rotation_cooldown = PROXY_CONFIG.get("immediate_rotation_cooldown", 30)  # Default 30 seconds
 
 class RateLimitLogHandler(logging.Handler):
     """Custom log handler for Pyrogram rate limiting detection (safe)"""
@@ -37,23 +47,23 @@ class RateLimitLogHandler(logging.Handler):
                     # Use asyncio to avoid blocking
                     asyncio.create_task(self._report_rate_limit(wait_seconds))
             
-            # Check for network issues (new logic)
+            # Check for network issues (new logic) - with deduplication
             elif (
                 record.name == "pyrogram.connection.connection"
                 and NETWORK_ISSUE_PATTERN.search(message)
             ):
                 logger.warning("🌐 Network issue detected: Network unreachable")
-                # Use asyncio to avoid blocking
-                asyncio.create_task(self._report_network_issue())
+                # Use asyncio to avoid blocking, with deduplication
+                asyncio.create_task(self._report_network_issue_deduplicated())
             
-            # Check for request timeouts (new logic)
+            # Check for request timeouts (new logic) - with deduplication
             elif (
                 record.name == "pyrogram.session.session"
                 and REQUEST_TIMEOUT_PATTERN.search(message)
             ):
                 logger.warning("⏰ Request timeout detected: upload.SaveBigFilePart")
-                # Use asyncio to avoid blocking
-                asyncio.create_task(self._report_request_timeout())
+                # Use asyncio to avoid blocking, with deduplication
+                asyncio.create_task(self._report_request_timeout_deduplicated())
                 
         except Exception as e:
             logger.debug(f"Error in log handler: {e}")
@@ -65,21 +75,74 @@ class RateLimitLogHandler(logging.Handler):
         except Exception as e:
             logger.debug(f"Error reporting rate limit: {e}")
     
-    async def _report_network_issue(self):
-        """Report network issue and trigger immediate proxy rotation"""
-        try:
-            logger.warning("🚨 Network issue detected - triggering immediate proxy rotation")
-            await self._trigger_immediate_proxy_rotation("network_issue")
-        except Exception as e:
-            logger.error(f"Error handling network issue: {e}")
-    
-    async def _report_request_timeout(self):
-        """Report request timeout and trigger immediate proxy rotation"""
-        try:
-            logger.warning("🚨 Request timeout detected - triggering immediate proxy rotation")
-            await self._trigger_immediate_proxy_rotation("request_timeout")
-        except Exception as e:
-            logger.error(f"Error handling request timeout: {e}")
+    async def _report_network_issue_deduplicated(self):
+        """Report network issue with deduplication to prevent cascade"""
+        global _last_rotation_attempt, _rotation_task_running
+        
+        current_time = time.time()
+        
+        # Check if we're in cooldown period
+        if current_time - _last_rotation_attempt < _rotation_cooldown:
+            logger.debug(f"🌐 Network issue detected but rotation in cooldown ({(current_time - _last_rotation_attempt):.1f}s remaining)")
+            return
+        
+        # Check if rotation task is already running
+        if _rotation_task_running:
+            logger.debug("🌐 Network issue detected but rotation already in progress")
+            return
+
+        if _rotation_lock.locked():
+            logger.debug("🌐 Network issue detected but rotation already in progress (locked)")
+            return
+
+        # Acquire lock to prevent multiple simultaneous rotations
+        async with _rotation_lock:
+
+            _rotation_task_running = True
+            _last_rotation_attempt = current_time
+
+            try:
+                logger.warning("🚨 Network issue detected - triggering immediate proxy rotation")
+                await self._trigger_immediate_proxy_rotation("network_issue")
+            except Exception as e:
+                logger.error(f"Error handling network issue: {e}")
+            finally:
+                _rotation_task_running = False
+
+    async def _report_request_timeout_deduplicated(self):
+        """Report request timeout with deduplication to prevent cascade"""
+        global _last_rotation_attempt, _rotation_task_running
+        
+        current_time = time.time()
+        
+        # Check if we're in cooldown period
+        if current_time - _last_rotation_attempt < _rotation_cooldown:
+            logger.debug(f"⏰ Request timeout detected but rotation in cooldown ({(current_time - _last_rotation_attempt):.1f}s remaining)")
+            return
+        
+        # Check if rotation task is already running
+        if _rotation_task_running:
+            logger.debug("⏰ Request timeout detected but rotation already in progress")
+            return
+
+        if _rotation_lock.locked():
+            logger.debug("⏰ Request timeout detected but rotation already in progress (locked)")
+            return
+        
+        # Acquire lock to prevent multiple simultaneous rotations
+        async with _rotation_lock:
+
+            _rotation_task_running = True
+            _last_rotation_attempt = current_time
+
+            try:
+                logger.warning("🚨 Request timeout detected - triggering immediate proxy rotation")
+                await self._trigger_immediate_proxy_rotation("request_timeout")
+            except Exception as e:
+                logger.error(f"Error handling request timeout: {e}")
+            finally:
+                _rotation_task_running = False
+
     
     async def _trigger_immediate_proxy_rotation(self, reason: str):
         """Trigger immediate proxy rotation without waiting for uploads to complete"""

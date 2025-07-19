@@ -25,4 +25,5 @@ PROXY_CONFIG = {
     "rate_limit_wait_threshold": int(os.getenv("PROXY_RATE_LIMIT_WAIT_THRESHOLD", "5")), # if "wait to upload big file for 5 seconds" - reload proxy IP
     "rate_limit_detection_window": int(os.getenv("PROXY_RATE_LIMIT_DETECTION_WINDOW", "10")), # if "wait to upload big file for 5 seconds" happened in last 10 minutes - reload proxy IP
     "max_rate_limit_events": int(os.getenv("PROXY_MAX_RATE_LIMIT_EVENTS", "3")), # if "wait to upload big file for 5 seconds" happened in last 10 minutes 3 times - reload proxy IP
+    "immediate_rotation_cooldown": int(os.getenv("PROXY_IMMEDIATE_ROTATION_COOLDOWN", "30")), # minimum seconds between immediate rotations to prevent spam
 }
