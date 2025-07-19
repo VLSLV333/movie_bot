@@ -30,6 +30,9 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
             "--dump-json",
             "--no-playlist", 
             "--no-warnings",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "--add-header", "Accept-Language:en-US,en;q=0.9",
+            "--add-header", "Accept-Encoding:gzip, deflate",
             video_url
         ]
         
@@ -64,6 +67,9 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
             "--list-formats",
             "--no-playlist",
             "--no-warnings",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "--add-header", "Accept-Language:en-US,en;q=0.9",
+            "--add-header", "Accept-Encoding:gzip, deflate",
             video_url
         ]
         
@@ -103,6 +109,9 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
                 "--no-download",
                 "--no-playlist",
                 "--quiet",
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "--add-header", "Accept-Language:en-US,en;q=0.9",
+                "--add-header", "Accept-Encoding:gzip, deflate",
                 video_url
             ]
             
@@ -434,13 +443,56 @@ async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
         return None
 
 async def download_youtube_video(video_url: str, task_id: str):
-    """Download YouTube video using yt-dlp with smart copy vs re-encode logic"""
+    """Download YouTube video with comprehensive retry strategy and IP rotation"""
+    
+    max_attempts = 3
+    sleep_between_retries = 5  # seconds
+    
+    for attempt in range(max_attempts):
+        logger.info(f"[{task_id}] Download attempt {attempt + 1}/{max_attempts}")
+        
+        try:
+            result = await _try_youtube_download(video_url, task_id, attempt + 1)
+            if result:
+                logger.info(f"[{task_id}] ✅ Download successful on attempt {attempt + 1}")
+                return result
+                
+        except subprocess.TimeoutExpired:
+            logger.error(f"[{task_id}] Download timeout on attempt {attempt + 1}")
+            if attempt < max_attempts - 1:
+                logger.info(f"[{task_id}] Retrying after {sleep_between_retries}s...")
+                await asyncio.sleep(sleep_between_retries)
+                continue
+            else:
+                return None
+                
+        except Exception as e:
+            logger.error(f"[{task_id}] Download exception on attempt {attempt + 1}: {e}")
+            if attempt < max_attempts - 1:
+                if attempt == 1:  # After second failure, try IP rotation
+                    from backend.video_redirector.utils.pyrogram_acc_manager import rotate_proxy_ip_immediate
+                    logger.warning(f"[{task_id}] Triggering IP rotation due to repeated YouTube failures")
+                    await rotate_proxy_ip_immediate("YouTube download failures")
+                    await asyncio.sleep(10)
+                else:
+                    logger.info(f"[{task_id}] Retrying after {sleep_between_retries}s...")
+                    await asyncio.sleep(sleep_between_retries)
+                continue
+            else:
+                return None
+        
+        # If we get here, _try_youtube_download returned None (only on attempt 3)
+        logger.warning(f"[{task_id}] Download failed on attempt {attempt + 1}")
+        return None  # No more attempts after attempt 3
+
+async def _try_youtube_download(video_url: str, task_id: str, attempt_num: int):
+    """Single attempt to download YouTube video with improved headers"""
     
     # Get the best format ID and copy capability
     format_result = await get_best_format_id(video_url, "1080p", task_id)
     
     if not format_result:
-        logger.error(f"[{task_id}] No suitable format found for video")
+        logger.error(f"[{task_id}] No suitable format found for video (attempt {attempt_num})")
         return None
     
     format_selector, can_copy = format_result
@@ -448,63 +500,67 @@ async def download_youtube_video(video_url: str, task_id: str):
     # Download the video
     output_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
     
-    try:
-        if can_copy:
-            # Fast path: copy streams (no re-encoding)
-            postprocessor_args = "ffmpeg:-c:v copy -c:a copy -avoid_negative_ts make_zero -movflags +faststart"
-            logger.info(f"[{task_id}] Using FAST COPY mode (no re-encoding)")
+    if can_copy:
+        # Fast path: copy streams (no re-encoding)
+        postprocessor_args = "ffmpeg:-c:v copy -c:a copy -avoid_negative_ts make_zero -movflags +faststart"
+        logger.info(f"[{task_id}] Using FAST COPY mode (attempt {attempt_num})")
+    else:
+        # Slow path: re-encode for compatibility
+        postprocessor_args = "ffmpeg:-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -avoid_negative_ts make_zero -movflags +faststart"
+        logger.info(f"[{task_id}] Using RE-ENCODE mode (attempt {attempt_num})")
+    
+    # Build yt-dlp command with improved headers and user-agent
+    cmd = [
+        "yt-dlp",
+        "-f", format_selector,
+        "-o", output_path,
+        "--no-playlist",
+        "--no-warnings", 
+        "--merge-output-format", "mp4",
+        "--postprocessor-args", postprocessor_args,
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "--add-header", "Accept-Language:en-US,en;q=0.9",
+        "--add-header", "Accept-Encoding:gzip, deflate",
+        "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "--add-header", "Connection:keep-alive",
+        "--add-header", "Upgrade-Insecure-Requests:1",
+        video_url
+    ]
+    
+    logger.info(f"[{task_id}] Downloading with format: {format_selector} (attempt {attempt_num})")
+    
+    # Run yt-dlp with timeout
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)  # 15 minutes timeout
+    
+    if result.returncode != 0:
+        stderr = result.stderr
+        logger.error(f"[{task_id}] yt-dlp failed (attempt {attempt_num}): {stderr}")
+
+        if attempt_num != 3:
+            raise ConnectionError(f"YouTube retry: {stderr}")
         else:
-            # Slow path: re-encode for compatibility
-            postprocessor_args = "ffmpeg:-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -avoid_negative_ts make_zero -movflags +faststart"
-            logger.info(f"[{task_id}] Using RE-ENCODE mode (format conversion)")
-        
-        # Build yt-dlp command
-        cmd = [
-            "yt-dlp",
-            "-f", format_selector,
-            "-o", output_path,
-            "--no-playlist",
-            "--no-warnings", 
-            "--merge-output-format", "mp4",
-            "--postprocessor-args", postprocessor_args,
-            video_url
-        ]
-        
-        logger.info(f"[{task_id}] Downloading with format: {format_selector}")
-        
-        # Run yt-dlp with timeout
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)  # 30 minutes timeout
-        
-        if result.returncode != 0:
-            logger.error(f"[{task_id}] yt-dlp failed: {result.stderr}")
+            logger.error(f"[{task_id}] 3 tries failed (attempt {attempt_num})")
             return None
-        
-        # Check if file was created and has content
-        if not os.path.exists(output_path):
-            logger.error(f"[{task_id}] Output file not created")
-            return None
-        
-        file_size = os.path.getsize(output_path)
-        if file_size == 0:
-            logger.error(f"[{task_id}] Downloaded file is empty")
-            os.remove(output_path)
-            return None
-        
-        logger.info(f"[{task_id}] Successfully downloaded: {output_path} ({file_size / (1024*1024):.1f}MB)")
-        
-        # Verify the actual quality of the downloaded video
-        actual_quality = await verify_video_quality(output_path, task_id)
-        if actual_quality:
-            logger.info(f"[{task_id}] Actual downloaded quality: {actual_quality}")
-        
-        return (output_path, actual_quality or "unknown")
-        
-    except subprocess.TimeoutExpired:
-        logger.error(f"[{task_id}] Download timeout (30 minutes)")
-        return None
-    except Exception as e:
-        logger.error(f"[{task_id}] Download error: {e}")
-        return None
+    
+    # Check if file was created and has content
+    if not os.path.exists(output_path):
+        logger.error(f"[{task_id}] Output file not created (attempt {attempt_num})")
+        raise Exception("Output file not created")
+    
+    file_size = os.path.getsize(output_path)
+    if file_size == 0:
+        logger.error(f"[{task_id}] Downloaded file is empty (attempt {attempt_num})")
+        os.remove(output_path)
+        raise Exception("Downloaded file is empty")
+    
+    logger.info(f"[{task_id}] Successfully downloaded: {output_path} ({file_size / (1024*1024):.1f}MB) (attempt {attempt_num})")
+    
+    # Verify the actual quality of the downloaded video
+    actual_quality = await verify_video_quality(output_path, task_id)
+    if actual_quality:
+        logger.info(f"[{task_id}] Actual downloaded quality: {actual_quality}")
+    
+    return (output_path, actual_quality or "unknown")
 
 async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: int, lang: str, dub: str, video_title: str, video_poster: str):
     """Handle YouTube video download task - follows same interface as HDRezka executor"""
