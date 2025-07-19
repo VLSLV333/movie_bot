@@ -339,7 +339,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
             # Debug: Log the sort key for each format
             logger.info(f"[{task_id}] 🔍 Sort key for {fmt['id']}: is_orig={is_orig}, lang_pref={lang_pref}, is_m4a={is_m4a}, abr={abr}")
             
-            return (not is_orig, -lang_pref, is_m4a, abr)
+            return (is_orig, lang_pref, is_m4a, abr)
         
         audio_only_formats.sort(key=audio_sort_key, reverse=True)
         
