@@ -74,7 +74,7 @@ services:
       - camoufox_cache:/usr/local/share/camoufox
       - /home/vladadmin/movie_bot/backend/session_files:/app/backend/session_files
     ports:
-      - "8018:8018"
+      - "127.0.0.1:8018:8018"
     depends_on:
       - db
       - redis
