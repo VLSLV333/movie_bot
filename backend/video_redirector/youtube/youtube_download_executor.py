@@ -77,7 +77,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
     """Get the best format ID that has both video and audio, or merge video+audio IDs - ROBUST VERSION"""
 
     # Debug what formats are available (can be disabled for less verbose logs)
-    # await debug_available_formats(video_url, task_id)
+    await debug_available_formats(video_url, task_id)
 
     # Strategy 1: Try JSON-based format detection (most reliable)
     try:
@@ -242,6 +242,9 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
                 'original' in str(fmt).lower() # Check if 'original' appears anywhere in format data
             )
             
+            # Debug: Log each audio format as it's being processed
+            logger.info(f"[{task_id}] 🔍 Processing audio format: {format_id} - Lang: {language} - Pref: {language_preference} - Original: {is_original}")
+            
             audio_only_formats.append({
                 'id': format_id,
                 'ext': ext,
@@ -284,17 +287,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
                 'language_preference': language_preference,
                 'is_original': is_original
             })
-    
-    # Debug: Show detailed audio format analysis (can be disabled for less verbose logs)
-    # logger.info(f"[{task_id}] 🔍 JSON Debug: Found {len(audio_format_debug)} audio-only formats:")
-    # for i, audio_fmt in enumerate(audio_format_debug):
-    #     checks = audio_fmt['original_checks']
-    #     check_summary = [k for k, v in checks.items() if v]
-    #     logger.info(f"[{task_id}] 🔍 AUDIO #{i+1}: {audio_fmt['id']} ({audio_fmt['ext']}, {audio_fmt['acodec']})")
-    #     logger.info(f"[{task_id}] 🔍     Lang: {audio_fmt['language']}, Pref: {audio_fmt['language_preference']}")
-    #     logger.info(f"[{task_id}] 🔍     Original checks passed: {check_summary}")
-    #     logger.info(f"[{task_id}] 🔍     Raw: {audio_fmt['raw_format']}")
-    
+
     # Log summary of original formats found
     original_audio_found = [fmt for fmt in audio_format_debug if any(fmt['original_checks'].values())]
     logger.info(f"[{task_id}] 🔍 JSON Debug: Found {len(original_audio_found)} original audio formats out of {len(audio_format_debug)} total")
@@ -306,6 +299,11 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
     logger.info(f"[{task_id}] 🔍 Original audio in final selection: {len(original_audio_in_selection)} formats")
     for fmt in original_audio_in_selection:
         logger.info(f"[{task_id}] 🔍   Original: {fmt['id']} ({fmt['ext']}) - Lang: {fmt['language']}, Pref: {fmt['language_preference']}")
+    
+    # Debug: Log ALL audio formats in the list
+    logger.info(f"[{task_id}] 🔍 ALL audio formats in audio_only_formats list:")
+    for i, fmt in enumerate(audio_only_formats):
+        logger.info(f"[{task_id}] 🔍   {i+1}. {fmt['id']}: {fmt['ext']} - Original: {fmt.get('is_original', False)} - Lang: {fmt.get('language', 'unknown')} - Pref: {fmt.get('language_preference', -1)}")
     
     # Strategy 1: Try good quality combined formats with original audio first
     if combined_formats:
@@ -325,13 +323,30 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         # Sort video formats: prefer MP4, then by height (descending)
         video_only_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
         
+        # Debug: Log audio formats before sorting
+        logger.info(f"[{task_id}] 🔍 Audio formats BEFORE sorting:")
+        for i, fmt in enumerate(audio_only_formats[:10]):
+            logger.info(f"[{task_id}] 🔍   {i+1}. {fmt['id']}: {fmt['ext']} - Original: {fmt.get('is_original', False)} - Lang: {fmt.get('language', 'unknown')} - Pref: {fmt.get('language_preference', -1)}")
+        
         # Sort audio formats: original audio first, then by quality (m4a/mp4 preferred)
-        audio_only_formats.sort(key=lambda x: (
-            not x.get('is_original', False),  # Original audio first
-            x.get('language_preference', -999), # Higher preference = more "original"
-            x['ext'] in ['m4a', 'mp4'],       # Then prefer m4a/mp4
-            x.get('abr', 0)                   # Then by bitrate
-        ), reverse=True)
+        # Use a more explicit sorting approach for debugging
+        def audio_sort_key(fmt):
+            is_orig = fmt.get('is_original', False)
+            lang_pref = fmt.get('language_preference', -999)
+            is_m4a = fmt['ext'] in ['m4a', 'mp4']
+            abr = fmt.get('abr', 0)
+            
+            # Debug: Log the sort key for each format
+            logger.info(f"[{task_id}] 🔍 Sort key for {fmt['id']}: is_orig={is_orig}, lang_pref={lang_pref}, is_m4a={is_m4a}, abr={abr}")
+            
+            return (not is_orig, -lang_pref, is_m4a, abr)
+        
+        audio_only_formats.sort(key=audio_sort_key, reverse=True)
+        
+        # Debug: Log audio formats after sorting
+        logger.info(f"[{task_id}] 🔍 Audio formats AFTER sorting:")
+        for i, fmt in enumerate(audio_only_formats[:10]):
+            logger.info(f"[{task_id}] 🔍   {i+1}. {fmt['id']}: {fmt['ext']} - Original: {fmt.get('is_original', False)} - Lang: {fmt.get('language', 'unknown')} - Pref: {fmt.get('language_preference', -1)}")
         
         # Log available audio formats for debugging
         logger.info(f"[{task_id}] Available audio formats:")
