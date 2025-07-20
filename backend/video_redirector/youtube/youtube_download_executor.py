@@ -608,6 +608,11 @@ async def handle_youtube_download_task_with_retries(task_id: str, video_url: str
 
     for attempt in range(max_attempts):
         logger.info(f"[{task_id}] 🚀 Download attempt {attempt + 1}/{max_attempts}")
+        
+        # Set status to downloading for each attempt
+        redis = RedisClient.get_client()
+        await redis.set(f"download:{task_id}:status", "downloading", ex=3600)
+        logger.info(f"[{task_id}] ✅ Status set to 'downloading' for attempt {attempt + 1}")
 
         try:
             # Call the main download handler
@@ -627,6 +632,10 @@ async def handle_youtube_download_task_with_retries(task_id: str, video_url: str
                 continue
             else:
                 logger.error(f"[{task_id}] All {max_attempts} attempts failed")
+                # Set final error status only when all retries are exhausted
+                redis = RedisClient.get_client()
+                await redis.set(f"download:{task_id}:status", "error", ex=3600)
+                await redis.set(f"download:{task_id}:error", str(e), ex=3600)
                 raise
 
     # This should never be reached, but just in case
@@ -645,10 +654,6 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
     output_path = None
     
     try:
-        # Set initial status
-        await redis.set(f"download:{task_id}:status", "downloading", ex=3600)
-        logger.info(f"[{task_id}] ✅ Status set to 'downloading' at {datetime.now().isoformat()}")
-        
         # Get the best format ID and copy capability
         format_result = await get_best_format_id(video_url, "1080p", task_id)
         
@@ -686,6 +691,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "--add-header", "Connection:keep-alive",
             "--add-header", "Upgrade-Insecure-Requests:1",
+            "--paths", f"temp:{DOWNLOAD_DIR}",  # Set temp directory to downloads folder
             video_url
         ]
         
@@ -818,8 +824,6 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         
     except Exception as e:
         logger.error(f"[{task_id}] ❌ Download failed: {e}")
-        await redis.set(f"download:{task_id}:status", "error", ex=3600)
-        await redis.set(f"download:{task_id}:error", str(e), ex=3600)
         await notify_admin(f"[Download Task {task_id}] YouTube download failed: {e}")
         raise e
     finally:
