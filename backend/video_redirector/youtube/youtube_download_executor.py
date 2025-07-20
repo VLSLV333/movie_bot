@@ -12,6 +12,7 @@ from backend.video_redirector.db.crud_downloads import get_file_id
 from backend.video_redirector.utils.upload_video_to_tg import check_size_upload_large_file
 from backend.video_redirector.utils.notify_admin import notify_admin
 from backend.video_redirector.utils.redis_client import RedisClient
+from backend.video_redirector.config import REDIS_HOST, REDIS_PORT
 
 # Set multiprocessing start method for better compatibility
 if __name__ == "__main__":
@@ -830,19 +831,25 @@ def download_worker_process(video_url: str, task_id: str, result_queue: mp.Queue
     try:
         # Initialize Redis connection for this process
         import asyncio
+        import redis.asyncio as redis
+        
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
-        async def init_redis():
-            await RedisClient.init()
+        # Create a fresh Redis client for this process instead of using the singleton
+        async def create_redis_client():
+            return redis.Redis(
+                host=REDIS_HOST,
+                port=REDIS_PORT,
+                decode_responses=True
+            )
         
-        loop.run_until_complete(init_redis())
-        redis = RedisClient.get_client()
+        redis_client = loop.run_until_complete(create_redis_client())
         
         logger.info(f"[{task_id}] 🚀 Download process started (PID: {os.getpid()})")
         
         # Update status to downloading
-        loop.run_until_complete(redis.set(f"download:{task_id}:status", "downloading", ex=3600))
+        loop.run_until_complete(redis_client.set(f"download:{task_id}:status", "downloading", ex=3600))
         logger.info(f"[{task_id}] ✅ Status set to 'downloading' in worker process")
         
         # Get the best format ID and copy capability
@@ -936,7 +943,8 @@ def download_worker_process(video_url: str, task_id: str, result_queue: mp.Queue
     finally:
         # Clean up Redis connection
         try:
-            loop.run_until_complete(RedisClient.close())
+            if 'redis_client' in locals():
+                loop.run_until_complete(redis_client.close())
         except Exception as e:
             logger.warning(f"[{task_id}] Error closing Redis connection: {e}")
         
