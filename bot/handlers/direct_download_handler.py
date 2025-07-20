@@ -75,14 +75,7 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
     last_text = None
 
     async with ClientSession() as session:
-        # Check backend health before starting polling
-        try:
-            async with session.get(f"{status_url.replace('/status/download', '/ping')}") as resp:
-                if resp.status != 200:
-                    logger.warning(f"[User {user_id}] Backend health check failed: {resp.status}")
-        except Exception as e:
-            logger.warning(f"[User {user_id}] Backend health check failed: {e}")
-        
+
         for attempt in range(max_attempts):
             # Try to poll with retries for network issues
             data = None

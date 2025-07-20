@@ -1,7 +1,6 @@
 import logging
 logging.getLogger("pyrogram").setLevel(logging.INFO)
 import os
-import time
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -41,21 +40,6 @@ async def lifespan(app_as: FastAPI):
         await account.stop_client()
 
 app = FastAPI(lifespan=lifespan)
-
-# Add request logging middleware
-@app.middleware("http")
-async def log_requests(request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
-    
-    # Log slow requests and errors
-    if process_time > 5.0 or response.status_code >= 500:
-        logger.warning(f"🐌 Slow/Error Request: {request.method} {request.url.path} - {response.status_code} - {process_time:.2f}s")
-    else:
-        logger.info(f"📡 Request: {request.method} {request.url.path} - {response.status_code} - {process_time:.2f}s")
-    
-    return response
 
 app.mount("/static", StaticFiles(directory="video_redirector/static"), name="static")
 app.include_router(hdrezka_router)

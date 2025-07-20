@@ -4,7 +4,7 @@ import logging
 from typing import Optional
 from backend.video_redirector.utils.redis_client import RedisClient
 from backend.video_redirector.hdrezka.hdrezka_download_executor import handle_download_task
-from backend.video_redirector.youtube.youtube_download_executor import handle_youtube_download_task
+from backend.video_redirector.youtube.youtube_download_executor import handle_youtube_download_task_with_retries
 from backend.video_redirector.exceptions import RetryableDownloadError
 from backend.video_redirector.config import MAX_CONCURRENT_DOWNLOADS, MAX_RETRIES_FOR_DOWNLOAD
 
@@ -85,7 +85,7 @@ class DownloadQueueManager:
 
             if source_type == "youtube":
                 # YouTube download
-                await handle_youtube_download_task(
+                await handle_youtube_download_task_with_retries(
                     task_id=task["task_id"],
                     video_url=task["video_url"],
                     tmdb_id=tmdb_id,

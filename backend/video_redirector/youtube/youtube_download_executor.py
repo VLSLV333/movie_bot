@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import subprocess
+import multiprocessing as mp
 from datetime import datetime, timezone
 from typing import Optional
 from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePart
@@ -10,13 +11,33 @@ from backend.video_redirector.db.session import get_db
 from backend.video_redirector.db.crud_downloads import get_file_id
 from backend.video_redirector.utils.upload_video_to_tg import check_size_upload_large_file
 from backend.video_redirector.utils.notify_admin import notify_admin
-from backend.video_redirector.exceptions import RetryableDownloadError, RETRYABLE_EXCEPTIONS
 from backend.video_redirector.utils.redis_client import RedisClient
+
+# Set multiprocessing start method for better compatibility
+if __name__ == "__main__":
+    mp.set_start_method('spawn', force=True)
 
 logger = logging.getLogger(__name__)
 
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+def cleanup_process(process: mp.Process, task_id: str, timeout: int = 5):
+    """Helper function to safely clean up a process"""
+    if process and process.is_alive():
+        logger.warning(f"[{task_id}] Terminating download process (PID: {process.pid})")
+        process.terminate()
+        process.join(timeout=timeout)
+        if process.is_alive():
+            logger.warning(f"[{task_id}] Force killing download process (PID: {process.pid})")
+            process.kill()
+            process.join(timeout=timeout)
+            if process.is_alive():
+                logger.error(f"[{task_id}] Failed to kill download process (PID: {process.pid})")
+            else:
+                logger.info(f"[{task_id}] Successfully killed download process (PID: {process.pid})")
+        else:
+            logger.info(f"[{task_id}] Successfully terminated download process (PID: {process.pid})")
 
 async def debug_available_formats(video_url: str, task_id: str):
     """Debug function to log all available formats for troubleshooting"""
@@ -600,245 +621,197 @@ async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
         logger.error(f"[{task_id}] Error verifying video quality: {e}")
         return None
 
-async def download_youtube_video(video_url: str, task_id: str):
-    """Download YouTube video with comprehensive retry strategy and IP rotation"""
+async def handle_youtube_download_task_with_retries(task_id: str, video_url: str, tmdb_id: int, lang: str, dub: str, video_title: str, video_poster: str):
+    """Handle YouTube video download task with simple retry strategy and IP rotation - retries on any error until max attempts"""
     
     max_attempts = 3
     sleep_between_retries = 5  # seconds
-    
+
     for attempt in range(max_attempts):
-        #logger.debug(f"[{task_id}] Download attempt {attempt + 1}/{max_attempts}")
-        
+        logger.info(f"[{task_id}] 🚀 Download attempt {attempt + 1}/{max_attempts}")
+
         try:
-            result = await _try_youtube_download(video_url, task_id, attempt + 1)
-            if result:
-                logger.info(f"[{task_id}] ✅ Download successful on attempt {attempt + 1}")
-                return result
-                
-        except subprocess.TimeoutExpired:
-            logger.error(f"[{task_id}] Download timeout on attempt {attempt + 1}")
+            # Call the main download handler
+            await handle_youtube_download_task(task_id, video_url, tmdb_id, lang, dub, video_title, video_poster)
+            logger.info(f"[{task_id}] ✅ Download successful on attempt {attempt + 1}")
+            return  # Success - exit the retry loop
+
+        except Exception as e:
+            logger.error(f"[{task_id}] Error on attempt {attempt + 1}: {e}")
+            
             if attempt < max_attempts - 1:
-                #logger.debug(f"[{task_id}] Retrying after {sleep_between_retries}s...")
+                await notify_admin(f"[Download Task {task_id}] Retrying YouTube download (attempt {attempt + 1}/{max_attempts}). Error: {e}")
+                from backend.video_redirector.utils.pyrogram_acc_manager import rotate_proxy_ip_immediate
+                logger.warning(f"[{task_id}] Triggering IP rotation due to YouTube download failure")
+                await rotate_proxy_ip_immediate("YouTube download failures")
                 await asyncio.sleep(sleep_between_retries)
                 continue
             else:
-                return None
-                
-        except Exception as e:
-            logger.error(f"[{task_id}] Download exception on attempt {attempt + 1}: {e}")
-            if attempt < max_attempts - 1:
-                from backend.video_redirector.utils.pyrogram_acc_manager import rotate_proxy_ip_immediate
-                logger.warning(f"[{task_id}] Triggering IP rotation due to repeated YouTube failures")
-                await rotate_proxy_ip_immediate("YouTube download failures")
-                await asyncio.sleep(10)
-                continue
-            else:
-                return None
-        
-        # If we get here, _try_youtube_download returned None (only on attempt 3)
-        logger.warning(f"[{task_id}] Download failed on attempt {attempt + 1}")
-        return None  # No more attempts after attempt 3
+                logger.error(f"[{task_id}] All {max_attempts} attempts failed")
+                raise
 
-async def _try_youtube_download(video_url: str, task_id: str, attempt_num: int):
-    """Single attempt to download YouTube video with improved headers and original audio preference"""
-    
-    # Get the best format ID and copy capability
-    format_result = await get_best_format_id(video_url, "1080p", task_id)
-    
-    if not format_result:
-        logger.error(f"[{task_id}] No suitable format found for video (attempt {attempt_num})")
-        return None
-    
-    format_selector, can_copy = format_result
-    
-    # Download the video
-    output_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
-    
-    if can_copy:
-        # Fast path: copy streams (no re-encoding)
-        postprocessor_args = "ffmpeg:-c:v copy -c:a copy -avoid_negative_ts make_zero -movflags +faststart"
-        logger.info(f"[{task_id}] Using FAST COPY mode (attempt {attempt_num})")
-    else:
-        # Slow path: re-encode for compatibility
-        postprocessor_args = "ffmpeg:-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -avoid_negative_ts make_zero -movflags +faststart"
-        logger.info(f"[{task_id}] Using RE-ENCODE mode (attempt {attempt_num})")
-    
-    # Build yt-dlp command with improved headers and user-agent
-    # Note: Removed --audio-lang since we handle audio selection in format_selector
-    cmd = [
-        "yt-dlp",
-        "-f", format_selector,
-        "-o", output_path,
-        "--no-playlist",
-        "--no-warnings", 
-        "--merge-output-format", "mp4",
-        "--postprocessor-args", postprocessor_args,
-        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "--add-header", "Accept-Language:en-US,en;q=0.9",
-        "--add-header", "Accept-Encoding:gzip, deflate",
-        "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "--add-header", "Connection:keep-alive",
-        "--add-header", "Upgrade-Insecure-Requests:1",
-        video_url
-    ]
-    
-    #logger.debug(f"[{task_id}] Downloading with format: {format_selector} (attempt {attempt_num})")
-    
-    # Run yt-dlp with timeout
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)  # 15 minutes timeout
-    
-    if result.returncode != 0:
-        stderr = result.stderr
-        logger.error(f"[{task_id}] yt-dlp failed (attempt {attempt_num}): {stderr}")
-
-        if attempt_num != 3:
-            raise ConnectionError(f"YouTube retry: {stderr}")
-        else:
-            logger.error(f"[{task_id}] 3 tries failed (attempt {attempt_num})")
-            return None
-    
-    # Check if file was created and has content
-    if not os.path.exists(output_path):
-        logger.error(f"[{task_id}] Output file not created (attempt {attempt_num})")
-        raise Exception("Output file not created")
-    
-    file_size = os.path.getsize(output_path)
-    if file_size == 0:
-        logger.error(f"[{task_id}] Downloaded file is empty (attempt {attempt_num})")
-        os.remove(output_path)
-        raise Exception("Downloaded file is empty")
-    
-    logger.info(f"[{task_id}] Successfully downloaded: {output_path} ({file_size / (1024*1024):.1f}MB) (attempt {attempt_num})")
-    
-    # Verify the actual quality of the downloaded video
-    actual_quality = await verify_video_quality(output_path, task_id)
-    if actual_quality:
-        logger.info(f"[{task_id}] Actual downloaded quality: {actual_quality}")
-    
-    return (output_path, actual_quality or "unknown")
+    # This should never be reached, but just in case
+    logger.error(f"[{task_id}] All download attempts failed")
+    raise Exception("All download attempts failed")
 
 async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: int, lang: str, dub: str, video_title: str, video_poster: str):
-    """Handle YouTube video download task - follows same interface as HDRezka executor"""
+    """
+    Handle YouTube video download task with process isolation.
+    
+    NOTE: This function does NOT include retry logic. Use handle_youtube_download_task_with_retries()
+    for automatic retries and IP rotation.
+    """
     redis = RedisClient.get_client()
     
     # Remove from user's active downloads set when done (success or error)
     tg_user_id = None
     output_path = None
+    process = None
     
     try:
-        # Set downloading status and ensure it's visible for polling
+        # Set initial status (this will be updated by the worker process)
         await redis.set(f"download:{task_id}:status", "downloading", ex=3600)
         logger.info(f"[{task_id}] ✅ Status set to 'downloading' at {datetime.now().isoformat()}")
         
-        # Download the video
-        download_result = await download_youtube_video(video_url, task_id)
-        if not download_result:
-            raise Exception("Failed to download YouTube video")
+        # Create download process
+        result_queue = mp.Queue()
+        process = mp.Process(
+            target=download_worker_process, 
+            args=(video_url, task_id, result_queue)
+        )
         
-        output_path, selected_quality = download_result
-
-        await redis.set(f"download:{task_id}:status", "uploading", ex=3600)
-        logger.info(f"[{task_id}] ✅ Status set to 'uploading' at {datetime.now().isoformat()}")
-         
-        # Upload to Telegram using existing infrastructure
-        upload_result: Optional[dict] = None
-        async for db in get_db():
-            upload_result = await check_size_upload_large_file(output_path, task_id, db)
-            break  # Only need one session
-
-        if not upload_result:
-            raise Exception("Upload to Telegram failed across all delivery bots.")
-
-        tg_bot_token_file_owner = upload_result["bot_token"]
-        parts = upload_result["parts"]
-        session_name = upload_result["session_name"]
-
-        # Save in DB using existing structure - handle duplicates gracefully
-        async for session in get_db():
-            # Check if file already exists
-            existing_file = await get_file_id(session, tmdb_id, lang, dub)
+        try:
+            # Start download process
+            process.start()
             
-            if existing_file:
-                # Update existing record with new file info
-                logger.info(f"[{task_id}] Updating existing YouTube file record (ID: {existing_file.id})")
-                for attr, value in [
-                    ("quality", selected_quality),
-                    ("tg_bot_token_file_owner", tg_bot_token_file_owner),
-                    ("movie_title", video_title),
-                    ("movie_poster", video_poster),
-                    ("movie_url", video_url),
-                    ("session_name", session_name)
-                ]:
-                    setattr(existing_file, attr, value)
+            # Wait for download completion (with timeout)
+            try:
+                result_type, result_data = result_queue.get(timeout=900)  # 15 minutes timeout
+            except mp.TimeoutError:
+                logger.error(f"[{task_id}] Download timeout after 15 minutes")
+                cleanup_process(process, task_id)
+                raise Exception("Download timeout after 15 minutes")
+            
+            # Handle download result
+            if result_type == "success":
+                output_path = result_data["output_path"]
+                selected_quality = result_data["quality"]
+                logger.info(f"[{task_id}] ✅ Download completed: {output_path}")
                 
-                # Delete old parts and add new ones
-                from sqlalchemy import delete
-                delete_parts_stmt = delete(DownloadedFilePart).where(
-                    DownloadedFilePart.downloaded_file_id == existing_file.id
-                )
-                await session.execute(delete_parts_stmt)
+                # Continue with upload (this part stays in main process)
+                await redis.set(f"download:{task_id}:status", "uploading", ex=3600)
+                logger.info(f"[{task_id}] ✅ Status set to 'uploading' at {datetime.now().isoformat()}")
                 
-                db_id_to_get_parts = existing_file.id
+                # Upload to Telegram using existing infrastructure
+                upload_result: Optional[dict] = None
+                async for db in get_db():
+                    upload_result = await check_size_upload_large_file(output_path, task_id, db)
+                    break  # Only need one session
+
+                if not upload_result:
+                    raise Exception("Upload to Telegram failed across all delivery bots.")
+
+                tg_bot_token_file_owner = upload_result["bot_token"]
+                parts = upload_result["parts"]
+                session_name = upload_result["session_name"]
+
+                # Save in DB using existing structure - handle duplicates gracefully
+                async for session in get_db():
+                    # Check if file already exists
+                    existing_file = await get_file_id(session, tmdb_id, lang, dub)
+                    
+                    if existing_file:
+                        # Update existing record with new file info
+                        logger.info(f"[{task_id}] Updating existing YouTube file record (ID: {existing_file.id})")
+                        for attr, value in [
+                            ("quality", selected_quality),
+                            ("tg_bot_token_file_owner", tg_bot_token_file_owner),
+                            ("movie_title", video_title),
+                            ("movie_poster", video_poster),
+                            ("movie_url", video_url),
+                            ("session_name", session_name)
+                        ]:
+                            setattr(existing_file, attr, value)
+                        
+                        # Delete old parts and add new ones
+                        from sqlalchemy import delete
+                        delete_parts_stmt = delete(DownloadedFilePart).where(
+                            DownloadedFilePart.downloaded_file_id == existing_file.id
+                        )
+                        await session.execute(delete_parts_stmt)
+                        
+                        db_id_to_get_parts = existing_file.id
+                    else:
+                        # Create new record
+                        db_entry = DownloadedFile(
+                            tmdb_id=tmdb_id,
+                            lang=lang,
+                            dub=dub,
+                            quality=selected_quality,
+                            tg_bot_token_file_owner=tg_bot_token_file_owner,
+                            created_at=datetime.now(timezone.utc),
+                            movie_title=video_title,
+                            movie_poster=video_poster,
+                            movie_url=video_url,
+                            session_name=session_name
+                        )
+                        session.add(db_entry)
+                        await session.flush()  # Get db_entry.id
+                        db_id_to_get_parts = db_entry.id
+
+                    # Add parts (works for both new and updated records)
+                    if parts is None:
+                        raise Exception("Upload to Telegram failed: parts is None")
+                    else:
+                        for part in parts:
+                            session.add(DownloadedFilePart(
+                                downloaded_file_id=db_id_to_get_parts,
+                                part_number=part["part"],
+                                telegram_file_id=part["file_id"]
+                            ))
+                    
+                    await session.commit()
+                    break  # Only need one iteration
+
+                await redis.set(f"download:{task_id}:status", "done", ex=3600)
+
+                if len(parts) == 1:
+                    await redis.set(f"download:{task_id}:result", json.dumps({
+                        "tg_bot_token_file_owner": tg_bot_token_file_owner,
+                        "telegram_file_id": parts[0]["file_id"]
+                    }), ex=86400)
+                else:
+                    await redis.set(f"download:{task_id}:result", json.dumps({
+                        "db_id_to_get_parts": db_id_to_get_parts,
+                    }), ex=86400)
+                    
+                logger.info(f"[{task_id}] YouTube download completed successfully")
+                
             else:
-                # Create new record
-                db_entry = DownloadedFile(
-                    tmdb_id=tmdb_id,
-                    lang=lang,
-                    dub=dub,
-                    quality=selected_quality,
-                    tg_bot_token_file_owner=tg_bot_token_file_owner,
-                    created_at=datetime.now(timezone.utc),
-                    movie_title=video_title,
-                    movie_poster=video_poster,
-                    movie_url=video_url,
-                    session_name=session_name
-                )
-                session.add(db_entry)
-                await session.flush()  # Get db_entry.id
-                db_id_to_get_parts = db_entry.id
-
-            # Add parts (works for both new and updated records)
-            if parts is None:
-                raise Exception("Upload to Telegram failed: parts is None")
-            else:
-                for part in parts:
-                    session.add(DownloadedFilePart(
-                        downloaded_file_id=db_id_to_get_parts,
-                        part_number=part["part"],
-                        telegram_file_id=part["file_id"]
-                    ))
+                error_msg = f"Download failed: {result_data}"
+                logger.error(f"[{task_id}] {error_msg}")
+                raise Exception(error_msg)
+                
+        except Exception as e:
+            logger.error(f"[{task_id}] ❌ Download process error: {e}")
+            raise e
             
-            await session.commit()
-            break  # Only need one iteration
-
-        await redis.set(f"download:{task_id}:status", "done", ex=3600)
-
-        if len(parts) == 1:
-            await redis.set(f"download:{task_id}:result", json.dumps({
-                "tg_bot_token_file_owner": tg_bot_token_file_owner,
-                "telegram_file_id": parts[0]["file_id"]
-            }), ex=86400)
-        else:
-            await redis.set(f"download:{task_id}:result", json.dumps({
-                "db_id_to_get_parts": db_id_to_get_parts,
-            }), ex=86400)
-            
-        logger.info(f"[{task_id}] YouTube download completed successfully")
-        
-    except RETRYABLE_EXCEPTIONS as e:
-        logger.error(f"[{task_id}] 🔁 RETRYABLE_EXCEPTION at {datetime.now().isoformat()}: {type(e).__name__}: {e}")
-        raise RetryableDownloadError(f"Temporary issue during YouTube download: {e}")
     except Exception as e:
-        logger.error(f"[{task_id}] ❌ NON-RETRYABLE_EXCEPTION at {datetime.now().isoformat()}: {type(e).__name__}: {e}")
+        logger.error(f"[{task_id}] ❌ Download failed: {e}")
         await redis.set(f"download:{task_id}:status", "error", ex=3600)
         await redis.set(f"download:{task_id}:error", str(e), ex=3600)
         await notify_admin(f"[Download Task {task_id}] YouTube download failed: {e}")
+        raise e
     finally:
+        # Clean up process
+        if process:
+            cleanup_process(process, task_id)
+        
         # Clean up downloaded file
         if output_path and os.path.exists(output_path):
             try:
                 os.remove(output_path)
-                #logger.debug(f"[{task_id}] Cleaned up downloaded file: {output_path}")
+                logger.debug(f"[{task_id}] Cleaned up downloaded file: {output_path}")
             except Exception as e:
                 logger.warning(f"[{task_id}] Failed to clean up file {output_path}: {e}")
         
@@ -848,3 +821,123 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             tg_user_id = await redis.get(f"download:{task_id}:user_id")
         if tg_user_id:
             await redis.srem(f"active_downloads:{tg_user_id}", task_id) # type: ignore
+
+def download_worker_process(video_url: str, task_id: str, result_queue: mp.Queue):
+    """
+    Download worker that runs in a separate process.
+    This function handles the heavy download work without blocking the main backend.
+    """
+    try:
+        # Initialize Redis connection for this process
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        async def init_redis():
+            await RedisClient.init()
+        
+        loop.run_until_complete(init_redis())
+        redis = RedisClient.get_client()
+        
+        logger.info(f"[{task_id}] 🚀 Download process started (PID: {os.getpid()})")
+        
+        # Update status to downloading
+        loop.run_until_complete(redis.set(f"download:{task_id}:status", "downloading", ex=3600))
+        logger.info(f"[{task_id}] ✅ Status set to 'downloading' in worker process")
+        
+        # Get the best format ID and copy capability
+        format_result = loop.run_until_complete(get_best_format_id(video_url, "1080p", task_id))
+        
+        if not format_result:
+            error_msg = "No suitable format found for video"
+            result_queue.put(("error", error_msg))
+            return
+        
+        format_selector, can_copy = format_result
+        
+        # Download the video
+        output_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
+        
+        if can_copy:
+            # Fast path: copy streams (no re-encoding)
+            postprocessor_args = "ffmpeg:-c:v copy -c:a copy -avoid_negative_ts make_zero -movflags +faststart"
+            logger.info(f"[{task_id}] Using FAST COPY mode")
+        else:
+            # Slow path: re-encode for compatibility
+            postprocessor_args = "ffmpeg:-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -avoid_negative_ts make_zero -movflags +faststart"
+            logger.info(f"[{task_id}] Using RE-ENCODE mode")
+        
+        # Build yt-dlp command with resource optimization
+        cmd = [
+            "yt-dlp",
+            "-f", format_selector,
+            "-o", output_path,
+            "--no-playlist",
+            "--no-warnings", 
+            "--merge-output-format", "mp4",
+            "--postprocessor-args", postprocessor_args,
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "--add-header", "Accept-Language:en-US,en;q=0.9",
+            "--add-header", "Accept-Encoding:gzip, deflate",
+            "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "--add-header", "Connection:keep-alive",
+            "--add-header", "Upgrade-Insecure-Requests:1",
+            video_url
+        ]
+        
+        logger.info(f"[{task_id}] Starting download with format: {format_selector}")
+        
+        # Run yt-dlp with timeout
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)  # 15 minutes timeout
+        
+        if result.returncode != 0:
+            stderr = result.stderr
+            error_msg = f"yt-dlp failed: {stderr}"
+            result_queue.put(("error", error_msg))
+            return
+        
+        # Check if file was created and has content
+        if not os.path.exists(output_path):
+            error_msg = "Output file not created"
+            result_queue.put(("error", error_msg))
+            return
+        
+        file_size = os.path.getsize(output_path)
+        if file_size == 0:
+            error_msg = "Downloaded file is empty"
+            os.remove(output_path)
+            result_queue.put(("error", error_msg))
+            return
+        
+        logger.info(f"[{task_id}] Successfully downloaded: {output_path} ({file_size / (1024*1024):.1f}MB)")
+        
+        # Verify the actual quality of the downloaded video
+        actual_quality = loop.run_until_complete(verify_video_quality(output_path, task_id))
+        if actual_quality:
+            logger.info(f"[{task_id}] Actual downloaded quality: {actual_quality}")
+        
+        # Send success result back to main process
+        result_queue.put(("success", {
+            "output_path": output_path,
+            "file_size": file_size,
+            "quality": actual_quality or "unknown"
+        }))
+        
+        logger.info(f"[{task_id}] ✅ Download process completed successfully")
+        
+    except subprocess.TimeoutExpired:
+        error_msg = "Download timeout after 15 minutes"
+        result_queue.put(("error", error_msg))
+        
+    except Exception as e:
+        error_msg = f"Download process error: {str(e)}"
+        result_queue.put(("error", error_msg))
+        
+    finally:
+        # Clean up Redis connection
+        try:
+            loop.run_until_complete(RedisClient.close())
+        except Exception as e:
+            logger.warning(f"[{task_id}] Error closing Redis connection: {e}")
+        
+        loop.close()
