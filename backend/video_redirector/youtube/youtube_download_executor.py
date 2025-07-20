@@ -1049,6 +1049,8 @@ def download_worker_process(video_url: str, task_id: str, result_queue: mp.Queue
             "--no-warnings", 
             "--merge-output-format", "mp4",
             "--postprocessor-args", postprocessor_args,
+            # "--limit-rate", "2M",  # 2MB/s limit
+            # "--concurrent-fragments", "1",  # Single fragment
             "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "--add-header", "Accept-Language:en-US,en;q=0.9",
             "--add-header", "Accept-Encoding:gzip, deflate",
@@ -1062,14 +1064,112 @@ def download_worker_process(video_url: str, task_id: str, result_queue: mp.Queue
         
         worker_monitor.capture_snapshot("download_started")
         
-        # Run yt-dlp with timeout
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)  # 15 minutes timeout
+        # Run yt-dlp with asyncio.subprocess (non-blocking)
+        async def run_yt_dlp_async():
+            try:
+                # Create subprocess with asyncio
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                # Wait for completion with timeout
+                try:
+                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=900)
+                    return process.returncode, stdout, stderr
+                except asyncio.TimeoutError:
+                    logger.error(f"[{task_id}] Download timeout after 15 minutes")
+                    process.terminate()
+                    await process.wait()
+                    raise asyncio.TimeoutError("Download timeout after 15 minutes")
+                    
+            except Exception as e:
+                logger.error(f"[{task_id}] asyncio.subprocess error: {e}")
+                raise e
+        
+        # Enhanced version with progress monitoring (optional)
+        async def run_yt_dlp_with_progress():
+            try:
+                # Add progress template to command for monitoring
+                progress_cmd = cmd + [
+                    "--progress-template", "download:%(progress.downloaded_bytes)s/%(progress.total_bytes)s"
+                ]
+                
+                # Create subprocess with asyncio
+                process = await asyncio.create_subprocess_exec(
+                    *progress_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                # Monitor progress in real-time
+                progress_data = {"downloaded": 0, "total": 0, "percentage": 0}
+                
+                async def monitor_progress():
+                    nonlocal progress_data
+                    while True:
+                        if process.stderr.at_eof():
+                            break
+                        try:
+                            line = await asyncio.wait_for(process.stderr.readline(), timeout=1.0)
+                            if line:
+                                line_str = line.decode().strip()
+                                if line_str.startswith("download:"):
+                                    # Parse progress: download:1234567/9876543
+                                    try:
+                                        parts = line_str.split(":")[1].split("/")
+                                        downloaded = int(parts[0])
+                                        total = int(parts[1])
+                                        percentage = (downloaded / total * 100) if total > 0 else 0
+                                        progress_data = {"downloaded": downloaded, "total": total, "percentage": percentage}
+                                        
+                                        # Update Redis with progress (every 10%)
+                                        if int(percentage) % 10 == 0:
+                                            await redis_client.set(
+                                                f"download:{task_id}:progress", 
+                                                json.dumps(progress_data), 
+                                                ex=3600
+                                            )
+                                            logger.info(f"[{task_id}] Download progress: {percentage:.1f}% ({downloaded}/{total} bytes)")
+                                    except (ValueError, IndexError):
+                                        pass  # Ignore malformed progress lines
+                        except asyncio.TimeoutError:
+                            continue  # Continue monitoring
+                
+                # Start progress monitoring task
+                progress_task = asyncio.create_task(monitor_progress())
+                
+                # Wait for completion with timeout
+                try:
+                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=900)
+                    # Cancel progress monitoring
+                    progress_task.cancel()
+                    return process.returncode, stdout, stderr
+                except asyncio.TimeoutError:
+                    logger.error(f"[{task_id}] Download timeout after 15 minutes")
+                    progress_task.cancel()
+                    process.terminate()
+                    await process.wait()
+                    raise asyncio.TimeoutError("Download timeout after 15 minutes")
+                    
+            except Exception as e:
+                logger.error(f"[{task_id}] asyncio.subprocess error: {e}")
+                raise e
+        
+        # Execute the async download function (choose version based on preference)
+        # Set to True to enable progress monitoring, False for simple version
+        ENABLE_PROGRESS_MONITORING = True
+        
+        if ENABLE_PROGRESS_MONITORING:
+            returncode, stdout, stderr = loop.run_until_complete(run_yt_dlp_with_progress())
+        else:
+            returncode, stdout, stderr = loop.run_until_complete(run_yt_dlp_async())
         
         worker_monitor.capture_snapshot("download_finished")
         
-        if result.returncode != 0:
-            stderr = result.stderr
-            error_msg = f"yt-dlp failed: {stderr}"
+        if returncode != 0:
+            error_msg = f"yt-dlp failed: {stderr.decode() if stderr else 'Unknown error'}"
             worker_monitor.capture_snapshot("download_failed")
             result_queue.put(("error", error_msg))
             return
@@ -1110,7 +1210,7 @@ def download_worker_process(video_url: str, task_id: str, result_queue: mp.Queue
         logger.info(f"[{task_id}] ✅ Download process completed successfully")
         worker_monitor.capture_snapshot("worker_completed")
         
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
         error_msg = "Download timeout after 15 minutes"
         worker_monitor.capture_snapshot("timeout_error")
         result_queue.put(("error", error_msg))
@@ -1132,3 +1232,21 @@ def download_worker_process(video_url: str, task_id: str, result_queue: mp.Queue
             logger.warning(f"[{task_id}] Error closing Redis connection: {e}")
         
         loop.close()
+
+async def get_download_progress(task_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get download progress from Redis.
+    Returns progress data if available, None otherwise.
+    """
+    try:
+        redis = RedisClient.get_client()
+        progress_data = await redis.get(f"download:{task_id}:progress")
+        
+        if progress_data:
+            return json.loads(progress_data)
+        else:
+            return None
+            
+    except Exception as e:
+        logger.warning(f"[{task_id}] Failed to get progress: {e}")
+        return None
