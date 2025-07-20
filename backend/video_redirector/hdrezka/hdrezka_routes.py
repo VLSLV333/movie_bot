@@ -241,32 +241,36 @@ async def check_full_download_status(task_id: str):
     from datetime import datetime
     redis = RedisClient.get_client()
 
-    status = await redis.get(f"download:{task_id}:status")
-    if not status:
-        raise HTTPException(status_code=404, detail="Download task not found")
+    try:
+        status = await redis.get(f"download:{task_id}:status")
+        if not status:
+            raise HTTPException(status_code=404, detail="Download task not found")
 
-    response = {"status": status}
+        response = {"status": status}
 
-    if status == "error":
-        response["error"] = await redis.get(f"download:{task_id}:error")
+        if status == "error":
+            response["error"] = await redis.get(f"download:{task_id}:error")
 
-    elif status == "done":
-        result = await redis.get(f"download:{task_id}:result")
-        if result:
-            response["result"] = json.loads(result)
+        elif status == "done":
+            result = await redis.get(f"download:{task_id}:result")
+            if result:
+                response["result"] = json.loads(result)
 
-    retries = await redis.get(f"download:{task_id}:retries")
-    if retries is not None:
-        response["retries"] = int(retries)
+        retries = await redis.get(f"download:{task_id}:retries")
+        if retries is not None:
+            response["retries"] = int(retries)
 
-    position = await DownloadQueueManager.get_position_by_task_id(task_id)
-    if position:
-        response["queue_position"] = position
+        position = await DownloadQueueManager.get_position_by_task_id(task_id)
+        if position:
+            response["queue_position"] = position
 
-    # Log what we're returning
-    logger.info(f"📊 [{task_id}] Status endpoint returning at {datetime.now().isoformat()}: {response}")
+        # Log what we're returning
+        logger.info(f"📊 [{task_id}] Status endpoint returning at {datetime.now().isoformat()}: {response}")
 
-    return response
+        return response
+    except Exception as e:
+        logger.error(f"❌ Error in status endpoint for task {task_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.post("/alldubs")
 async def get_all_dubs(data: MovieInput):
@@ -305,3 +309,8 @@ async def health_check():
                 "error": str(e)
             }
         )
+
+@router.get("/ping")
+async def ping():
+    """Simple ping endpoint for basic connectivity check"""
+    return {"pong": datetime.now().isoformat()}

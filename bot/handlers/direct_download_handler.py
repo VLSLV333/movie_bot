@@ -75,6 +75,14 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
     last_text = None
 
     async with ClientSession() as session:
+        # Check backend health before starting polling
+        try:
+            async with session.get(f"{status_url.replace('/status/download', '/ping')}") as resp:
+                if resp.status != 200:
+                    logger.warning(f"[User {user_id}] Backend health check failed: {resp.status}")
+        except Exception as e:
+            logger.warning(f"[User {user_id}] Backend health check failed: {e}")
+        
         for attempt in range(max_attempts):
             # Try to poll with retries for network issues
             data = None
@@ -86,7 +94,8 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                             break  # Success
                         elif 500 <= resp.status < 600 and retry < 3:
                             logger.warning(f"[User {user_id}] Server error {resp.status} on attempt {attempt}, retry {retry + 1}/3")
-                            await asyncio.sleep(5)
+                            # Use exponential backoff for server errors
+                            await asyncio.sleep(2 ** retry)  # 1s, 2s, 4s
                             continue
                         else:
                             logger.warning(f"[User {user_id}] Polling failed (status {resp.status}) on attempt {attempt}")
@@ -103,6 +112,7 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
             
             # If polling failed completely, wait and try next interval
             if data is None:
+                logger.warning(f"[User {user_id}] Polling failed completely on attempt {attempt + 1}, waiting {interval}s before next attempt")
                 await asyncio.sleep(interval)
                 continue
 
