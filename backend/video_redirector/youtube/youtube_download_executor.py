@@ -800,6 +800,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                             progress = float(match.group(1))
                             now = asyncio.get_event_loop().time()
                             if progress - last_progress >= 3 or now - last_update_time >= progress_update_interval:
+                                logger.info(f'\n\nback yt_progress:{progress}')
                                 await redis.set(f"download:{task_id}:yt_download_progress", int(progress), ex=3600)
                                 last_progress = progress
                                 last_update_time = now
