@@ -770,55 +770,54 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         
         logger.info(f"[{task_id}] Starting download with format: {format_selector}")
         
-        # Run yt-dlp with asyncio.subprocess (NON-BLOCKING like HDRezka!)
+        # Run yt-dlp with asyncio.subprocess (NON-BLOCKING, with real-time progress tracking)
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
 
-        # Progress tracking variables
         import re
-        progress_re = re.compile(r"\[download\]\s+(\d{1,3}\.\d)%")
+        progress_re = re.compile(r"\\[download\\]\\s+(\\d{1,3}\\.\\d)%")
         last_progress = 0
         last_update_time = asyncio.get_event_loop().time()
         progress_update_interval = 29  # seconds
+        stderr_lines = []
+        stdout_lines = []
 
-        async def progress_updater():
+        async def read_stream(stream, is_stderr=False):
             nonlocal last_progress, last_update_time
             while True:
-                line = await process.stderr.readline()
+                line = await stream.readline()
                 if not line:
                     break
                 decoded = line.decode(errors="ignore")
-                match = progress_re.search(decoded)
-                if match:
-                    progress = float(match.group(1))
-                    now = asyncio.get_event_loop().time()
-                    # Update if progress increased by at least 3% or 29 seconds passed
-                    if progress - last_progress >= 3 or now - last_update_time >= progress_update_interval:
-                        await redis.set(f"download:{task_id}:yt_download_progress", int(progress), ex=3600)
-                        last_progress = progress
-                        last_update_time = now
-        
-        # Start progress updater
-        progress_task = asyncio.create_task(progress_updater())
+                if is_stderr:
+                    stderr_lines.append(decoded)
+                    match = progress_re.search(decoded)
+                    if match:
+                        progress = float(match.group(1))
+                        now = asyncio.get_event_loop().time()
+                        if progress - last_progress >= 3 or now - last_update_time >= progress_update_interval:
+                            await redis.set(f"download:{task_id}:yt_download_progress", int(progress), ex=3600)
+                            last_progress = progress
+                            last_update_time = now
+                else:
+                    stdout_lines.append(decoded)
 
-        # Wait for completion with timeout (NON-BLOCKING!)
-        try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=900)
-            await progress_task  # Ensure progress updater finishes
-        except asyncio.TimeoutError:
-            logger.error(f"[{task_id}] Download timeout after 15 minutes")
-            process.terminate()
-            await process.wait()
-            await progress_task
-            raise Exception("Download timeout after 15 minutes")
-        
-        if process.returncode != 0:
-            stderr_text = stderr.decode() if stderr else 'Unknown error'
+        # Run both readers concurrently
+        await asyncio.gather(
+            read_stream(process.stderr, is_stderr=True),
+            read_stream(process.stdout, is_stderr=False)
+        )
+
+        returncode = await process.wait()
+        stderr_text = ''.join(stderr_lines)
+        stdout_text = ''.join(stdout_lines)
+
+        if returncode != 0:
+            stderr_text = stderr_text or 'Unknown error'
             error_msg = f"yt-dlp failed: {stderr_text}"
-            
             # Check for specific YouTube blocking patterns
             if "HTTP Error 403" in stderr_text or "Forbidden" in stderr_text:
                 logger.warning(f"[{task_id}] YouTube 403 Forbidden detected - likely anti-bot protection")
