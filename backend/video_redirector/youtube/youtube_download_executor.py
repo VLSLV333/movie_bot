@@ -813,7 +813,6 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                             break
                         chunk_count_stdout += 1
                         decoded = chunk.decode(errors="ignore")
-                        print(f'decoded: {decoded}')
                         if len(stdout_lines) < 1000:
                             stdout_lines.append(decoded)
 
