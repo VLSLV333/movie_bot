@@ -804,36 +804,31 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                         line_count += 1
                         decoded = line.decode(errors="ignore")
                         stderr_lines.append(decoded)
-                        # Log every stderr line for debugging (limit to first 1000 lines)
-                        if len(progress_debug_samples) < 1000:
-                            progress_debug_samples.append(decoded)
-                        # Log the actual line to backend log for inspection
-                        logger.info(f"[PROGRESS-DEBUG][{task_id}] STDERR: {decoded.strip()}")
-                        match = progress_re.search(decoded)
-                        if match:
-                            progress = float(match.group(1))
-                            now = asyncio.get_event_loop().time()
-                            # Log the matched progress line
-                            logger.info(f"[PROGRESS-MATCH][{task_id}] Matched progress: {progress} from line: {decoded.strip()}")
-                            if progress - last_progress >= 3 or now - last_update_time >= progress_update_interval:
-                                logger.info(f'\n\nback yt_progress:{progress}')
-                                await redis.set(f"download:{task_id}:yt_download_progress", int(progress), ex=3600)
-                                last_progress = progress
-                                last_update_time = now
                 else:
-                    logger.info(f"[{task_id}] 🔍 Starting stdout reading")
-                    # For stdout, read in chunks to avoid line-based reading and memory blowup
+                    chunk_count_stdout = 0
                     while True:
                         chunk = await stream.read(4096)
                         if not chunk:
                             logger.info(f"[{task_id}] 🔍 stdout stream ended")
                             break
-                        # Optionally accumulate a limited amount for error reporting
+                        chunk_count_stdout += 1
+                        decoded = chunk.decode(errors="ignore")
+                        print(f'decoded: {decoded}')
                         if len(stdout_lines) < 1000:
-                            try:
-                                stdout_lines.append(chunk.decode(errors="ignore"))
-                            except Exception:
-                                pass
+                            stdout_lines.append(decoded)
+
+                        match = progress_re.search(decoded)
+                        if match:
+                            progress = float(match.group(1))
+                            now = asyncio.get_running_loop().time()
+                            logger.info(
+                                f"[PROGRESS-MATCH][{task_id}] Matched progress: {progress} from line: {decoded.strip()}")
+                            if progress - last_progress >= 3 or now - last_update_time >= progress_update_interval:
+                                logger.info(f'\n\nback yt_progress:{progress}')
+                                await redis.set(f"download:{task_id}:yt_download_progress", int(progress), ex=3600)
+                                last_progress = progress
+                                last_update_time = now
+
             except Exception as e:
                 logger.error(f"[{task_id}] Error reading process stream: {e}")
 
