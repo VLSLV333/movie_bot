@@ -778,12 +778,15 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         )
 
         import re
-        progress_re = re.compile(r"\\[download\\]\\s+(\\d{1,3}\\.\\d)%")
+        # FIXED: Correct regex for yt-dlp progress lines
+        progress_re = re.compile(r"\[download\]\s+(\d{1,3}\.\d+)%")
         last_progress = 0
         last_update_time = asyncio.get_event_loop().time()
         progress_update_interval = 29  # seconds
         stderr_lines = []
         stdout_lines = []
+        # For debugging: store a sample of stderr lines
+        progress_debug_samples = []
 
         async def read_stream(stream, is_stderr=False):
             nonlocal last_progress, last_update_time
@@ -795,10 +798,17 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                             break
                         decoded = line.decode(errors="ignore")
                         stderr_lines.append(decoded)
+                        # Log every stderr line for debugging (limit to first 1000 lines)
+                        if len(progress_debug_samples) < 1000:
+                            progress_debug_samples.append(decoded)
+                        # Log the actual line to backend log for inspection
+                        logger.info(f"[PROGRESS-DEBUG][{task_id}] STDERR: {decoded.strip()}")
                         match = progress_re.search(decoded)
                         if match:
                             progress = float(match.group(1))
                             now = asyncio.get_event_loop().time()
+                            # Log the matched progress line
+                            logger.info(f"[PROGRESS-MATCH][{task_id}] Matched progress: {progress} from line: {decoded.strip()}")
                             if progress - last_progress >= 3 or now - last_update_time >= progress_update_interval:
                                 logger.info(f'\n\nback yt_progress:{progress}')
                                 await redis.set(f"download:{task_id}:yt_download_progress", int(progress), ex=3600)
