@@ -787,23 +787,36 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
 
         async def read_stream(stream, is_stderr=False):
             nonlocal last_progress, last_update_time
-            while True:
-                line = await stream.readline()
-                if not line:
-                    break
-                decoded = line.decode(errors="ignore")
+            try:
                 if is_stderr:
-                    stderr_lines.append(decoded)
-                    match = progress_re.search(decoded)
-                    if match:
-                        progress = float(match.group(1))
-                        now = asyncio.get_event_loop().time()
-                        if progress - last_progress >= 3 or now - last_update_time >= progress_update_interval:
-                            await redis.set(f"download:{task_id}:yt_download_progress", int(progress), ex=3600)
-                            last_progress = progress
-                            last_update_time = now
+                    while True:
+                        line = await stream.readline()
+                        if not line:
+                            break
+                        decoded = line.decode(errors="ignore")
+                        stderr_lines.append(decoded)
+                        match = progress_re.search(decoded)
+                        if match:
+                            progress = float(match.group(1))
+                            now = asyncio.get_event_loop().time()
+                            if progress - last_progress >= 3 or now - last_update_time >= progress_update_interval:
+                                await redis.set(f"download:{task_id}:yt_download_progress", int(progress), ex=3600)
+                                last_progress = progress
+                                last_update_time = now
                 else:
-                    stdout_lines.append(decoded)
+                    # For stdout, read in chunks to avoid line-based reading and memory blowup
+                    while True:
+                        chunk = await stream.read(4096)
+                        if not chunk:
+                            break
+                        # Optionally accumulate a limited amount for error reporting
+                        if len(stdout_lines) < 1000:
+                            try:
+                                stdout_lines.append(chunk.decode(errors="ignore"))
+                            except Exception:
+                                pass
+            except Exception as e:
+                logger.error(f"[{task_id}] Error reading process stream: {e}")
 
         # Run both readers concurrently
         await asyncio.gather(
