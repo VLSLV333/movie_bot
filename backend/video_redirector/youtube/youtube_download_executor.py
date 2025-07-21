@@ -122,6 +122,11 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         
+        if "Failed to extract any player response" in result.stderr:
+            logger.error(f"[{task_id}] 🛑UPDATE YT-DLP EMMERGENCY🛑: {result.stderr}")
+            await notify_admin(f"🛑UPDATE YT-DLP EMMERGENCY🛑\nTask: {task_id}\n{result.stderr}")
+            raise Exception("do not retry")
+        
         if result.returncode == 0:
             try:
                 video_info = json.loads(result.stdout)
@@ -172,6 +177,11 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        if "Failed to extract any player response" in result.stderr:
+            logger.error(f"[{task_id}] 🛑UPDATE YT-DLP EMMERGENCY🛑: {result.stderr}")
+            await notify_admin(f"🛑UPDATE YT-DLP EMMERGENCY🛑\nTask: {task_id}\n{result.stderr}")
+            raise Exception("do not retry")
         
         if result.returncode == 0:
             # Log the actual output for debugging
@@ -675,6 +685,11 @@ async def handle_youtube_download_task_with_retries(task_id: str, video_url: str
             return  # Success - exit the retry loop
 
         except Exception as e:
+            if 'do not retry' in str(e):
+                await redis.set(f"download:{task_id}:status", "error", ex=3600)
+                await redis.set(f"download:{task_id}:error", 'YT-DLP needs update, YT download wont work', ex=3600)
+                raise Exception("🛑UPDATE YT-DLP EMMERGENCY🛑")
+
             logger.error(f"[{task_id}] Error on attempt {attempt + 1}: {e}")
             
             if attempt < max_attempts - 1:
