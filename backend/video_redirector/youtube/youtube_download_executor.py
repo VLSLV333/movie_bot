@@ -741,7 +741,6 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             "-f", format_selector,
             "-o", output_path,
             "--no-playlist",
-            "--no-warnings", 
             "--merge-output-format", "mp4",
             "--postprocessor-args", postprocessor_args,
         ]
@@ -769,6 +768,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         ]
         
         logger.info(f"[{task_id}] Starting download with format: {format_selector}")
+        logger.info(f"[{task_id}] 🔍 Executing command: {' '.join(cmd)}")
         
         # Run yt-dlp with asyncio.subprocess (NON-BLOCKING, with real-time progress tracking)
         process = await asyncio.create_subprocess_exec(
@@ -776,6 +776,8 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
+
+        logger.info(f"[{task_id}] 🔍 Subprocess created with PID: {process.pid}")
 
         import re
         # FIXED: Correct regex for yt-dlp progress lines
@@ -790,12 +792,16 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
 
         async def read_stream(stream, is_stderr=False):
             nonlocal last_progress, last_update_time
+            logger.info(f"[{task_id}] 🔍 Starting read_stream for {'stderr' if is_stderr else 'stdout'}")
             try:
                 if is_stderr:
+                    line_count = 0
                     while True:
                         line = await stream.readline()
                         if not line:
+                            logger.info(f"[{task_id}] 🔍 stderr stream ended after {line_count} lines")
                             break
+                        line_count += 1
                         decoded = line.decode(errors="ignore")
                         stderr_lines.append(decoded)
                         # Log every stderr line for debugging (limit to first 1000 lines)
@@ -815,10 +821,12 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                                 last_progress = progress
                                 last_update_time = now
                 else:
+                    logger.info(f"[{task_id}] 🔍 Starting stdout reading")
                     # For stdout, read in chunks to avoid line-based reading and memory blowup
                     while True:
                         chunk = await stream.read(4096)
                         if not chunk:
+                            logger.info(f"[{task_id}] 🔍 stdout stream ended")
                             break
                         # Optionally accumulate a limited amount for error reporting
                         if len(stdout_lines) < 1000:
@@ -829,13 +837,16 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             except Exception as e:
                 logger.error(f"[{task_id}] Error reading process stream: {e}")
 
+        logger.info(f"[{task_id}] 🔍 About to start asyncio.gather for stream reading")
         # Run both readers concurrently
         await asyncio.gather(
             read_stream(process.stderr, is_stderr=True),
             read_stream(process.stdout, is_stderr=False)
         )
+        logger.info(f"[{task_id}] 🔍 Stream reading completed")
 
         returncode = await process.wait()
+        logger.info(f"[{task_id}] 🔍 Process finished with return code: {returncode}")
         stderr_text = ''.join(stderr_lines)
         stdout_text = ''.join(stdout_lines)
 
