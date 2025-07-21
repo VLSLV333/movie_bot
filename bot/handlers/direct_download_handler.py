@@ -19,7 +19,8 @@ from bot.locales.keys import (
     ADDED_TO_DOWNLOAD_QUEUE, FAILED_TO_TRIGGER_DOWNLOAD, UNEXPECTED_ERROR_DURING_DOWNLOAD,
     DOWNLOAD_LIMIT, DUPLICATE_DOWNLOAD, MOVIE_READY_START_DELIVERY_BOT, OPEN_DELIVERY_BOT,
     DOWNLOAD_QUEUE_POSITION, DOWNLOAD_EXTRACTING_DATA, DOWNLOAD_UPLOADING_TO_TELEGRAM,
-    DOWNLOAD_FAILED_START_AGAIN, DOWNLOAD_PROCESSING_STATUS, DOWNLOAD_TIMEOUT_TRY_LATER
+    DOWNLOAD_FAILED_START_AGAIN, DOWNLOAD_PROCESSING_STATUS, DOWNLOAD_TIMEOUT_TRY_LATER,
+    DOWNLOAD_YOUTUBE_DOWNLOADING
 )
 from bot.utils.logger import Logger
 from bot.utils.session_manager import SessionManager
@@ -125,7 +126,19 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                         new_text = gettext(DOWNLOAD_QUEUE_POSITION).format(position=position)
                     elif status == "downloading":
                         animation_url = "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif"
-                        new_text = gettext(DOWNLOAD_EXTRACTING_DATA)
+                        # Fetch progress from Redis
+                        redis = RedisClient.get_client()
+                        progress = 0
+                        try:
+                            progress_str = await redis.get(f"download:{task_id}:yt_download_progress")
+                            if progress_str is not None:
+                                progress = int(progress_str)
+                        except Exception as e:
+                            logger.error(f"[User {user_id}] Could not fetch YT download progress: {e}")
+                        if progress > 0 and progress < 100:
+                            new_text = f"{gettext(DOWNLOAD_YOUTUBE_DOWNLOADING)}\n ({progress}% ✅)"
+                        else:
+                            new_text = gettext(DOWNLOAD_YOUTUBE_DOWNLOADING)
                     elif status == "uploading":
                         animation_url = "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif"
                         new_text = gettext(DOWNLOAD_UPLOADING_TO_TELEGRAM)

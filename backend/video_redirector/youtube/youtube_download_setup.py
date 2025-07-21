@@ -54,7 +54,7 @@ async def youtube_download_setup(data: str, sig: str):
     await redis.expire(user_active_key, 10800)  # Optional: auto-expire
 
     await redis.set(f"download:{task_id}:status", "queued", ex=3600)
-    await redis.set(f"download:{task_id}:progress", 0, ex=3600)
+    await redis.set(f"download:{task_id}:yt_download_progress", 0, ex=3600)
     await redis.set(f"download:{task_id}:user_id", tg_user_id, ex=3600)
     await redis.set(f"download:{task_id}:retries", 0, ex=3600)
 

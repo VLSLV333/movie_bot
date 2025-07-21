@@ -244,6 +244,9 @@ DOWNLOAD_PROCESSING_STATUS = "download_processing_status"
 DOWNLOAD_FAILED_START_AGAIN = "download_failed_start_again"
 DOWNLOAD_TIMEOUT_TRY_LATER = "download_timeout_try_later"
 
+# New key for YouTube downloading status
+DOWNLOAD_YOUTUBE_DOWNLOADING = "download_youtube_downloading"
+
 # Direct Download Flow
 DOWNLOAD_SOURCE_SELECTION = "download_source_selection"
 DOWNLOAD_SOURCE_HDREZKA = "download_source_hdrezka"

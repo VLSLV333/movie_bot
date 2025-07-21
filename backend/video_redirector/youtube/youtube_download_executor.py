@@ -776,14 +776,43 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
+
+        # Progress tracking variables
+        import re
+        progress_re = re.compile(r"\[download\]\s+(\d{1,3}\.\d)%")
+        last_progress = 0
+        last_update_time = asyncio.get_event_loop().time()
+        progress_update_interval = 29  # seconds
+
+        async def progress_updater():
+            nonlocal last_progress, last_update_time
+            while True:
+                line = await process.stderr.readline()
+                if not line:
+                    break
+                decoded = line.decode(errors="ignore")
+                match = progress_re.search(decoded)
+                if match:
+                    progress = float(match.group(1))
+                    now = asyncio.get_event_loop().time()
+                    # Update if progress increased by at least 3% or 29 seconds passed
+                    if progress - last_progress >= 3 or now - last_update_time >= progress_update_interval:
+                        await redis.set(f"download:{task_id}:yt_download_progress", int(progress), ex=3600)
+                        last_progress = progress
+                        last_update_time = now
         
+        # Start progress updater
+        progress_task = asyncio.create_task(progress_updater())
+
         # Wait for completion with timeout (NON-BLOCKING!)
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=900)
+            await progress_task  # Ensure progress updater finishes
         except asyncio.TimeoutError:
             logger.error(f"[{task_id}] Download timeout after 15 minutes")
             process.terminate()
             await process.wait()
+            await progress_task
             raise Exception("Download timeout after 15 minutes")
         
         if process.returncode != 0:
@@ -907,6 +936,9 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             }), ex=86400)
             
         logger.info(f"[{task_id}] YouTube download completed successfully")
+        
+        # On completion, set progress to 100
+        await redis.set(f"download:{task_id}:yt_download_progress", 100, ex=3600)
         
     except Exception as e:
         logger.error(f"[{task_id}] ❌ Download failed: {e}")

@@ -572,7 +572,7 @@ msgid "download_failed_start_again"
 msgstr "😭 Download failed. Please, try again from the beginning 🥹"
 
 msgid "download_timeout_try_later"
-msgstr "😭 Sorry, it's taking too long. Please start over 🥹"
+msgstr "😭 Download timed out. Please start over 🥹"
 
 msgid "download_source_selection"
 msgstr "😍 Where would you like to download from?"
@@ -597,3 +597,6 @@ msgstr "😥 Invalid link. Please send a valid YouTube video link."
 
 msgid "download_link_processing"
 msgstr "🔍 Processing your link..."
+
+msgid "download_youtube_downloading"
+msgstr "⬇️ Downloading video from YouTube..."
