@@ -1,5 +1,6 @@
 .plan_global_user_flow
 *upload_accounts.json
+*cookies.txt
 
 # ✅ Python
 __pycache__/

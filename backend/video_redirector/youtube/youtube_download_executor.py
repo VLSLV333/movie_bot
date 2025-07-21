@@ -3,9 +3,8 @@ import json
 import logging
 import os
 import subprocess
-import time
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional
 from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePart
 from backend.video_redirector.db.session import get_db
 from backend.video_redirector.db.crud_downloads import get_file_id
@@ -28,9 +27,22 @@ async def debug_available_formats(video_url: str, task_id: str):
             "--list-formats",
             "--no-playlist",
             "--no-warnings",
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "--add-header", "Accept-Language:en-US,en;q=0.9",
-            "--add-header", "Accept-Encoding:gzip, deflate",
+            "--extractor-args", "youtube:player_client=android",  # Use mobile client
+            "--user-agent", "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
+            "--add-header", "Accept-Encoding:gzip, deflate, br",
+            "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+            "--add-header", "Accept-Charset:utf-8, iso-8859-1;q=0.5, *;q=0.1",
+            "--add-header", "Connection:keep-alive",
+            "--add-header", "Upgrade-Insecure-Requests:1",
+            "--add-header", "Sec-Fetch-Dest:document",
+            "--add-header", "Sec-Fetch-Mode:navigate",
+            "--add-header", "Sec-Fetch-Site:none",
+            "--add-header", "Sec-Fetch-User:?1",
+            "--add-header", "Cache-Control:max-age=0",
+            "--add-header", "DNT:1",
+            # "--sleep-interval", "2",  # Sleep 2 seconds between requests
+            # "--max-sleep-interval", "5",  # Max 5 seconds sleep
             video_url
         ]
         
@@ -88,9 +100,23 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
             "--dump-json",
             "--no-playlist", 
             "--no-warnings",
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "--add-header", "Accept-Language:en-US,en;q=0.9",
-            "--add-header", "Accept-Encoding:gzip, deflate",
+            "--cookies", "cookies.txt",
+            "--extractor-args", "youtube:player_client=android",  # Use mobile client
+            "--user-agent", "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
+            "--add-header", "Accept-Encoding:gzip, deflate, br",
+            "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+            "--add-header", "Accept-Charset:utf-8, iso-8859-1;q=0.5, *;q=0.1",
+            "--add-header", "Connection:keep-alive",
+            "--add-header", "Upgrade-Insecure-Requests:1",
+            "--add-header", "Sec-Fetch-Dest:document",
+            "--add-header", "Sec-Fetch-Mode:navigate",
+            "--add-header", "Sec-Fetch-Site:none",
+            "--add-header", "Sec-Fetch-User:?1",
+            "--add-header", "Cache-Control:max-age=0",
+            "--add-header", "DNT:1",
+            # "--sleep-interval", "2",  # Sleep 2 seconds between requests
+            # "--max-sleep-interval", "5",  # Max 5 seconds sleep
             video_url
         ]
         
@@ -125,9 +151,23 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
             "--list-formats",
             "--no-playlist",
             "--no-warnings",
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "--add-header", "Accept-Language:en-US,en;q=0.9",
-            "--add-header", "Accept-Encoding:gzip, deflate",
+            "--cookies", "cookies.txt",
+            "--extractor-args", "youtube:player_client=android",  # Use mobile client
+            "--user-agent", "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
+            "--add-header", "Accept-Encoding:gzip, deflate, br",
+            "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+            "--add-header", "Accept-Charset:utf-8, iso-8859-1;q=0.5, *;q=0.1",
+            "--add-header", "Connection:keep-alive",
+            "--add-header", "Upgrade-Insecure-Requests:1",
+            "--add-header", "Sec-Fetch-Dest:document",
+            "--add-header", "Sec-Fetch-Mode:navigate",
+            "--add-header", "Sec-Fetch-Site:none",
+            "--add-header", "Sec-Fetch-User:?1",
+            "--add-header", "Cache-Control:max-age=0",
+            "--add-header", "DNT:1",
+            # "--sleep-interval", "2",  # Sleep 2 seconds between requests
+            # "--max-sleep-interval", "5",  # Max 5 seconds sleep
             video_url
         ]
         
@@ -167,9 +207,23 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
                 "--no-download",
                 "--no-playlist",
                 "--quiet",
-                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "--add-header", "Accept-Language:en-US,en;q=0.9",
-                "--add-header", "Accept-Encoding:gzip, deflate",
+                "--cookies", "cookies.txt",
+                "--extractor-args", "youtube:player_client=android",  # Use mobile client
+                "--user-agent", "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+                "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
+                "--add-header", "Accept-Encoding:gzip, deflate, br",
+                "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+                "--add-header", "Accept-Charset:utf-8, iso-8859-1;q=0.5, *;q=0.1",
+                "--add-header", "Connection:keep-alive",
+                "--add-header", "Upgrade-Insecure-Requests:1",
+                "--add-header", "Sec-Fetch-Dest:document",
+                "--add-header", "Sec-Fetch-Mode:navigate",
+                "--add-header", "Sec-Fetch-Site:none",
+                "--add-header", "Sec-Fetch-User:?1",
+                "--add-header", "Cache-Control:max-age=0",
+                "--add-header", "DNT:1",
+                # "--sleep-interval", "2",  # Sleep 2 seconds between requests
+                # "--max-sleep-interval", "5",  # Max 5 seconds sleep
                 video_url
             ]
             
@@ -674,7 +728,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             postprocessor_args = "ffmpeg:-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -avoid_negative_ts make_zero -movflags +faststart"
             logger.info(f"[{task_id}] Using RE-ENCODE mode")
         
-        # Build yt-dlp command
+        # Build yt-dlp command with enhanced anti-detection
         cmd = [
             "yt-dlp",
             "-f", format_selector,
@@ -683,14 +737,24 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             "--no-warnings", 
             "--merge-output-format", "mp4",
             "--postprocessor-args", postprocessor_args,
-            # "--limit-rate", "2M",  # 2MB/s limit
-            # "--concurrent-fragments", "1",  # Single fragmentx
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "--add-header", "Accept-Language:en-US,en;q=0.9",
-            "--add-header", "Accept-Encoding:gzip, deflate",
-            "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "--cookies", "cookies.txt",
+            "--extractor-args", "youtube:player_client=android",  # Use mobile client
+            "--user-agent", "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
+            "--add-header", "Accept-Encoding:gzip, deflate, br",
+            "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+            "--add-header", "Accept-Charset:utf-8, iso-8859-1;q=0.5, *;q=0.1",
             "--add-header", "Connection:keep-alive",
             "--add-header", "Upgrade-Insecure-Requests:1",
+            "--add-header", "Sec-Fetch-Dest:document",
+            "--add-header", "Sec-Fetch-Mode:navigate",
+            "--add-header", "Sec-Fetch-Site:none",
+            "--add-header", "Sec-Fetch-User:?1",
+            "--add-header", "Cache-Control:max-age=0",
+            "--add-header", "DNT:1",
+            # "--concurrent-fragments", "1",  # Single fragment to avoid parallel requests
+            # "--sleep-interval", "2",  # Sleep 2 seconds between requests
+            # "--max-sleep-interval", "5",  # Max 5 seconds sleep
             "--paths", f"temp:{DOWNLOAD_DIR}",  # Set temp directory to downloads folder
             video_url
         ]
@@ -714,8 +778,21 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             raise Exception("Download timeout after 15 minutes")
         
         if process.returncode != 0:
-            error_msg = f"yt-dlp failed: {stderr.decode() if stderr else 'Unknown error'}"
-            raise Exception(error_msg)
+            stderr_text = stderr.decode() if stderr else 'Unknown error'
+            error_msg = f"yt-dlp failed: {stderr_text}"
+            
+            # Check for specific YouTube blocking patterns
+            if "HTTP Error 403" in stderr_text or "Forbidden" in stderr_text:
+                logger.warning(f"[{task_id}] YouTube 403 Forbidden detected - likely anti-bot protection")
+                raise Exception(f"YouTube blocked access (403 Forbidden): {stderr_text}")
+            elif "fragment 1 not found" in stderr_text:
+                logger.warning(f"[{task_id}] Fragment not found - likely format availability issue")
+                raise Exception(f"Video format not available: {stderr_text}")
+            elif "Requested format is not available" in stderr_text:
+                logger.warning(f"[{task_id}] Requested format not available - trying different approach")
+                raise Exception(f"Format not available: {stderr_text}")
+            else:
+                raise Exception(error_msg)
         
         # Check if file was created and has content
         if not os.path.exists(output_path):
