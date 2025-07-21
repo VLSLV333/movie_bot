@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-async def debug_available_formats(video_url: str, task_id: str):
+async def debug_available_formats(video_url: str, task_id: str, use_cookies: bool = False):
     """Debug function to log all available formats for troubleshooting"""
     try:
         logger.info(f"[{task_id}] 🔍 Debug: Getting all available formats...")
@@ -27,8 +27,11 @@ async def debug_available_formats(video_url: str, task_id: str):
             "--list-formats",
             "--no-playlist",
             "--no-warnings",
-            "--extractor-args", "youtube:player_client=android",  # Use mobile client
-            "--user-agent", "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        ]
+        if use_cookies:
+            cmd += ["--cookies", "cookies.txt"]
+        cmd += [
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
             "--add-header", "Accept-Encoding:gzip, deflate, br",
             "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
@@ -87,11 +90,11 @@ async def debug_available_formats(video_url: str, task_id: str):
     except Exception as e:
         logger.warning(f"[{task_id}] 🔍 Debug: Error getting formats: {e}")
 
-async def get_best_format_id(video_url: str, target_quality: str, task_id: str) -> Optional[tuple]:
+async def get_best_format_id(video_url: str, target_quality: str, task_id: str, use_cookies: bool = False) -> Optional[tuple]:
     """Get the best format ID that has both video and audio, or merge video+audio IDs - ROBUST VERSION"""
 
     # Debug what formats are available (can be disabled for less verbose logs)
-    await debug_available_formats(video_url, task_id)
+    await debug_available_formats(video_url, task_id, use_cookies=use_cookies)
 
     # Strategy 1: Try JSON-based format detection (most reliable)
     try:
@@ -102,9 +105,11 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
             "--dump-json",
             "--no-playlist", 
             "--no-warnings",
-            "--cookies", "cookies.txt",
-            "--extractor-args", "youtube:player_client=android",  # Use mobile client
-            "--user-agent", "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        ]
+        if use_cookies:
+            cmd += ["--cookies", "cookies.txt"]
+        cmd += [
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
             "--add-header", "Accept-Encoding:gzip, deflate, br",
             "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
@@ -167,9 +172,11 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
             "--list-formats",
             "--no-playlist",
             "--no-warnings",
-            "--cookies", "cookies.txt",
-            "--extractor-args", "youtube:player_client=android",  # Use mobile client
-            "--user-agent", "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        ]
+        if use_cookies:
+            cmd += ["--cookies", "cookies.txt"]
+        cmd += [
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
             "--add-header", "Accept-Encoding:gzip, deflate, br",
             "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
@@ -232,9 +239,11 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
                 "--no-download",
                 "--no-playlist",
                 "--quiet",
-                "--cookies", "cookies.txt",
-                "--extractor-args", "youtube:player_client=android",  # Use mobile client
-                "--user-agent", "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            ]
+            if use_cookies:
+                test_cmd += ["--cookies", "cookies.txt"]
+            test_cmd += [
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
                 "--add-header", "Accept-Encoding:gzip, deflate, br",
                 "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
@@ -367,23 +376,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
                 'is_original': is_original
             })
 
-    # Log summary of original formats found
-    # original_audio_found = [fmt for fmt in audio_format_debug if any(fmt['original_checks'].values())]
-    # logger.info(f"[{task_id}] 🔍 JSON Debug: Found {len(original_audio_found)} original audio formats out of {len(audio_format_debug)} total")
-    
-    # logger.info(f"[{task_id}] Format analysis: {len(combined_formats)} combined, {len(video_only_formats)} video-only, {len(audio_only_formats)} audio-only")
-    
-    # Log summary of original audio formats in final selection
-    # original_audio_in_selection = [fmt for fmt in audio_only_formats if fmt.get('is_original', False)]
-    # #logger.debug(f"[{task_id}] 🔍 Original audio in final selection: {len(original_audio_in_selection)} formats")
-    # for fmt in original_audio_in_selection:
-    #     #logger.debug(f"[{task_id}] 🔍   Original: {fmt['id']} ({fmt['ext']}) - Lang: {fmt['language']}, Pref: {fmt['language_preference']}")
-    
-    # Debug: Log ALL audio formats in the list
-    # #logger.debug(f"[{task_id}] 🔍 ALL audio formats in audio_only_formats list:")
-    # for i, fmt in enumerate(audio_only_formats):
-    #     #logger.debug(f"[{task_id}] 🔍   {i+1}. {fmt['id']}: {fmt['ext']} - Original: {fmt.get('is_original', False)} - Lang: {fmt.get('language', 'unknown')} - Pref: {fmt.get('language_preference', -1)}")
-    
+
     # Strategy 1: Try good quality combined formats with original audio first
     if combined_formats:
         # Sort by: original audio first, then height (descending), then prefer MP4
@@ -695,7 +688,8 @@ async def handle_youtube_download_task_with_retries(task_id: str, video_url: str
 
         try:
             # Call the main download handler
-            await handle_youtube_download_task(task_id, video_url, tmdb_id, lang, dub, video_title, video_poster)
+            use_cookies = (attempt == max_attempts - 1)
+            await handle_youtube_download_task(task_id, video_url, tmdb_id, lang, dub, video_title, video_poster, use_cookies=use_cookies)
             logger.info(f"[{task_id}] ✅ Download successful on attempt {attempt + 1}")
             return  # Success - exit the retry loop
 
@@ -726,7 +720,7 @@ async def handle_youtube_download_task_with_retries(task_id: str, video_url: str
     logger.error(f"[{task_id}] All download attempts failed")
     raise Exception("All download attempts failed")
 
-async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: int, lang: str, dub: str, video_title: str, video_poster: str):
+async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: int, lang: str, dub: str, video_title: str, video_poster: str, use_cookies: bool = False):
     """
     Handle YouTube video download task - FULLY NON-BLOCKING
     
@@ -739,7 +733,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
     
     try:
         # Get the best format ID and copy capability
-        format_result = await get_best_format_id(video_url, "1080p", task_id)
+        format_result = await get_best_format_id(video_url, "1080p", task_id, use_cookies=use_cookies)
         
         if not format_result:
             raise Exception("No suitable format found for video")
@@ -767,9 +761,11 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             "--no-warnings", 
             "--merge-output-format", "mp4",
             "--postprocessor-args", postprocessor_args,
-            "--cookies", "cookies.txt",
-            "--extractor-args", "youtube:player_client=android",  # Use mobile client
-            "--user-agent", "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        ]
+        if use_cookies:
+            cmd += ["--cookies", "cookies.txt"]
+        cmd += [
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
             "--add-header", "Accept-Encoding:gzip, deflate, br",
             "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
