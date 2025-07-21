@@ -40,6 +40,10 @@ RUN echo "✅ pip, setuptools, and wheel upgraded"
 RUN pip install -r requirements.txt
 RUN echo "✅ Python dependencies installed"
 
+# Always install the latest yt-dlp nightly version
+RUN pip install -U --pre "yt-dlp[default]"
+RUN yt-dlp --version
+
 # Clean up locales directory to prevent aiogram_i18n scanning issues
 # Note: Keep keys.py as it's needed by the application
 RUN find bot/locales -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true

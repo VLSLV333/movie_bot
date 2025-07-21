@@ -688,7 +688,7 @@ async def handle_youtube_download_task_with_retries(task_id: str, video_url: str
             if 'do not retry' in str(e):
                 await redis.set(f"download:{task_id}:status", "error", ex=3600)
                 await redis.set(f"download:{task_id}:error", 'YT-DLP needs update, YT download wont work', ex=3600)
-                raise Exception("🛑UPDATE YT-DLP EMMERGENCY🛑")
+                return
 
             logger.error(f"[{task_id}] Error on attempt {attempt + 1}: {e}")
             

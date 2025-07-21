@@ -48,6 +48,10 @@ RUN echo "✅ pip, setuptools, and wheel upgraded"
 RUN pip install -r requirements.txt
 RUN echo "✅ Python dependencies installed"
 
+# Always install the latest yt-dlp nightly version
+RUN pip install -U --pre "yt-dlp[default]"
+RUN yt-dlp --version
+
 # Final cleanup
 RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
