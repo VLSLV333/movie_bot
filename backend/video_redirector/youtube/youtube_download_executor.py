@@ -41,12 +41,14 @@ async def debug_available_formats(video_url: str, task_id: str):
             "--add-header", "Sec-Fetch-User:?1",
             "--add-header", "Cache-Control:max-age=0",
             "--add-header", "DNT:1",
-            # "--sleep-interval", "2",  # Sleep 2 seconds between requests
-            # "--max-sleep-interval", "5",  # Max 5 seconds sleep
             video_url
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        # Log the raw output for easier debugging (first 1000 chars)
+        logger.warning(f"[{task_id}] yt-dlp --list-formats RAW stdout (first 1000 chars): {result.stdout[:1000]}")
+        logger.warning(f"[{task_id}] yt-dlp --list-formats RAW stderr: {result.stderr}")
         
         if result.returncode == 0:
             lines = result.stdout.strip().split('\n')
@@ -89,7 +91,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
     """Get the best format ID that has both video and audio, or merge video+audio IDs - ROBUST VERSION"""
 
     # Debug what formats are available (can be disabled for less verbose logs)
-    # await debug_available_formats(video_url, task_id)
+    await debug_available_formats(video_url, task_id)
 
     # Strategy 1: Try JSON-based format detection (most reliable)
     try:
@@ -121,6 +123,10 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+        # Log the full JSON output for debugging (first 1000 chars)
+        logger.warning(f"[{task_id}] yt-dlp --dump-json stdout (first 1000 chars): {result.stdout[:1000]}")
+        logger.warning(f"[{task_id}] yt-dlp --dump-json stderr: {result.stderr}")
         
         if "Failed to extract any player response" in result.stderr:
             logger.error(f"[{task_id}] 🛑UPDATE YT-DLP EMMERGENCY🛑: {result.stderr}")
@@ -131,6 +137,11 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
             try:
                 video_info = json.loads(result.stdout)
                 formats = video_info.get('formats', [])
+                # Log the first 2-3 formats for debugging
+                if formats:
+                    logger.warning(f"[{task_id}] yt-dlp JSON formats sample: {json.dumps(formats[:3], indent=2)[:1000]}")
+                else:
+                    logger.warning(f"[{task_id}] No formats in JSON response (video_info keys: {list(video_info.keys())})")
                 
                 if formats:
                     #logger.debug(f"[{task_id}] Found {len(formats)} formats via JSON method")
@@ -177,6 +188,10 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str) 
         ]
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+        # Log the raw output for easier debugging (first 1000 chars)
+        logger.warning(f"[{task_id}] yt-dlp --list-formats RAW stdout (first 1000 chars): {result.stdout[:1000]}")
+        logger.warning(f"[{task_id}] yt-dlp --list-formats RAW stderr: {result.stderr}")
         
         if "Failed to extract any player response" in result.stderr:
             logger.error(f"[{task_id}] 🛑UPDATE YT-DLP EMMERGENCY🛑: {result.stderr}")
