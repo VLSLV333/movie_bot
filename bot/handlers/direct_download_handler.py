@@ -19,7 +19,7 @@ from bot.locales.keys import (
     AVAILABLE_TO_DOWNLOAD, NO_DUBS_AVAILABLE_IN_LANGUAGE, DOWNLOAD_YOUTUBE_SEND_LINK_PROMPT,
     ADDED_TO_DOWNLOAD_QUEUE, FAILED_TO_TRIGGER_DOWNLOAD, UNEXPECTED_ERROR_DURING_DOWNLOAD,
     DOWNLOAD_LIMIT, DUPLICATE_DOWNLOAD, MOVIE_READY_START_DELIVERY_BOT, OPEN_DELIVERY_BOT,
-    DOWNLOAD_QUEUE_POSITION, DOWNLOAD_UPLOADING_TO_TELEGRAM,
+    DOWNLOAD_QUEUE_POSITION, DOWNLOAD_UPLOADING_TO_TELEGRAM, DOWNLOAD_UPLOADING_PROGRESS,
     DOWNLOAD_FAILED_START_AGAIN, DOWNLOAD_PROCESSING_STATUS, DOWNLOAD_TIMEOUT_TRY_LATER,
     DOWNLOAD_YOUTUBE_DOWNLOADING
 )
@@ -120,6 +120,7 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
     last_animation_msg = loading_msg
     last_text_msg = None
     last_text = None
+    upload_poll_count = 0  # Counter for upload progress
 
     async with ClientSession() as session:
 
@@ -194,8 +195,17 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                         else:
                             new_text = gettext(DOWNLOAD_YOUTUBE_DOWNLOADING)
                     elif status == "uploading":
-                        animation_url = "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif"
-                        new_text = gettext(DOWNLOAD_UPLOADING_TO_TELEGRAM)
+                        upload_poll_count += 1
+                        num_pieces = upload_poll_count * 2
+                        new_text = gettext(DOWNLOAD_UPLOADING_PROGRESS).format(num=num_pieces)
+                        
+                        # Select animation based on poll count
+                        if upload_poll_count <= 7:
+                            animation_url = "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif"
+                        elif upload_poll_count <= 14:
+                            animation_url = "https://media.giphy.com/media/zINs6k7lwfawSbLOIc/giphy.gif"
+                        else:
+                            animation_url = "https://media.giphy.com/media/olAik8MhYOB9K/giphy.gif"
                     elif status == "done":
                         result = data.get("result")
                         if result:
@@ -246,6 +256,10 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                     elif status == "downloading" and new_text != last_text:
                         should_update_ui = True
                         logger.info(f"📊 [User {user_id}] Progress update: '{last_text}' → '{new_text}'")
+                    # Also update UI if status is "uploading" and progress text changed
+                    elif status == "uploading" and new_text != last_text:
+                        should_update_ui = True
+                        logger.info(f"📤 [User {user_id}] Upload progress update: '{last_text}' → '{new_text}'")
                     
                     if should_update_ui:
                         # Delete old animation and send new one

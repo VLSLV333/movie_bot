@@ -10,6 +10,7 @@ from bot.locales.keys import (
     DOWNLOAD_EXTRACTING_DATA,
     DOWNLOAD_CONVERTING_VIDEO,
     DOWNLOAD_UPLOADING_TO_TELEGRAM,
+    DOWNLOAD_UPLOADING_PROGRESS,
     DOWNLOAD_PROCESSING_STATUS,
     DOWNLOAD_FAILED_START_AGAIN,
     DOWNLOAD_TIMEOUT_TRY_LATER
@@ -23,6 +24,8 @@ STATUS_ANIMATIONS = {
     "extracting": "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
     "merging": "https://media.giphy.com/media/26ufnwz3wDUli7GU0/giphy.gif",
     "uploading": "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
+    "uploading_phase2": "https://media.giphy.com/media/zINs6k7lwfawSbLOIc/giphy.gif",
+    "uploading_phase3": "https://media.giphy.com/media/olAik8MhYOB9K/giphy.gif",
     "default": "https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif"
 }
 
@@ -44,6 +47,7 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
     last_animation_msg = loading_msg
     last_text_msg = None
     last_text = None
+    upload_poll_count = 0  # Counter for upload progress
 
     async with ClientSession() as session:
         for attempt in range(max_attempts):
@@ -85,8 +89,17 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                             progress_bar = make_progress_bar(0)
                             new_text = gettext(DOWNLOAD_CONVERTING_VIDEO).format(progress_bar=progress_bar, percent=0)
                     elif status == "uploading":
-                        animation_url = STATUS_ANIMATIONS["uploading"]
-                        new_text = gettext(DOWNLOAD_UPLOADING_TO_TELEGRAM)
+                        upload_poll_count += 1
+                        num_pieces = upload_poll_count * 2
+                        new_text = gettext(DOWNLOAD_UPLOADING_PROGRESS).format(num=num_pieces)
+                        
+                        # Select animation based on poll count
+                        if upload_poll_count <= 7:
+                            animation_url = STATUS_ANIMATIONS["uploading"]
+                        elif upload_poll_count <= 14:
+                            animation_url = STATUS_ANIMATIONS["uploading_phase2"]
+                        else:
+                            animation_url = STATUS_ANIMATIONS["uploading_phase3"]
                     elif status == "done":
                         result = data.get("result")
                         if result:
@@ -172,6 +185,17 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                             except Exception as edit_error:
                                 if "message is not modified" in str(edit_error):
                                     logger.error(f"[User {user_id}] tried to edit text while merging but it was not modified")
+                                else:
+                                    logger.error(f"[User {user_id}] Failed to edit text: {edit_error}")
+                        last_text = new_text
+                    # If status is uploading, update text message for progress (even if status didn't change)
+                    elif status == "uploading" and new_text != last_text:
+                        if last_text_msg:
+                            try:
+                                await last_text_msg.edit_text(new_text)
+                            except Exception as edit_error:
+                                if "message is not modified" in str(edit_error):
+                                    logger.error(f"[User {user_id}] tried to edit text while uploading but it was not modified")
                                 else:
                                     logger.error(f"[User {user_id}] Failed to edit text: {edit_error}")
                         last_text = new_text

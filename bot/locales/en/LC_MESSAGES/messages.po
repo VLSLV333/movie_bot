@@ -565,6 +565,9 @@ msgstr "⚙️ Download started, converting video\n{progress_bar} {percent}%"
 msgid "download_uploading_to_telegram"
 msgstr "😎 Almost there! Soon you will watch your content 🥰"
 
+msgid "download_uploading_progress"
+msgstr "😎Soon you will watch your content\n\nVideo is beeing uploaded piece by piece, already uploaded pieces:\n{num} ✅"
+
 msgid "download_processing_status"
 msgstr "⏳ Processing... (Status: {status})"
 
