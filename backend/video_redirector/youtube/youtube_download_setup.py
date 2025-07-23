@@ -7,7 +7,7 @@ from backend.video_redirector.utils.signed_token_manager import SignedTokenManag
 from backend.video_redirector.utils.redis_client import RedisClient
 from backend.video_redirector.hdrezka.hdrezka_download_setup import check_duplicate_download, get_user_download_limit
 from backend.video_redirector.db.session import get_db
-from backend.video_redirector.db.crud_downloads import get_file_id, get_parts_for_downloaded_file
+from backend.video_redirector.db.crud_downloads import get_youtube_file_id, get_parts_for_downloaded_file
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +33,9 @@ async def youtube_download_setup(data: str, sig: str):
 
     # --- Check if video already exists in database (FAST RETURN) ---
     async for session in get_db():
-        existing_file = await get_file_id(session, tmdb_id, lang, dub)
+        existing_file = await get_youtube_file_id(session, tmdb_id, video_url)
         if existing_file:
-            logger.info(f"[YouTube Setup] 🚀 FAST RETURN: Video already exists in DB: tmdb_id={tmdb_id}, lang={lang}, dub={dub}, quality={existing_file.quality}")
+            logger.info(f"[YouTube Setup] 🚀 FAST RETURN: Video already exists in DB: tmdb_id={tmdb_id}, video_url={video_url}, quality={existing_file.quality}")
             
             # Get file parts to determine if it's single file or multi-part
             file_parts = await get_parts_for_downloaded_file(session, existing_file.id)

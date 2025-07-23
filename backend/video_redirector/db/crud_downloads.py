@@ -24,6 +24,15 @@ async def get_file_id(session: AsyncSession, tmdb_id: int, lang: str, dub: str):
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
+async def get_youtube_file_id(session: AsyncSession, tmdb_id: int, video_url: str):
+    """Get existing YouTube file by tmdb_id and video_url"""
+    stmt = select(DownloadedFile).where(
+        DownloadedFile.tmdb_id == tmdb_id,
+        DownloadedFile.movie_url == video_url
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
 async def get_files_by_tmdb_and_lang(session: AsyncSession, tmdb_id: int, lang: str):
     stmt = select(DownloadedFile).where(
         DownloadedFile.tmdb_id == tmdb_id,
