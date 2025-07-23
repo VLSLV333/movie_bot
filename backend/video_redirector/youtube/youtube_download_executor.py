@@ -419,11 +419,11 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
             
             # Use bitrate calculation if metadata size seems wrong or missing
             if estimated_size == 0 or (estimated_size > 0 and estimated_size < 10_000_000):
-                logger.warning(f"[{task_id}] 🔍 Metadata size seems wrong ({estimated_size/1024/1024:.1f}MB), using bitrate calculation instead")
+                logger.debug(f"[{task_id}] 🔍 Metadata size seems wrong ({estimated_size/1024/1024:.1f}MB), using bitrate calculation instead")
                 estimated_size = total_size_from_br
             elif abs(estimated_size - total_size_from_br) > estimated_size * 0.5:  # >50% difference
-                logger.warning(f"[{task_id}] 🔍 Large discrepancy between metadata ({estimated_size/1024/1024:.1f}MB) and bitrate ({total_size_from_br/1024/1024:.1f}MB)")
-                logger.warning(f"[{task_id}] 🔍 Using average of both: {(estimated_size + total_size_from_br)/2/1024/1024:.1f}MB")
+                logger.debug(f"[{task_id}] 🔍 Large discrepancy between metadata ({estimated_size/1024/1024:.1f}MB) and bitrate ({total_size_from_br/1024/1024:.1f}MB)")
+                logger.debug(f"[{task_id}] 🔍 Using average of both: {(estimated_size + total_size_from_br)/2/1024/1024:.1f}MB")
                 estimated_size = (estimated_size + total_size_from_br) // 2
         
         # Final sanity check and fallback
@@ -436,7 +436,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         
         logger.debug(f"[{task_id}] 🔍 FINAL RESULT: {merge_format}, size: {estimated_size} bytes ({estimated_size/1024/1024:.1f}MB)")
         return (merge_format, can_copy, estimated_size)
-    logger.warning(f"[{task_id}] JSON analysis found no suitable formats, will try fallback methods")
+    logger.debug(f"[{task_id}] JSON analysis found no suitable formats, will try fallback methods")
     return None
 
 async def _analyze_formats_from_text(output: str, target_quality: str, task_id: str) -> Optional[tuple]:

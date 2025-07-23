@@ -313,23 +313,31 @@ async def handle_start(message: Message):
                 return
             
             try:
-                # Parse the signed payload: base64_data_signature
-                import base64
+                # Parse the signed payload: short_token_signature
                 parts = signed_payload.split("_")
                 if len(parts) != 2:
                     raise ValueError("Invalid payload format")
                 
-                encoded_data, sig = parts
-                file_data_str = base64.b64decode(encoded_data).decode()
-                expected_sig = hmac.new(TASK_ID_SECRET.encode(), file_data_str.encode(), hashlib.sha256).hexdigest()[:10]
+                short_token, sig = parts
+                
+                # Verify signature
+                expected_sig = hmac.new(TASK_ID_SECRET.encode(), short_token.encode(), hashlib.sha256).hexdigest()[:10]
                 
                 if sig != expected_sig:
                     await message.answer(get_text('invalid_download_link', user_lang))
                     logger.error(f"❌ User {user_id}, tried to use wrong signature for single file access")
                     return
                 
-                file_data = json.loads(file_data_str)
-                logger.info(f"Parsed single file data for user {user_id}: {file_data}")
+                # Get file data from Redis
+                redis_key = f"yt_single:{short_token}"
+                file_data_json = await redis.get(redis_key)
+                if not file_data_json:
+                    await message.answer(get_text('download_link_expired', user_lang))
+                    logger.warning(f"No file data found in Redis for token: {short_token}")
+                    return
+                
+                file_data = json.loads(file_data_json)
+                logger.info(f"Retrieved file data for user {user_id}: {file_data}")
                 
                 # Send the video directly
                 await message.answer(get_text('enjoy_content', user_lang))
@@ -367,6 +375,13 @@ async def catch_all(message: Message):
     logger.info(f"CATCH-ALL: Received message: {message.text} from user {getattr(message.from_user, 'id', None)}")
     user_lang = getattr(message.from_user, 'language_code', None)
     await message.answer(get_text('catch_all_message', user_lang))
+
+# Add a specific handler for /start without deep link to catch any issues
+@dp.message(CommandStart())
+async def handle_start_no_deep_link(message: Message):
+    logger.info(f"Received /start WITHOUT deep link from user_id={getattr(message.from_user, 'id', None)}, text='{message.text}'")
+    user_lang = getattr(message.from_user, 'language_code', None)
+    await message.answer(get_text('malformed_start_link', user_lang))
 
 # === Run the bot ===
 if __name__ == "__main__":

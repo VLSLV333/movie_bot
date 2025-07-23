@@ -634,13 +634,21 @@ async def handle_youtube_link_input(message: types.Message):
                     movie_title = backend_response.get("movie_title", "YouTube Video")
                     
                     if file_type == "single":
-                        # Single file - create direct access token
+                        # Single file - create direct access token using Redis-based approach
                         file_data = {
                             "tg_bot_token_file_owner": backend_response["tg_bot_token_file_owner"],
                             "telegram_file_id": backend_response["telegram_file_id"]
                         }
-                        file_data_str = json.dumps(file_data)
-                        signed_file_data = f"{base64.b64encode(file_data_str.encode()).decode()}_{hmac.new(backend_secret.encode(), file_data_str.encode(), hashlib.sha256).hexdigest()[:10]}"
+                        
+                        # Generate a short token for Redis lookup (much shorter than encoding full data)
+                        short_token = hashlib.md5(json.dumps(file_data, separators=(",", ":")).encode()).hexdigest()[:12]
+                        
+                        # Store file data in Redis (this is what delivery bot expects)
+                        redis = RedisClient.get_client()
+                        await redis.set(f"yt_single:{short_token}", json.dumps(file_data), ex=3600)
+                        
+                        # Create signed token with just the short token (much shorter)
+                        signed_file_data = f"{short_token}_{hmac.new(backend_secret.encode(), short_token.encode(), hashlib.sha256).hexdigest()[:10]}"
                         delivery_bot_link = f"https://t.me/deliv3ry_bot?start=3_{signed_file_data}"
                     else:
                         # Multi-part file - create DB access token
