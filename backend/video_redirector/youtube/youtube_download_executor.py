@@ -889,16 +889,20 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                         # No files detected yet - provide time-based progress estimate
                         elapsed_time = asyncio.get_event_loop().time() - start_time
                         
-                        # Conservative time estimate: most downloads take 2-10 minutes
-                        # Start showing progress after 30 seconds, max out at 90% after 8 minutes
-                        if elapsed_time > 30:
-                            # Linear progress from 1% at 30s to 90% at 8 minutes (480s)
-                            time_progress = min(int(1 + (elapsed_time - 30) / (480 - 30) * 89), 90)
+                        # Adaptive time estimate based on what we know
+                        if elapsed_time > 15:  # Start after 15 seconds instead of 30
+                            # For very fast downloads (small files), be more aggressive
+                            if elapsed_time > 60:
+                                # After 1 minute with no progress, something might be wrong OR it's a very slow download
+                                time_progress = min(int(10 + (elapsed_time - 60) / 420 * 80), 95)  # 10% to 95% over 7 minutes
+                            else:
+                                # First minute: slower progress to allow for actual progress to kick in
+                                time_progress = min(int((elapsed_time - 15) / 45 * 10), 10)  # 0% to 10% over 45 seconds
                             
                             if time_progress != last_progress:
                                 await redis.set(f"download:{task_id}:yt_download_progress", time_progress, ex=3600)
                                 last_progress = time_progress
-                                logger.info(f"[{task_id}] Progress (time-based): {time_progress}% (no files detected yet, elapsed: {elapsed_time:.0f}s)")
+                                logger.info(f"[{task_id}] Progress (time-based fallback): {time_progress}% (no stdout progress detected, elapsed: {elapsed_time:.0f}s)")
                         
                         elif loop_count % 10 == 1:  # Debug when no download detected
                             logger.info(f"[{task_id}] 🔍 No download detected: downloaded={downloaded}, estimated_size={estimated_size}, elapsed={elapsed_time:.0f}s")
@@ -934,7 +938,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             "--merge-output-format", "mp4",
             "--postprocessor-args", postprocessor_args,
             "--progress",  # Enable progress reporting
-            "--no-warnings",  # Reduce noise but keep progress
+            "--newline",   # Output progress as new lines for easier parsing
         ]
         if use_cookies:
             cmd += ["--cookies", "cookies.txt"]
@@ -963,19 +967,129 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             logger.info(f"[{task_id}] No size estimate available, using adaptive progress tracking")
         logger.info(f"[{task_id}] 🔍 Executing command: {' '.join(cmd)}")
         
-        # Run yt-dlp with asyncio.subprocess (simplified - only stderr for error detection)
+        # Run yt-dlp with asyncio.subprocess - CAPTURE STDOUT for progress, stderr for errors
         process = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=asyncio.subprocess.DEVNULL,  # We don't need stdout anymore
-            stderr=asyncio.subprocess.PIPE
+            stdout=asyncio.subprocess.PIPE,  # Progress is output to stdout!
+            stderr=asyncio.subprocess.PIPE   # Errors go to stderr
         )
 
         logger.info(f"[{task_id}] 🔍 Subprocess created with PID: {process.pid}")
 
+        stdout_lines = []
         stderr_lines = []
 
-        async def read_stderr():
+        async def read_stdout():
+            """Read stdout for progress information"""
             nonlocal last_progress
+            try:
+                line_count = 0
+                while True:
+                    line = await process.stdout.readline()
+                    if not line:
+                        logger.info(f"[{task_id}] 🔍 stdout stream ended after {line_count} lines")
+                        break
+                    line_count += 1
+                    decoded = line.decode(errors="ignore").strip()
+                    stdout_lines.append(decoded)
+                    
+                    # Log all stdout output for debugging when few lines
+                    if line_count <= 100:  # Log first 100 lines for debugging
+                        logger.info(f"[{task_id}] yt-dlp stdout #{line_count}: {decoded}")
+                    
+                    # Parse yt-dlp progress output from stdout - ENHANCED for multiple patterns
+                    if '[download]' in decoded:
+                        try:
+                            percent = None
+                            
+                            # Pattern 1: Standard percentage progress
+                            # [download] 45.2% of 350.00MiB at 2.50MiB/s ETA 01:23
+                            if '%' in decoded:
+                                percent_match = re.search(r'(\d+\.?\d*)%', decoded)
+                                if percent_match:
+                                    percent = int(float(percent_match.group(1)))
+                                    
+                                    # Also try to extract fragment progress if available
+                                    frag_match = re.search(r'\(frag (\d+)/(\d+)\)', decoded)
+                                    if frag_match:
+                                        current_frag = int(frag_match.group(1))
+                                        total_frags = int(frag_match.group(2))
+                                        frag_percent = int((current_frag / total_frags) * 100)
+                                        logger.info(f"[{task_id}] 🔍 Fragment progress: {current_frag}/{total_frags} = {frag_percent}%")
+                                        # Use fragment progress if it's more accurate than reported percentage
+                                        if frag_percent > percent:
+                                            percent = frag_percent
+                            
+                            # Pattern 2: Fragment-only progress (no percentage)
+                            # [download] Downloading fragment 145 of 209
+                            elif 'fragment' in decoded.lower() or 'frag' in decoded:
+                                frag_match = re.search(r'(?:fragment|frag)\s+(\d+)\s+of\s+(\d+)', decoded, re.IGNORECASE)
+                                if not frag_match:
+                                    frag_match = re.search(r'\(frag (\d+)/(\d+)\)', decoded)
+                                
+                                if frag_match:
+                                    current_frag = int(frag_match.group(1))
+                                    total_frags = int(frag_match.group(2))
+                                    percent = int((current_frag / total_frags) * 100)
+                                    logger.info(f"[{task_id}] 🔍 Fragment-only progress: {current_frag}/{total_frags} = {percent}%")
+                            
+                            # Pattern 3: File size progress without percentage
+                            # [download] 350.00MiB at 2.50MiB/s ETA 01:23
+                            elif 'MiB' in decoded or 'MB' in decoded or 'GiB' in decoded or 'GB' in decoded:
+                                # Try to estimate progress from downloaded vs estimated size
+                                size_match = re.search(r'(\d+\.?\d*)\s*(MiB|MB|GiB|GB)', decoded)
+                                if size_match and estimated_size > 0:
+                                    downloaded_size_str = size_match.group(1)
+                                    unit = size_match.group(2)
+                                    
+                                    # Convert to bytes
+                                    downloaded_bytes = float(downloaded_size_str)
+                                    if unit in ['MiB', 'MB']:
+                                        downloaded_bytes *= 1024 * 1024 if unit == 'MiB' else 1000 * 1000
+                                    elif unit in ['GiB', 'GB']:
+                                        downloaded_bytes *= 1024 * 1024 * 1024 if unit == 'GiB' else 1000 * 1000 * 1000
+                                    
+                                    percent = min(int((downloaded_bytes / estimated_size) * 100), 99)
+                                    logger.info(f"[{task_id}] 🔍 Size-based progress: {downloaded_size_str}{unit} = {percent}%")
+                            
+                            # Pattern 4: Completion indicators
+                            elif 'downloaded' in decoded.lower() and 'completed' not in decoded.lower():
+                                # Look for completion messages
+                                if any(word in decoded.lower() for word in ['finished', 'complete', 'done']):
+                                    percent = 100
+                                    logger.info(f"[{task_id}] 🔍 Completion detected: {decoded}")
+                            
+                            # Update progress if we found any
+                            if percent is not None and percent != last_progress and percent > 0:
+                                await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
+                                last_progress = percent
+                                logger.info(f"[{task_id}] ✅ yt-dlp Progress: {percent}% - {decoded}")
+                                
+                        except Exception as e:
+                            logger.debug(f"[{task_id}] Error parsing progress from stdout: {e}")
+                    
+                    # Pattern 5: Post-processing progress
+                    elif '[ffmpeg]' in decoded:
+                        logger.info(f"[{task_id}] yt-dlp ffmpeg: {decoded}")
+                        # Post-processing usually means download is 100%, processing is additional
+                        if last_progress < 100:
+                            await redis.set(f"download:{task_id}:yt_download_progress", 100, ex=3600)
+                            last_progress = 100
+                            logger.info(f"[{task_id}] ✅ Download complete, post-processing started")
+                    
+                    # Pattern 6: File already exists/cached
+                    elif 'already' in decoded.lower() and ('exist' in decoded.lower() or 'download' in decoded.lower()):
+                        logger.info(f"[{task_id}] File already exists/cached: {decoded}")
+                        await redis.set(f"download:{task_id}:yt_download_progress", 100, ex=3600)
+                        last_progress = 100
+                    
+            except Exception as e:
+                logger.error(f"[{task_id}] Error reading stdout stream: {e}")
+            finally:
+                logger.info(f"[{task_id}] 🔍 stdout reader finished after processing {line_count} lines")
+
+        async def read_stderr():
+            """Read stderr for error information"""
             try:
                 line_count = 0
                 while True:
@@ -987,37 +1101,33 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                     decoded = line.decode(errors="ignore").strip()
                     stderr_lines.append(decoded)
                     
-                    # Parse yt-dlp progress output
-                    if decoded and ('[download]' in decoded or '[ffmpeg]' in decoded):
-                        if line_count <= 20:  # Log first few lines for debugging
-                            logger.info(f"[{task_id}] yt-dlp: {decoded}")
-                        
-                        # Parse download progress like: [download] 45.2% of 350.00MiB at 2.50MiB/s ETA 01:23
-                        if '[download]' in decoded and '%' in decoded:
-                            try:
-                                # Extract percentage
-                                import re
-                                percent_match = re.search(r'(\d+\.?\d*)%', decoded)
-                                if percent_match:
-                                    percent = int(float(percent_match.group(1)))
-                                    if percent != last_progress and percent > 0:
-                                        await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
-                                        last_progress = percent
-                                        logger.info(f"[{task_id}] yt-dlp Progress: {percent}% - {decoded}")
-                            except Exception as e:
-                                logger.debug(f"[{task_id}] Error parsing progress: {e}")
+                    # Log stderr output for debugging when few lines or important messages
+                    if line_count <= 50 or 'ERROR' in decoded.upper() or 'WARNING' in decoded.upper():
+                        logger.info(f"[{task_id}] yt-dlp stderr #{line_count}: {decoded}")
                     
-                    elif line_count <= 10:  # Log first few stderr lines for debugging
-                        logger.debug(f"[{task_id}] stderr: {decoded}")
+                    # Catch important messages from stderr
+                    if 'ERROR' in decoded.upper():
+                        logger.error(f"[{task_id}] yt-dlp ERROR: {decoded}")
+                    elif 'WARNING' in decoded.upper():
+                        logger.warning(f"[{task_id}] yt-dlp WARNING: {decoded}")
+                    
             except Exception as e:
                 logger.error(f"[{task_id}] Error reading stderr stream: {e}")
+            finally:
+                logger.info(f"[{task_id}] 🔍 stderr reader finished after processing {line_count} lines")
 
         # Set a reasonable timeout for the download (30 minutes max)
         download_timeout = 1200  # 20 minutes
         
         try:
-            # Run stderr reader with timeout (much simpler)
-            await asyncio.wait_for(read_stderr(), timeout=download_timeout)
+            # Run both stdout and stderr readers concurrently with timeout
+            await asyncio.wait_for(
+                asyncio.gather(
+                    read_stdout(),  # Progress tracking from stdout
+                    read_stderr()   # Error detection from stderr
+                ), 
+                timeout=download_timeout
+            )
             
             # Wait for process to complete
             returncode = await asyncio.wait_for(process.wait(), timeout=60)
@@ -1045,24 +1155,32 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         except asyncio.CancelledError:
             pass
 
-        stderr_text = ''.join(stderr_lines)
+        # Combine stdout and stderr for error analysis
+        stdout_text = '\n'.join(stdout_lines)
+        stderr_text = '\n'.join(stderr_lines)
+        combined_output = f"STDOUT:\n{stdout_text}\n\nSTDERR:\n{stderr_text}"
 
         logger.info(f"[{task_id}] Process finished with return code: {returncode}")
         
+        # Ensure progress reaches 100% on successful completion
+        if returncode == 0 and last_progress < 100:
+            await redis.set(f"download:{task_id}:yt_download_progress", 100, ex=3600)
+            logger.info(f"[{task_id}] ✅ Process completed successfully, setting progress to 100%")
+        
         if returncode != 0:
-            stderr_text = stderr_text or 'Unknown error'
-            error_msg = f"yt-dlp failed: {stderr_text}"
+            error_output = stderr_text or stdout_text or 'Unknown error'
+            error_msg = f"yt-dlp failed: {error_output}"
             
-            # Check for specific YouTube blocking patterns
-            if "HTTP Error 403" in stderr_text or "Forbidden" in stderr_text:
+            # Check for specific YouTube blocking patterns in both stdout and stderr
+            if "HTTP Error 403" in combined_output or "Forbidden" in combined_output:
                 logger.warning(f"[{task_id}] YouTube 403 Forbidden detected - likely anti-bot protection")
-                raise Exception(f"YouTube blocked access (403 Forbidden): {stderr_text}")
-            elif "fragment 1 not found" in stderr_text:
+                raise Exception(f"YouTube blocked access (403 Forbidden): {error_output}")
+            elif "fragment 1 not found" in combined_output:
                 logger.warning(f"[{task_id}] Fragment not found - likely format availability issue")
-                raise Exception(f"Video format not available: {stderr_text}")
-            elif "Requested format is not available" in stderr_text:
+                raise Exception(f"Video format not available: {error_output}")
+            elif "Requested format is not available" in combined_output:
                 logger.warning(f"[{task_id}] Requested format not available - trying different approach")
-                raise Exception(f"Format not available: {stderr_text}")
+                raise Exception(f"Format not available: {error_output}")
             else:
                 raise Exception(error_msg)
         
