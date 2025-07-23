@@ -692,10 +692,28 @@ def get_downloaded_bytes(task_id, download_dir):
             count = 1
             setattr(get_downloaded_bytes, call_key, count)
             
-        if count == 1 or count % 12 == 0:  # First call and every 12th call
+        # Enhanced debugging - log more frequently when we have files
+        should_log = (count == 1 or count % 12 == 0 or len(files_found) > 0)
+        
+        if should_log:
             logger.info(f"[{task_id}] 🔍 Downloads scan #{count}: total={total} bytes from {len(files_found)} files in {download_dir}")
             if len(files_found) <= 20:  # Show files if not too many
                 logger.info(f"[{task_id}] 🔍 Files: {files_found}")
+            
+            # Also check what's in parent directories for debugging
+            if count <= 3:  # Only for first few checks to avoid spam
+                try:
+                    parent_dir = os.path.dirname(download_dir)
+                    if os.path.exists(parent_dir):
+                        parent_files = []
+                        for fname in os.listdir(parent_dir):
+                            fpath = os.path.join(parent_dir, fname)
+                            if os.path.isfile(fpath):
+                                file_size = os.path.getsize(fpath)
+                                parent_files.append(f"{fname}:{file_size}")
+                        logger.info(f"[{task_id}] 🔍 Parent dir ({parent_dir}) files: {parent_files[:10]}")  # Show max 10
+                except Exception as e:
+                    logger.debug(f"[{task_id}] Could not check parent directory: {e}")
             
     except Exception as e:
         logger.error(f"[{task_id}] Error in get_downloaded_bytes: {e}")
@@ -793,9 +811,19 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                     loop_count += 1
                     downloaded = get_downloaded_bytes(task_id, get_task_download_dir(task_id))
                     
+                    # Also check the output file directly (might be growing without temp files)
+                    output_file_size = 0
+                    if os.path.exists(output_path):
+                        output_file_size = os.path.getsize(output_path)
+                        if output_file_size > downloaded:
+                            downloaded = output_file_size
+                            if loop_count % 10 == 1:  # Debug every 10 loops
+                                logger.info(f"[{task_id}] 🔍 Using output file size: {output_file_size} bytes ({output_file_size/1024/1024:.1f}MB)")
+                    
                     # Add debug logging every 10 loops (every ~50 seconds)
                     if loop_count % 10 == 1:  # First loop and every 10th
                         logger.info(f"[{task_id}] 🔍 Progress debug: loop={loop_count}, downloaded={downloaded}, estimated_size={estimated_size}, last_progress={last_progress}")
+                        logger.info(f"[{task_id}] 🔍 Output file exists: {os.path.exists(output_path)}, size: {output_file_size}")
                     
                     if estimated_size > 0:
                         percent = min(int((downloaded / estimated_size) * 100), 100)
