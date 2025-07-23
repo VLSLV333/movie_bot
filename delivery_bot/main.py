@@ -305,6 +305,53 @@ async def handle_start(message: Message):
                 logger.error(f"Failed to handle watch_downloaded flow for user {user_id}: {e}", exc_info=e)
                 await message.answer(get_text('load_content_error', user_lang))
 
+        elif flow_type == "3":
+            # New flow type for direct single file access (YouTube videos already in DB)
+            if not TASK_ID_SECRET:
+                logger.error("TASK_ID_SECRET is not set!")
+                await message.answer(get_text('internal_error_missing_secret', user_lang))
+                return
+            
+            try:
+                # Parse the signed payload: base64_data_signature
+                import base64
+                parts = signed_payload.split("_")
+                if len(parts) != 2:
+                    raise ValueError("Invalid payload format")
+                
+                encoded_data, sig = parts
+                file_data_str = base64.b64decode(encoded_data).decode()
+                expected_sig = hmac.new(TASK_ID_SECRET.encode(), file_data_str.encode(), hashlib.sha256).hexdigest()[:10]
+                
+                if sig != expected_sig:
+                    await message.answer(get_text('invalid_download_link', user_lang))
+                    logger.error(f"❌ User {user_id}, tried to use wrong signature for single file access")
+                    return
+                
+                file_data = json.loads(file_data_str)
+                logger.info(f"Parsed single file data for user {user_id}: {file_data}")
+                
+                # Send the video directly
+                await message.answer(get_text('enjoy_content', user_lang))
+                try:
+                    await bot.send_video(
+                        chat_id=user_id, 
+                        video=file_data["telegram_file_id"]
+                    )
+                    await notify_admin(f"Tg user:{user_id} just received his YouTube video (fast access)!")
+                except TelegramBadRequest as e:
+                    if "wrong file identifier" in str(e).lower():
+                        logger.warning(f"Expired file ID detected for user {user_id}: {file_data['telegram_file_id']}")
+                        await clean_up_expired_file_id(file_data["telegram_file_id"])
+                        await message.answer(get_text('video_expired_retry', user_lang))
+                        await notify_admin(f"Expired YouTube file ID cleaned up for user {user_id}")
+                    else:
+                        raise e
+                        
+            except Exception as e:
+                logger.error(f"Failed to handle single file access flow for user {user_id}: {e}", exc_info=e)
+                await message.answer(get_text('delivery_error', user_lang))
+
         else:
             logger.error(f"Unknown flow_type '{flow_type}' for user {user_id}")
             await message.answer(get_text('unknown_start_link', user_lang))

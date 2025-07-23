@@ -6,6 +6,8 @@ from fastapi.responses import JSONResponse
 from backend.video_redirector.utils.signed_token_manager import SignedTokenManager
 from backend.video_redirector.utils.redis_client import RedisClient
 from backend.video_redirector.hdrezka.hdrezka_download_setup import check_duplicate_download, get_user_download_limit
+from backend.video_redirector.db.session import get_db
+from backend.video_redirector.db.crud_downloads import get_file_id, get_parts_for_downloaded_file
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,38 @@ async def youtube_download_setup(data: str, sig: str):
     task_id = str(uuid4())
 
     redis = RedisClient.get_client()
+
+    # --- Check if video already exists in database (FAST RETURN) ---
+    async for session in get_db():
+        existing_file = await get_file_id(session, tmdb_id, lang, dub)
+        if existing_file:
+            logger.info(f"[YouTube Setup] 🚀 FAST RETURN: Video already exists in DB: tmdb_id={tmdb_id}, lang={lang}, dub={dub}, quality={existing_file.quality}")
+            
+            # Get file parts to determine if it's single file or multi-part
+            file_parts = await get_parts_for_downloaded_file(session, existing_file.id)
+            
+            if len(file_parts) == 1:
+                # Single file - return direct file info
+                logger.info(f"[YouTube Setup] 🚀 Returning single file access for existing video")
+                return JSONResponse({
+                    "status": "already_exists",
+                    "file_type": "single",
+                    "tg_bot_token_file_owner": existing_file.tg_bot_token_file_owner,
+                    "telegram_file_id": file_parts[0].telegram_file_id,
+                    "quality": existing_file.quality,
+                    "movie_title": existing_file.movie_title or video_title
+                })
+            else:
+                # Multi-part file - return DB ID for parts lookup
+                logger.info(f"[YouTube Setup] 🚀 Returning multi-part access for existing video ({len(file_parts)} parts)")
+                return JSONResponse({
+                    "status": "already_exists", 
+                    "file_type": "multi_part",
+                    "db_id_to_get_parts": existing_file.id,
+                    "quality": existing_file.quality,
+                    "movie_title": existing_file.movie_title or video_title
+                })
+        break  # Only need one session
 
     # --- Check for duplicate downloads ---
     is_duplicate = await check_duplicate_download(tg_user_id, tmdb_id, lang, dub)

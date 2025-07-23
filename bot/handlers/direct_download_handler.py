@@ -32,6 +32,7 @@ from bot.utils.message_utils import smart_edit_or_send
 from bot.helpers.back_button import add_back_button
 from bot.keyboards.download_source_keyboard import get_download_source_keyboard
 import asyncio
+import base64
 
 router = Router()
 logger = Logger().get_logger()
@@ -556,6 +557,57 @@ async def handle_youtube_link_input(message: types.Message):
                     return
 
                 backend_response = await resp.json()
+                
+                # Handle fast return case - video already exists in DB
+                if backend_response.get("status") == "already_exists":
+                    if loading_msg:
+                        await loading_msg.delete()
+                    
+                    file_type = backend_response.get("file_type")
+                    movie_title = backend_response.get("movie_title", "YouTube Video")
+                    quality = backend_response.get("quality", "unknown")
+                    
+                    logger.info(f"[User {user_id}] 🚀 FAST RETURN: YouTube video already exists in DB (type: {file_type}, quality: {quality}, title: {movie_title})")
+                    
+                    # Create signed token for delivery bot
+                    backend_secret = os.getenv('BACKEND_DOWNLOAD_SECRET')
+                    if backend_secret is None:
+                        logger.error("BACKEND_DOWNLOAD_SECRET environment variable is not set")
+                        await message.answer(
+                            gettext(UNEXPECTED_ERROR_DURING_DOWNLOAD),
+                            reply_markup=get_main_menu_keyboard()
+                        )
+                        return
+                    
+                    file_type = backend_response.get("file_type")
+                    movie_title = backend_response.get("movie_title", "YouTube Video")
+                    
+                    if file_type == "single":
+                        # Single file - create direct access token
+                        file_data = {
+                            "tg_bot_token_file_owner": backend_response["tg_bot_token_file_owner"],
+                            "telegram_file_id": backend_response["telegram_file_id"]
+                        }
+                        file_data_str = json.dumps(file_data)
+                        signed_file_data = f"{base64.b64encode(file_data_str.encode()).decode()}_{hmac.new(backend_secret.encode(), file_data_str.encode(), hashlib.sha256).hexdigest()[:10]}"
+                        delivery_bot_link = f"https://t.me/deliv3ry_bot?start=3_{signed_file_data}"
+                    else:
+                        # Multi-part file - create DB access token
+                        db_id = backend_response["db_id_to_get_parts"]
+                        signed_db_id = f"{db_id}_{hmac.new(backend_secret.encode(), str(db_id).encode(), hashlib.sha256).hexdigest()[:10]}"
+                        delivery_bot_link = f"https://t.me/deliv3ry_bot?start=1_{signed_db_id}"
+                    
+                    await message.answer(
+                        gettext(MOVIE_READY_START_DELIVERY_BOT).format(movie_title=movie_title),
+                        reply_markup=types.InlineKeyboardMarkup(
+                            inline_keyboard=[
+                                [types.InlineKeyboardButton(text=gettext(OPEN_DELIVERY_BOT), url=delivery_bot_link)]
+                            ]
+                        )
+                    )
+                    return
+                
+                # Normal download flow - video doesn't exist, needs to be downloaded
                 task_id = backend_response.get("task_id")
                 if not task_id:
                     if loading_msg:
