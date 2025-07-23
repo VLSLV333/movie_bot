@@ -820,10 +820,42 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                             if loop_count % 10 == 1:  # Debug every 10 loops
                                 logger.info(f"[{task_id}] 🔍 Using output file size: {output_file_size} bytes ({output_file_size/1024/1024:.1f}MB)")
                     
-                    # Add debug logging every 10 loops (every ~50 seconds)
+                    # Enhanced debugging - check multiple locations where yt-dlp might create files
                     if loop_count % 10 == 1:  # First loop and every 10th
                         logger.info(f"[{task_id}] 🔍 Progress debug: loop={loop_count}, downloaded={downloaded}, estimated_size={estimated_size}, last_progress={last_progress}")
                         logger.info(f"[{task_id}] 🔍 Output file exists: {os.path.exists(output_path)}, size: {output_file_size}")
+                        
+                        # Check for any files matching our task_id pattern in various locations
+                        task_pattern_files = []
+                        locations_to_check = [
+                            get_task_download_dir(task_id),  # Our task directory
+                            BASE_DOWNLOAD_DIR,               # Base downloads directory
+                            "/tmp",                          # System temp (Linux)
+                            "/var/tmp",                      # Alternative temp
+                            ".",                             # Current working directory
+                        ]
+                        
+                        for location in locations_to_check:
+                            if os.path.exists(location):
+                                try:
+                                    for fname in os.listdir(location):
+                                        if task_id in fname or any(pattern in fname.lower() for pattern in ['.part', '.tmp', '.ytdl', f'{task_id[:8]}']):
+                                            fpath = os.path.join(location, fname)
+                                            if os.path.isfile(fpath):
+                                                file_size = os.path.getsize(fpath)
+                                                task_pattern_files.append(f"{location}/{fname}:{file_size}")
+                                except Exception as e:
+                                    logger.debug(f"[{task_id}] Could not check {location}: {e}")
+                        
+                        if task_pattern_files:
+                            logger.info(f"[{task_id}] 🔍 Found task-related files: {task_pattern_files}")
+                            # Use the largest file we found as progress
+                            largest_size = max(int(f.split(':')[-1]) for f in task_pattern_files)
+                            if largest_size > downloaded:
+                                downloaded = largest_size
+                                logger.info(f"[{task_id}] 🔍 Updated downloaded from task files: {downloaded} bytes")
+                        else:
+                            logger.info(f"[{task_id}] 🔍 No task-related files found in any location")
                     
                     if estimated_size > 0:
                         percent = min(int((downloaded / estimated_size) * 100), 100)
@@ -901,6 +933,8 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             "--no-playlist",
             "--merge-output-format", "mp4",
             "--postprocessor-args", postprocessor_args,
+            "--progress",  # Enable progress reporting
+            "--no-warnings",  # Reduce noise but keep progress
         ]
         if use_cookies:
             cmd += ["--cookies", "cookies.txt"]
@@ -941,6 +975,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         stderr_lines = []
 
         async def read_stderr():
+            nonlocal last_progress
             try:
                 line_count = 0
                 while True:
@@ -949,10 +984,31 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                         logger.info(f"[{task_id}] 🔍 stderr stream ended after {line_count} lines")
                         break
                     line_count += 1
-                    decoded = line.decode(errors="ignore")
+                    decoded = line.decode(errors="ignore").strip()
                     stderr_lines.append(decoded)
-                    if line_count <= 10:  # Log first few stderr lines for debugging
-                        logger.debug(f"[{task_id}] stderr: {decoded.strip()}")
+                    
+                    # Parse yt-dlp progress output
+                    if decoded and ('[download]' in decoded or '[ffmpeg]' in decoded):
+                        if line_count <= 20:  # Log first few lines for debugging
+                            logger.info(f"[{task_id}] yt-dlp: {decoded}")
+                        
+                        # Parse download progress like: [download] 45.2% of 350.00MiB at 2.50MiB/s ETA 01:23
+                        if '[download]' in decoded and '%' in decoded:
+                            try:
+                                # Extract percentage
+                                import re
+                                percent_match = re.search(r'(\d+\.?\d*)%', decoded)
+                                if percent_match:
+                                    percent = int(float(percent_match.group(1)))
+                                    if percent != last_progress and percent > 0:
+                                        await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
+                                        last_progress = percent
+                                        logger.info(f"[{task_id}] yt-dlp Progress: {percent}% - {decoded}")
+                            except Exception as e:
+                                logger.debug(f"[{task_id}] Error parsing progress: {e}")
+                    
+                    elif line_count <= 10:  # Log first few stderr lines for debugging
+                        logger.debug(f"[{task_id}] stderr: {decoded}")
             except Exception as e:
                 logger.error(f"[{task_id}] Error reading stderr stream: {e}")
 
