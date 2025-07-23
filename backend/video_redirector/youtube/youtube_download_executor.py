@@ -248,7 +248,8 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
             
             if test_result.returncode == 0:
                 #logger.debug(f"[{task_id}] Using fallback format: {format_selector}")
-                return (format_selector, can_copy)
+                estimated_size = 700_000_000  # 700MB default estimate
+                return (format_selector, can_copy, estimated_size)
         
         except Exception as e:
             logger.debug(f"[{task_id}] Format {format_selector} test failed: {e}")
@@ -653,17 +654,48 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         progress_check_interval = 5  # seconds
         progress_stop_flag = {'stop': False}
         estimated_size = 0
+        last_progress = 0
+        
         if isinstance(format_result, tuple) and len(format_result) == 3:
             format_selector, can_copy, estimated_size = format_result
         else:
             format_selector, can_copy = format_result
+            
         async def progress_watcher():
+            nonlocal last_progress
+            start_time = asyncio.get_event_loop().time()
+            last_size = 0
+            default_size_estimate = 700_000_000  # 700MB default estimate
+            
             while not progress_stop_flag['stop']:
+                downloaded = get_downloaded_bytes(task_id, DOWNLOAD_DIR)
+                
                 if estimated_size > 0:
-                    downloaded = get_downloaded_bytes(task_id, DOWNLOAD_DIR)
                     percent = min(int((downloaded / estimated_size) * 100), 100)
-                    await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
+                    if percent != last_progress and percent > 0:
+                        await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
+                        last_progress = percent
+                        logger.info(f"[{task_id}] Progress: {percent}% ({downloaded}/{estimated_size} bytes)")
+                        
+                elif downloaded > 0:
+                    elapsed_time = asyncio.get_event_loop().time() - start_time
+                    size_growth = downloaded - last_size
+                    last_size = downloaded
+                    
+                    if elapsed_time > 30 and size_growth > 0:
+                        estimated_rate = downloaded / elapsed_time
+                        estimated_total_time = max(300, min(900, downloaded / estimated_rate * 3))
+                        percent = min(int((elapsed_time / estimated_total_time) * 100), 95)
+                    else:
+                        percent = min(int((downloaded / default_size_estimate) * 100), 95)
+                    
+                    if percent != last_progress and percent > 0:
+                        await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
+                        last_progress = percent
+                        logger.info(f"[{task_id}] Progress (estimated): {percent}% ({downloaded} bytes downloaded)")
+                
                 await asyncio.sleep(progress_check_interval)
+                
         progress_task = asyncio.create_task(progress_watcher())
 
         # Download the video
@@ -703,100 +735,85 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             "--add-header", "Sec-Fetch-User:?1",
             "--add-header", "Cache-Control:max-age=0",
             "--add-header", "DNT:1",
-            # "--concurrent-fragments", "1",  # Single fragment to avoid parallel requests
-            # "--sleep-interval", "2",  # Sleep 2 seconds between requests
-            # "--max-sleep-interval", "5",  # Max 5 seconds sleep
             "--paths", f"temp:{DOWNLOAD_DIR}",  # Set temp directory to downloads folder
             video_url
         ]
         
         logger.info(f"[{task_id}] Starting download with format: {format_selector}")
+        if estimated_size > 0:
+            logger.info(f"[{task_id}] Estimated size: {estimated_size} bytes ({estimated_size/1024/1024:.1f}MB)")
+        else:
+            logger.info(f"[{task_id}] No size estimate available, using adaptive progress tracking")
         logger.info(f"[{task_id}] 🔍 Executing command: {' '.join(cmd)}")
         
-        # Run yt-dlp with asyncio.subprocess (NON-BLOCKING, with real-time progress tracking)
+        # Run yt-dlp with asyncio.subprocess (simplified - only stderr for error detection)
         process = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.DEVNULL,  # We don't need stdout anymore
             stderr=asyncio.subprocess.PIPE
         )
 
         logger.info(f"[{task_id}] 🔍 Subprocess created with PID: {process.pid}")
 
-        import re
-        # FIXED: Correct regex for yt-dlp progress lines
-        # progress_re = re.compile(r"\[download\]\s+(\d{1,3}\.\d+)%")
-        # last_progress = 0
-        # last_update_time = asyncio.get_event_loop().time()
-        # progress_update_interval = 29  # seconds
         stderr_lines = []
-        # stdout_lines = []
-        # For debugging: store a sample of stderr lines
-        progress_debug_samples = []
 
-        async def read_stream(stream, is_stderr=False):
-            # nonlocal last_progress, last_update_time
-            # logger.info(f"[{task_id}] 🔍 Starting read_stream for {'stderr' if is_stderr else 'stdout'}")
+        async def read_stderr():
             try:
-                if is_stderr:
-                    line_count = 0
-                    while True:
-                        line = await stream.readline()
-                        if not line:
-                            logger.info(f"[{task_id}] 🔍 stderr stream ended after {line_count} lines")
-                            break
-                        line_count += 1
-                        decoded = line.decode(errors="ignore")
-                        stderr_lines.append(decoded)
-                # else:
-                #     chunk_count_stdout = 0
-                #     while True:
-                #         chunk = await stream.read(4096)
-                #         if not chunk:
-                #             logger.info(f"[{task_id}] 🔍 stdout stream ended")
-                #             break
-                #         chunk_count_stdout += 1
-                #         decoded = chunk.decode(errors="ignore")
-                #         if len(stdout_lines) < 1000:
-                #             stdout_lines.append(decoded)
-                #
-                #         match = progress_re.search(decoded)
-                #         if match:
-                #             progress = float(match.group(1))
-                #             now = asyncio.get_running_loop().time()
-                #             logger.info(
-                #                 f"[PROGRESS-MATCH][{task_id}] Matched progress: {progress} from line: {decoded.strip()}")
-                #             if progress - last_progress >= 3 or now - last_update_time >= progress_update_interval:
-                #                 logger.info(f'\n\nback yt_progress:{progress}')
-                #                 await redis.set(f"download:{task_id}:yt_download_progress", int(progress), ex=3600)
-                #                 last_progress = progress
-                #                 last_update_time = now
-
+                line_count = 0
+                while True:
+                    line = await process.stderr.readline()
+                    if not line:
+                        logger.info(f"[{task_id}] 🔍 stderr stream ended after {line_count} lines")
+                        break
+                    line_count += 1
+                    decoded = line.decode(errors="ignore")
+                    stderr_lines.append(decoded)
+                    if line_count <= 10:  # Log first few stderr lines for debugging
+                        logger.debug(f"[{task_id}] stderr: {decoded.strip()}")
             except Exception as e:
-                logger.error(f"[{task_id}] Error reading process stream: {e}")
+                logger.error(f"[{task_id}] Error reading stderr stream: {e}")
 
-        # logger.info(f"[{task_id}] 🔍 About to start asyncio.gather for stream reading")
-        # Run both readers concurrently
-        await asyncio.gather(
-            read_stream(process.stderr, is_stderr=True),
-            # read_stream(process.stdout, is_stderr=False)
-        )
-        # logger.info(f"[{task_id}] 🔍 Stream reading completed")
-
-        returncode = await process.wait()
+        # Set a reasonable timeout for the download (30 minutes max)
+        download_timeout = 1200  # 20 minutes
+        
+        try:
+            # Run stderr reader with timeout (much simpler)
+            await asyncio.wait_for(read_stderr(), timeout=download_timeout)
+            
+            # Wait for process to complete
+            returncode = await asyncio.wait_for(process.wait(), timeout=60)
+            
+        except asyncio.TimeoutError:
+            logger.error(f"[{task_id}] Download timed out after {download_timeout} seconds, terminating process")
+            
+            # Kill the process
+            try:
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                logger.error(f"[{task_id}] Process didn't terminate gracefully, killing it")
+                process.kill()
+                await process.wait()
+            
+            raise Exception(f"Download timed out after {download_timeout/60:.1f} minutes")
+        
+        # Stop progress watcher
         progress_stop_flag['stop'] = True
         await asyncio.sleep(progress_check_interval)  # Let watcher finish last update
         progress_task.cancel()
         try:
             await progress_task
-        except Exception:
+        except asyncio.CancelledError:
             pass
-        # logger.info(f"[{task_id}] 🔍 Process finished with return code: {returncode}")
-        stderr_text = ''.join(stderr_lines)
-        # stdout_text = ''.join(stdout_lines)
 
+        stderr_text = ''.join(stderr_lines)
+
+        logger.info(f"[{task_id}] Process finished with return code: {returncode}")
+        
         if returncode != 0:
             stderr_text = stderr_text or 'Unknown error'
             error_msg = f"yt-dlp failed: {stderr_text}"
+            
             # Check for specific YouTube blocking patterns
             if "HTTP Error 403" in stderr_text or "Forbidden" in stderr_text:
                 logger.warning(f"[{task_id}] YouTube 403 Forbidden detected - likely anti-bot protection")

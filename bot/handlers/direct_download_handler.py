@@ -133,11 +133,18 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                             progress_str = await redis.get(f"download:{task_id}:yt_download_progress")
                             if progress_str is not None:
                                 progress = int(progress_str)
-                                logger.info(f'progress: {progress}')
+                                logger.info(f"[User {user_id}] YouTube download progress: {progress}%")
                         except Exception as e:
                             logger.error(f"[User {user_id}] Could not fetch YT download progress: {e}")
+                        
                         if progress > 0 and progress < 100:
-                            new_text = f"{gettext(DOWNLOAD_YOUTUBE_DOWNLOADING)}\n ({progress}% ✅)"
+                            # Create a simple progress bar
+                            filled = int(progress / 10)  # Each bar represents 10%
+                            empty = 10 - filled
+                            progress_bar = "█" * filled + "░" * empty
+                            new_text = f"{gettext(DOWNLOAD_YOUTUBE_DOWNLOADING)}\n\n{progress_bar} {progress}%"
+                        elif progress >= 100:
+                            new_text = f"{gettext(DOWNLOAD_YOUTUBE_DOWNLOADING)}\n\n██████████ 100% ✅"
                         else:
                             new_text = gettext(DOWNLOAD_YOUTUBE_DOWNLOADING)
                     elif status == "uploading":
