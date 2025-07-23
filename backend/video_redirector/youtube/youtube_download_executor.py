@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import subprocess
+import time
 from datetime import datetime, timezone
 from typing import Optional
 from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePart
@@ -348,9 +349,65 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         if not best_video:
             best_video = video_only_formats[0]
         best_audio = audio_only_formats[0]
+        
+        # LOG ALL AVAILABLE METADATA for selected formats
+        logger.info(f"[{task_id}] 🔍 SELECTED VIDEO FORMAT METADATA:")
+        for key, value in best_video.items():
+            logger.info(f"[{task_id}] 🔍   video.{key}: {value}")
+        
+        logger.info(f"[{task_id}] 🔍 SELECTED AUDIO FORMAT METADATA:")
+        for key, value in best_audio.items():
+            logger.info(f"[{task_id}] 🔍   audio.{key}: {value}")
+        
         can_copy = (best_video['ext'] == 'mp4' and best_audio['ext'] in ['m4a', 'mp4'])
         merge_format = f"{best_video['id']}+{best_audio['id']}"
-        estimated_size = (best_video.get('filesize', 0) or 0) + (best_audio.get('filesize', 0) or 0)
+        
+        # Extract file sizes with detailed analysis
+        video_size = best_video.get('filesize', 0) or best_video.get('filesize_approx', 0) or 0
+        audio_size = best_audio.get('filesize', 0) or best_audio.get('filesize_approx', 0) or 0
+        estimated_size = video_size + audio_size
+        
+        # Try to estimate size from bitrate if filesize is missing/wrong
+        video_tbr = best_video.get('tbr', 0) or best_video.get('vbr', 0) or 0
+        audio_abr = best_audio.get('abr', 0) or 0
+        duration = best_video.get('duration', 0) or best_audio.get('duration', 0) or 0
+        
+        logger.info(f"[{task_id}] 🔍 SIZE CALCULATION:")
+        logger.info(f"[{task_id}] 🔍   video_size (from metadata): {video_size} bytes ({video_size/1024/1024:.1f}MB)")
+        logger.info(f"[{task_id}] 🔍   audio_size (from metadata): {audio_size} bytes ({audio_size/1024/1024:.1f}MB)")
+        logger.info(f"[{task_id}] 🔍   estimated_size (sum): {estimated_size} bytes ({estimated_size/1024/1024:.1f}MB)")
+        logger.info(f"[{task_id}] 🔍   video_tbr: {video_tbr} kbps, audio_abr: {audio_abr} kbps, duration: {duration}s")
+        
+        # Calculate size from bitrate if available and duration exists
+        if duration > 0 and (video_tbr > 0 or audio_abr > 0):
+            # Convert kbps to bytes: (kbps * 1000 / 8) * duration_seconds
+            video_size_from_br = int((video_tbr * 1000 / 8) * duration) if video_tbr > 0 else 0
+            audio_size_from_br = int((audio_abr * 1000 / 8) * duration) if audio_abr > 0 else 0
+            total_size_from_br = video_size_from_br + audio_size_from_br
+            
+            logger.info(f"[{task_id}] 🔍 BITRATE-BASED CALCULATION:")
+            logger.info(f"[{task_id}] 🔍   video_size (from bitrate): {video_size_from_br} bytes ({video_size_from_br/1024/1024:.1f}MB)")
+            logger.info(f"[{task_id}] 🔍   audio_size (from bitrate): {audio_size_from_br} bytes ({audio_size_from_br/1024/1024:.1f}MB)")
+            logger.info(f"[{task_id}] 🔍   total_size (from bitrate): {total_size_from_br} bytes ({total_size_from_br/1024/1024:.1f}MB)")
+            
+            # Use bitrate calculation if metadata size seems wrong or missing
+            if estimated_size == 0 or (estimated_size > 0 and estimated_size < 10_000_000):
+                logger.warning(f"[{task_id}] 🔍 Metadata size seems wrong ({estimated_size/1024/1024:.1f}MB), using bitrate calculation instead")
+                estimated_size = total_size_from_br
+            elif abs(estimated_size - total_size_from_br) > estimated_size * 0.5:  # >50% difference
+                logger.warning(f"[{task_id}] 🔍 Large discrepancy between metadata ({estimated_size/1024/1024:.1f}MB) and bitrate ({total_size_from_br/1024/1024:.1f}MB)")
+                logger.warning(f"[{task_id}] 🔍 Using average of both: {(estimated_size + total_size_from_br)/2/1024/1024:.1f}MB")
+                estimated_size = (estimated_size + total_size_from_br) // 2
+        
+        # Final sanity check and fallback
+        if estimated_size == 0:
+            logger.warning(f"[{task_id}] 🔍 No size info available, using 150MB default estimate")
+            estimated_size = 150_000_000
+        elif estimated_size < 5_000_000:  # Less than 5MB
+            logger.warning(f"[{task_id}] 🔍 Size {estimated_size/1024/1024:.1f}MB seems too small, using 100MB estimate")
+            estimated_size = 100_000_000
+        
+        logger.info(f"[{task_id}] 🔍 FINAL RESULT: {merge_format}, size: {estimated_size} bytes ({estimated_size/1024/1024:.1f}MB)")
         return (merge_format, can_copy, estimated_size)
     logger.warning(f"[{task_id}] JSON analysis found no suitable formats, will try fallback methods")
     return None
@@ -591,26 +648,39 @@ def get_downloaded_bytes(task_id, download_dir=DOWNLOAD_DIR):
                 file_size = os.path.getsize(fpath)
                 all_files_with_sizes.append(f"{fname}:{file_size}")
                 
-                # More comprehensive detection of our download files
+                # STRICT detection: Only files that definitely belong to our current task
+                # We need to be much more restrictive to avoid counting old files
                 is_our_file = (
-                    task_id in fname or  # Direct match
-                    (fname.endswith('.part') and not any(other_id in fname for other_id in ['f137', 'f298', 'f299'])) or  # Generic .part files (not specific fragments)
-                    fname.endswith('.tmp') or  # Temporary files
-                    '.f312.' in fname or  # Video fragment for our format
-                    '.f140.' in fname or   # Audio fragment for our format  
-                    (fname.startswith('tmp') and (fname.endswith('.mp4') or fname.endswith('.m4a')))  # yt-dlp temp files
+                    task_id in fname  # Must contain our exact task_id
                 )
+                
+                # Also check for yt-dlp temporary patterns that might be created for our download
+                # but ONLY if they're recent (to avoid old files)
+                file_mtime = os.path.getmtime(fpath)
+                current_time = time.time()
+                file_age_minutes = (current_time - file_mtime) / 60
+                
+                # Allow temp files only if they're very recent (created in last 30 minutes)
+                if not is_our_file and file_age_minutes < 30:
+                    # Check for very specific patterns that might be our temp files
+                    recent_temp_patterns = (
+                        fname.endswith('.part') or
+                        fname.endswith('.tmp') or
+                        (fname.startswith('tmp') and (fname.endswith('.mp4') or fname.endswith('.m4a')))
+                    )
+                    
+                    # Only consider recent temp files if there are very few of them
+                    # (to avoid counting multiple downloads' temp files)
+                    if recent_temp_patterns and file_size > 1000000:  # >1MB
+                        is_our_file = True
                 
                 if is_our_file:
                     task_related_files.append(f"{fname}:{file_size}")
                     
-                    # Be more selective about what we count for progress
-                    # Only count files that are likely to be our actual download
+                    # For progress counting, be even more strict
                     should_count = (
-                        task_id in fname or  # Definitely our file
-                        (fname.endswith('.part') and file_size > 1000000) or  # Large .part files (>1MB)
-                        '.f312.' in fname or '.f140.' in fname or  # Our specific format fragments
-                        (fname.endswith('.tmp') and file_size > 1000000)  # Large temp files
+                        task_id in fname  # Must have our task_id to count for progress
+                        # No longer count generic temp files for progress - too risky
                     )
                     
                     if should_count:
@@ -742,28 +812,43 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                             logger.info(f"[{task_id}] Progress: {percent}% ({downloaded}/{estimated_size} bytes)")
                         elif loop_count % 10 == 1:  # Debug every 10 loops
                             logger.info(f"[{task_id}] 🔍 Progress not updated: percent={percent}, last_progress={last_progress}, downloaded={downloaded}")
-                            
+                                                        
                     elif downloaded > 0:
                         elapsed_time = asyncio.get_event_loop().time() - start_time
-                        size_growth = downloaded - last_size
-                        last_size = downloaded
+                    size_growth = downloaded - last_size
+                    last_size = downloaded
+                    
+                    if elapsed_time > 30 and size_growth > 0:
+                        estimated_rate = downloaded / elapsed_time
+                        estimated_total_time = max(300, min(900, downloaded / estimated_rate * 3))
+                        percent = min(int((elapsed_time / estimated_total_time) * 100), 95)
+                    else:
+                        percent = min(int((downloaded / default_size_estimate) * 100), 95)
+                    
+                    if percent != last_progress and percent > 0:
+                        await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
+                        last_progress = percent
+                        logger.info(f"[{task_id}] Progress (estimated): {percent}% ({downloaded} bytes downloaded)")
+                    elif loop_count % 10 == 1:  # Debug every 10 loops
+                        logger.info(f"[{task_id}] 🔍 Progress not updated (no estimate): percent={percent}, last_progress={last_progress}, downloaded={downloaded}")
+                
+                else:
+                    # No files detected yet - provide time-based progress estimate
+                    elapsed_time = asyncio.get_event_loop().time() - start_time
+                    
+                    # Conservative time estimate: most downloads take 2-10 minutes
+                    # Start showing progress after 30 seconds, max out at 90% after 8 minutes
+                    if elapsed_time > 30:
+                        # Linear progress from 1% at 30s to 90% at 8 minutes (480s)
+                        time_progress = min(int(1 + (elapsed_time - 30) / (480 - 30) * 89), 90)
                         
-                        if elapsed_time > 30 and size_growth > 0:
-                            estimated_rate = downloaded / elapsed_time
-                            estimated_total_time = max(300, min(900, downloaded / estimated_rate * 3))
-                            percent = min(int((elapsed_time / estimated_total_time) * 100), 95)
-                        else:
-                            percent = min(int((downloaded / default_size_estimate) * 100), 95)
-                        
-                        if percent != last_progress and percent > 0:
-                            await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
-                            last_progress = percent
-                            logger.info(f"[{task_id}] Progress (estimated): {percent}% ({downloaded} bytes downloaded)")
-                        elif loop_count % 10 == 1:  # Debug every 10 loops
-                            logger.info(f"[{task_id}] 🔍 Progress not updated (no estimate): percent={percent}, last_progress={last_progress}, downloaded={downloaded}")
+                        if time_progress != last_progress:
+                            await redis.set(f"download:{task_id}:yt_download_progress", time_progress, ex=3600)
+                            last_progress = time_progress
+                            logger.info(f"[{task_id}] Progress (time-based): {time_progress}% (no files detected yet, elapsed: {elapsed_time:.0f}s)")
                     
                     elif loop_count % 10 == 1:  # Debug when no download detected
-                        logger.info(f"[{task_id}] 🔍 No download detected: downloaded={downloaded}, estimated_size={estimated_size}")
+                        logger.info(f"[{task_id}] 🔍 No download detected: downloaded={downloaded}, estimated_size={estimated_size}, elapsed={elapsed_time:.0f}s")
                     
                     await asyncio.sleep(progress_check_interval)
                     
