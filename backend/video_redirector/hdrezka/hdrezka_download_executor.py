@@ -1,10 +1,12 @@
 import json
 import logging
+import os
+import shutil
 from datetime import datetime, timezone
 from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePart
 from backend.video_redirector.db.session import get_db
 from backend.video_redirector.hdrezka.hdrezka_extract_to_download import extract_to_download_from_hdrezka
-from backend.video_redirector.hdrezka.hdrezka_merge_ts_into_mp4 import merge_ts_to_mp4
+from backend.video_redirector.hdrezka.hdrezka_merge_ts_into_mp4 import merge_ts_to_mp4, get_task_download_dir
 from backend.video_redirector.utils.upload_video_to_tg import check_size_upload_large_file
 from backend.video_redirector.utils.notify_admin import notify_admin
 from backend.video_redirector.exceptions import RetryableDownloadError, RETRYABLE_EXCEPTIONS
@@ -19,6 +21,7 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
 
     # Remove from user's active downloads set when done (success or error)
     tg_user_id = None
+    output_path = None
     try:
         result = await extract_to_download_from_hdrezka(url=movie_url, selected_dub=dub, lang=lang)
         if not result:
@@ -99,6 +102,25 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
         await redis.set(f"download:{task_id}:error", str(e), ex=3600)
         await notify_admin(f"[Download Task {task_id}] Failed: {e}")
     finally:
+        # Get the task-specific download directory for cleanup
+        task_download_dir = get_task_download_dir(task_id)
+        
+        # Clean up downloaded file
+        if output_path and os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+                logger.debug(f"[{task_id}] Cleaned up downloaded file: {output_path}")
+            except Exception as e:
+                logger.warning(f"[{task_id}] Failed to clean up file {output_path}: {e}")
+        
+        # Clean up the entire task directory and all its contents
+        if os.path.exists(task_download_dir):
+            try:
+                shutil.rmtree(task_download_dir)
+                logger.info(f"[{task_id}] ✅ Cleaned up task directory: {task_download_dir}")
+            except Exception as e:
+                logger.warning(f"[{task_id}] Failed to clean up directory {task_download_dir}: {e}")
+        
         # Remove from user's active downloads set
         if tg_user_id is None:
             # Try to get from Redis

@@ -6,12 +6,26 @@ from typing import Dict, Optional
 import certifi
 import aiohttp
 import ssl
+import shutil
 
-from backend.video_redirector.config import MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4
+from backend.video_redirector.config import MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4, MAX_CONCURRENT_DOWNLOADS
 from backend.video_redirector.utils.notify_admin import notify_admin
 
-DOWNLOAD_DIR = "downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+# Base download directory - each task will get its own subdirectory
+BASE_DOWNLOAD_DIR = "downloads"
+os.makedirs(BASE_DOWNLOAD_DIR, exist_ok=True)
+
+def get_task_download_dir(task_id: str) -> str:
+    """
+    Create a unique download directory for this task based on MAX_CONCURRENT_DOWNLOADS
+    This ensures each download has its own isolated directory for progress tracking
+    """
+    # Use hash of task_id to get consistent directory assignment
+    # Use abs() to ensure positive numbers and % to get range 0 to MAX_CONCURRENT_DOWNLOADS-1
+    task_hash = abs(hash(task_id)) % MAX_CONCURRENT_DOWNLOADS
+    task_dir = f"{BASE_DOWNLOAD_DIR}{task_hash}"
+    os.makedirs(task_dir, exist_ok=True)
+    return task_dir
 
 logger = logging.getLogger(__name__)
 status_tracker: Dict[str, Dict] = {}  # Example: {task_id: {"total": 0, "done": 0, "progress": 0.0}}
@@ -19,7 +33,9 @@ status_tracker: Dict[str, Dict] = {}  # Example: {task_id: {"total": 0, "done": 
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4)
 
 async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) -> Optional[str]:
-    output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
+    # Use task-specific download directory
+    task_download_dir = get_task_download_dir(task_id)
+    output_file = os.path.join(task_download_dir, f"{task_id}.mp4")
     ffmpeg_header_str = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
 
     try:
@@ -114,9 +130,10 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             return None
 
     except Exception as e:
-        logger.error(f"❌ [{task_id}] Merge operation failed: {e}")
-        await notify_admin(f"❌ [{task_id}] Merge operation failed: {e}")
+        logger.error(f"❌ [{task_id}] Error during merge: {e}")
+        await notify_admin(f"❌ [{task_id}] Error during merge: {e}")
         
+        # Clean up partial file on error
         if os.path.exists(output_file):
             try:
                 os.remove(output_file)
@@ -128,8 +145,14 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             del status_tracker[task_id]
         except KeyError:
             pass
-
+        
         return None
+    
+    finally:
+        # Clean up the task directory after merge (success or failure)
+        # Note: We don't clean up here because the file needs to be uploaded first
+        # The cleanup will happen in the main download handler after upload
+        pass
 
 def get_task_progress(task_id: str) -> Dict:
     if task_id not in status_tracker:

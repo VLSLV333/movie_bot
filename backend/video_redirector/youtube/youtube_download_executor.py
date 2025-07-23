@@ -4,6 +4,8 @@ import logging
 import os
 import subprocess
 import time
+import random
+import shutil
 from datetime import datetime, timezone
 from typing import Optional
 from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePart
@@ -12,11 +14,26 @@ from backend.video_redirector.db.crud_downloads import get_file_id
 from backend.video_redirector.utils.upload_video_to_tg import check_size_upload_large_file
 from backend.video_redirector.utils.notify_admin import notify_admin
 from backend.video_redirector.utils.redis_client import RedisClient
+from backend.video_redirector.config import MAX_CONCURRENT_DOWNLOADS
+import re
 
 logger = logging.getLogger(__name__)
 
-DOWNLOAD_DIR = "downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+# Base download directory - each task will get its own subdirectory
+BASE_DOWNLOAD_DIR = "downloads"
+os.makedirs(BASE_DOWNLOAD_DIR, exist_ok=True)
+
+def get_task_download_dir(task_id: str) -> str:
+    """
+    Create a unique download directory for this task based on MAX_CONCURRENT_DOWNLOADS
+    This ensures each download has its own isolated directory for progress tracking
+    """
+    # Use hash of task_id to get consistent directory assignment
+    # Use abs() to ensure positive numbers and % to get range 0 to MAX_CONCURRENT_DOWNLOADS-1
+    task_hash = abs(hash(task_id)) % MAX_CONCURRENT_DOWNLOADS
+    task_dir = f"{BASE_DOWNLOAD_DIR}{task_hash}"
+    os.makedirs(task_dir, exist_ok=True)
+    return task_dir
 
 async def debug_available_formats(video_url: str, task_id: str, use_cookies: bool = False):
     """Debug function to log all available formats for troubleshooting"""
@@ -644,62 +661,29 @@ async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
         logger.error(f"[{task_id}] Error verifying video quality: {e}")
         return None
 
-def get_downloaded_bytes(task_id, download_dir=DOWNLOAD_DIR):
+def get_downloaded_bytes(task_id, download_dir):
+    """
+    Simple function to sum all file sizes in the task-specific download directory.
+    Since each task has its own directory, we can safely count all files.
+    """
     total = 0
     files_found = []
-    task_related_files = []
-    all_files_with_sizes = []
     
     try:
+        if not os.path.exists(download_dir):
+            return 0
+            
         all_files = os.listdir(download_dir)
         
-        # First pass: collect all files and identify task-related ones
+        # Sum all files in the directory - they all belong to this task
         for fname in all_files:
             fpath = os.path.join(download_dir, fname)
             if os.path.isfile(fpath):
                 file_size = os.path.getsize(fpath)
-                all_files_with_sizes.append(f"{fname}:{file_size}")
-                
-                # STRICT detection: Only files that definitely belong to our current task
-                # We need to be much more restrictive to avoid counting old files
-                is_our_file = (
-                    task_id in fname  # Must contain our exact task_id
-                )
-                
-                # Also check for yt-dlp temporary patterns that might be created for our download
-                # but ONLY if they're recent (to avoid old files)
-                file_mtime = os.path.getmtime(fpath)
-                current_time = time.time()
-                file_age_minutes = (current_time - file_mtime) / 60
-                
-                # Allow temp files only if they're very recent (created in last 30 minutes)
-                if not is_our_file and file_age_minutes < 30:
-                    # Check for very specific patterns that might be our temp files
-                    recent_temp_patterns = (
-                        fname.endswith('.part') or
-                        fname.endswith('.tmp') or
-                        (fname.startswith('tmp') and (fname.endswith('.mp4') or fname.endswith('.m4a')))
-                    )
-                    
-                    # Only consider recent temp files if there are very few of them
-                    # (to avoid counting multiple downloads' temp files)
-                    if recent_temp_patterns and file_size > 1000000:  # >1MB
-                        is_our_file = True
-                
-                if is_our_file:
-                    task_related_files.append(f"{fname}:{file_size}")
-                    
-                    # For progress counting, be even more strict
-                    should_count = (
-                        task_id in fname  # Must have our task_id to count for progress
-                        # No longer count generic temp files for progress - too risky
-                    )
-                    
-                    if should_count:
-                        total += file_size
-                        files_found.append(f"{fname}:{file_size}")
+                total += file_size
+                files_found.append(f"{fname}:{file_size}")
         
-        # Always log on first call for each task, then every 12th call (~1 minute intervals)
+        # Log progress periodically for debugging
         call_key = f"_call_count_{task_id}"
         if hasattr(get_downloaded_bytes, call_key):
             count = getattr(get_downloaded_bytes, call_key) + 1
@@ -709,12 +693,9 @@ def get_downloaded_bytes(task_id, download_dir=DOWNLOAD_DIR):
             setattr(get_downloaded_bytes, call_key, count)
             
         if count == 1 or count % 12 == 0:  # First call and every 12th call
-            logger.info(f"[{task_id}] 🔍 Downloads scan #{count}: total={total} bytes, counted_files={files_found}")
-            logger.info(f"[{task_id}] 🔍 All task-related files: {task_related_files}")
-            if len(all_files_with_sizes) <= 10:  # Only log all files if not too many
-                logger.info(f"[{task_id}] 🔍 All download dir files: {all_files_with_sizes}")
-            else:
-                logger.info(f"[{task_id}] 🔍 Total files in download dir: {len(all_files_with_sizes)}")
+            logger.info(f"[{task_id}] 🔍 Downloads scan #{count}: total={total} bytes from {len(files_found)} files in {download_dir}")
+            if len(files_found) <= 20:  # Show files if not too many
+                logger.info(f"[{task_id}] 🔍 Files: {files_found}")
             
     except Exception as e:
         logger.error(f"[{task_id}] Error in get_downloaded_bytes: {e}")
@@ -810,7 +791,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             try:
                 while not progress_stop_flag['stop']:
                     loop_count += 1
-                    downloaded = get_downloaded_bytes(task_id, DOWNLOAD_DIR)
+                    downloaded = get_downloaded_bytes(task_id, get_task_download_dir(task_id))
                     
                     # Add debug logging every 10 loops (every ~50 seconds)
                     if loop_count % 10 == 1:  # First loop and every 10th
@@ -873,7 +854,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         logger.info(f"[{task_id}] 🔍 Progress watcher task created and started")
 
         # Download the video
-        output_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
+        output_path = os.path.join(get_task_download_dir(task_id), f"{task_id}.mp4")
         
         if can_copy:
             # Fast path: copy streams (no re-encoding)
@@ -909,7 +890,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             "--add-header", "Sec-Fetch-User:?1",
             "--add-header", "Cache-Control:max-age=0",
             "--add-header", "DNT:1",
-            "--paths", f"temp:{DOWNLOAD_DIR}",  # Set temp directory to downloads folder
+            "--paths", f"temp:{get_task_download_dir(task_id)}",  # Set temp directory to downloads folder
             video_url
         ]
         
@@ -1114,6 +1095,9 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         await notify_admin(f"[Download Task {task_id}] YouTube download failed: {e}")
         raise e
     finally:
+        # Get the task-specific download directory for cleanup
+        task_download_dir = get_task_download_dir(task_id)
+        
         # Clean up downloaded file
         if output_path and os.path.exists(output_path):
             try:
@@ -1121,6 +1105,14 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                 logger.debug(f"[{task_id}] Cleaned up downloaded file: {output_path}")
             except Exception as e:
                 logger.warning(f"[{task_id}] Failed to clean up file {output_path}: {e}")
+        
+        # Clean up the entire task directory and all its contents
+        if os.path.exists(task_download_dir):
+            try:
+                shutil.rmtree(task_download_dir)
+                logger.info(f"[{task_id}] ✅ Cleaned up task directory: {task_download_dir}")
+            except Exception as e:
+                logger.warning(f"[{task_id}] Failed to clean up directory {task_download_dir}: {e}")
         
         # Remove from user's active downloads set
         if tg_user_id is None:

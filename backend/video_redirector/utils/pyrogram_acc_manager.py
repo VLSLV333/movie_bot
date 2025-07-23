@@ -784,8 +784,8 @@ async def rotate_proxy_ip_immediate(reason: str = "emergency"):
     # Prevent too frequent rotations (use configurable cooldown)
     cooldown_seconds = PROXY_CONFIG.get("immediate_rotation_cooldown", 30)
     if current_time - _last_ip_rotation < cooldown_seconds:
-        logger.info(f"🔄 Immediate proxy rotation skipped - too recent (minimum {cooldown_seconds}s between rotations)")
-        return
+        await asyncio.sleep(current_time - _last_ip_rotation)
+        logger.info(f"🔄Sleeping for {current_time - _last_ip_rotation}sec. Frequent rotation detected")
 
     if _rotation_lock.locked():
         logger.debug("🔄 Immediate proxy rotation already in progress (locked)")
