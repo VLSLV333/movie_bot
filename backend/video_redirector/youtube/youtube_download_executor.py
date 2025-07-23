@@ -650,8 +650,6 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             raise Exception("No suitable format found for video")
         
         # After starting the yt-dlp process, add a background task to periodically check progress by file size
-        import threading
-        import time
         progress_check_interval = 5  # seconds
         progress_stop_flag = {'stop': False}
         estimated_size = 0
@@ -659,15 +657,14 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             format_selector, can_copy, estimated_size = format_result
         else:
             format_selector, can_copy = format_result
-        def progress_watcher():
+        async def progress_watcher():
             while not progress_stop_flag['stop']:
                 if estimated_size > 0:
                     downloaded = get_downloaded_bytes(task_id, DOWNLOAD_DIR)
                     percent = min(int((downloaded / estimated_size) * 100), 100)
-                    asyncio.run(redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600))
-                time.sleep(progress_check_interval)
-        watcher_thread = threading.Thread(target=progress_watcher, daemon=True)
-        watcher_thread.start()
+                    await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
+                await asyncio.sleep(progress_check_interval)
+        progress_task = asyncio.create_task(progress_watcher())
 
         # Download the video
         output_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
@@ -785,10 +782,14 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         )
         # logger.info(f"[{task_id}] 🔍 Stream reading completed")
 
-        redis.set(f"download:{task_id}:yt_download_progress", 0, ex=3600)
         returncode = await process.wait()
         progress_stop_flag['stop'] = True
-        watcher_thread.join(timeout=4)
+        await asyncio.sleep(progress_check_interval)  # Let watcher finish last update
+        progress_task.cancel()
+        try:
+            await progress_task
+        except Exception:
+            pass
         # logger.info(f"[{task_id}] 🔍 Process finished with return code: {returncode}")
         stderr_text = ''.join(stderr_lines)
         # stdout_text = ''.join(stdout_lines)
