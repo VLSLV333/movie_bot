@@ -259,19 +259,11 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
     return None
 
 async def _analyze_formats_from_json(formats: list, target_quality: str, task_id: str) -> Optional[tuple]:
-    """Analyze formats from JSON data with original audio preference"""
+    """Analyze formats from JSON data with original audio preference and return estimated size"""
     video_only_formats = []
     audio_only_formats = []  
     combined_formats = []
-    
     target_height = int(target_quality.replace('p', ''))
-    
-    # Debug: Show ALL available formats first
-    #logger.debug(f"[{task_id}] 🔍 JSON Debug: Analyzing {len(formats)} total formats")
-    
-    # audio_format_debug = []
-    
-    # Categorize formats using reliable JSON data
     for fmt in formats:
         format_id = fmt.get('format_id')
         ext = fmt.get('ext', 'unknown')
@@ -279,43 +271,17 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         acodec = fmt.get('acodec', 'none')
         width = fmt.get('width')
         height = fmt.get('height')
-        language = fmt.get('language', 'unknown')  # Get audio language
-        language_preference = fmt.get('language_preference', -1)  # YouTube's language preference
-        
-        # Debug: Capture audio format details for analysis
-        # if vcodec == 'none' and acodec != 'none':
-        #     # Check possible original indicators
-        #     original_checks = {
-        #         'lang_pref_10': language_preference == 10,
-        #         'lang_pref_high': language_preference > 5,
-        #         'lang_in_original_list': language in ['original', 'default', 'primary'],
-        #     }
-        #
-        #     audio_format_debug.append({
-        #         'id': format_id,
-        #         'ext': ext,
-        #         'acodec': acodec,
-        #         'language': language,
-        #         'language_preference': language_preference,
-        #         'original_checks': original_checks,
-        #         'raw_format': str(fmt)[:200] + "..." if len(str(fmt)) > 200 else str(fmt)
-        #     })
-        
+        language = fmt.get('language', 'unknown')
+        language_preference = fmt.get('language_preference', -1)
+        filesize = fmt.get('filesize') or fmt.get('filesize_approx') or 0
         if not format_id:
             continue
-        
-        # Audio-only format
         if vcodec == 'none' and acodec != 'none':
-            # Enhanced original audio detection
             is_original = (
                 language_preference == 10 or
                 language in ['original', 'default', 'primary'] or
-                'original' in str(fmt).lower() # Check if 'original' appears anywhere in format data
+                'original' in str(fmt).lower()
             )
-            
-            # Debug: Log each audio format as it's being processed
-            #logger.debug(f"[{task_id}] 🔍 Processing audio format: {format_id} - Lang: {language} - Pref: {language_preference} - Original: {is_original}")
-            
             audio_only_formats.append({
                 'id': format_id,
                 'ext': ext,
@@ -323,10 +289,9 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
                 'abr': fmt.get('abr', 0),
                 'language': language,
                 'language_preference': language_preference,
-                'is_original': is_original
+                'is_original': is_original,
+                'filesize': filesize
             })
-            
-        # Video-only format  
         elif vcodec != 'none' and acodec == 'none' and width and height:
             video_only_formats.append({
                 'id': format_id,
@@ -334,18 +299,15 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
                 'vcodec': vcodec,
                 'width': width,
                 'height': height,
-                'tbr': fmt.get('tbr', 0)
+                'tbr': fmt.get('tbr', 0),
+                'filesize': filesize
             })
-            
-        # Combined video+audio format
         elif vcodec != 'none' and acodec != 'none' and width and height:
-            # Enhanced original audio detection for combined formats
             is_original = (
-                language_preference == 10 or  # yt-dlp's primary indicator for original
+                language_preference == 10 or
                 language in ['original', 'default', 'primary'] or
                 'original' in str(fmt).lower()
             )
-            
             combined_formats.append({
                 'id': format_id,
                 'ext': ext,
@@ -356,71 +318,44 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
                 'tbr': fmt.get('tbr', 0),
                 'language': language,
                 'language_preference': language_preference,
-                'is_original': is_original
+                'is_original': is_original,
+                'filesize': filesize
             })
-
-
     # Strategy 1: Try good quality combined formats with original audio first
     if combined_formats:
-        # Sort by: original audio first, then height (descending), then prefer MP4
         combined_formats.sort(key=lambda x: (not x.get('is_original', False), x['height'], x['ext'] == 'mp4'), reverse=True)
-        
-        # original audio + 1080p+
         for fmt in combined_formats:
-            if fmt['height'] >= 1080 and fmt.get('is_original', False):  # Accept 1080p+ combined formats + only original audio
+            if fmt['height'] >= 1080 and fmt.get('is_original', False):
                 can_copy = fmt['ext'] == 'mp4'
-                is_original = fmt.get('is_original', False)
-                #logger.debug(f"[{task_id}] Selected combined format: {fmt['id']} ({fmt['width']}x{fmt['height']} {fmt['ext']}) - Original: {is_original} - Copy: {can_copy}")
-                return (fmt['id'], can_copy)
-    
+                estimated_size = fmt.get('filesize', 0)
+                return (fmt['id'], can_copy, estimated_size)
     # Strategy 2: Merge video-only + original audio-only
     if video_only_formats and audio_only_formats:
-        # Sort video formats: prefer MP4, then by height (descending)
         video_only_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
-
         def audio_sort_key(fmt):
             is_orig = fmt.get('is_original', False)
             lang_pref = fmt.get('language_preference', -999)
             is_m4a = fmt['ext'] in ['m4a', 'mp4']
             abr = fmt.get('abr', 0)
-            
-            # Debug: Log the sort key for each format
-            #logger.debug(f"[{task_id}] 🔍 Sort key for {fmt['id']}: is_orig={is_orig}, lang_pref={lang_pref}, is_m4a={is_m4a}, abr={abr}")
-            
             return (is_orig, lang_pref, is_m4a, abr)
-        
         audio_only_formats.sort(key=audio_sort_key, reverse=True)
-
-        # Find best video
         best_video = None
         for fmt in video_only_formats:
-            if fmt['height'] <= target_height * 1.2:  # Allow some tolerance
+            if fmt['height'] <= target_height * 1.2:
                 best_video = fmt
                 break
-        
         if not best_video:
-            best_video = video_only_formats[0]  # Use highest quality
-        
-        # Use best original audio
+            best_video = video_only_formats[0]
         best_audio = audio_only_formats[0]
-        
         can_copy = (best_video['ext'] == 'mp4' and best_audio['ext'] in ['m4a', 'mp4'])
         merge_format = f"{best_video['id']}+{best_audio['id']}"
-        
-        is_original = best_audio.get('is_original', False)
-        #logger.debug(f"[{task_id}] Selected merge format: {merge_format}")
-        #logger.debug(f"[{task_id}]   Video: {best_video['id']} ({best_video['width']}x{best_video['height']} {best_video['ext']})")
-        #logger.debug(f"[{task_id}]   Audio: {best_audio['id']} ({best_audio['ext']}) - Original: {is_original} - Lang: {best_audio.get('language', 'unknown')}")
-        #logger.debug(f"[{task_id}]   Can copy: {can_copy}")
-        
-        return (merge_format, can_copy)
-    
-    # If we can't find good formats, return None to allow main function's Strategy 3
+        estimated_size = (best_video.get('filesize', 0) or 0) + (best_audio.get('filesize', 0) or 0)
+        return (merge_format, can_copy, estimated_size)
     logger.warning(f"[{task_id}] JSON analysis found no suitable formats, will try fallback methods")
     return None
 
 async def _analyze_formats_from_text(output: str, target_quality: str, task_id: str) -> Optional[tuple]:
-    """Analyze formats from text output with original audio preference"""
+    """Analyze formats from text output with original audio preference and return estimated size (not always possible)"""
     
     lines = output.strip().split('\n')
     
@@ -528,26 +463,21 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
                     'line': line,
                     'is_original': is_original
                 })
-                #logger.debug(f"[{task_id}]   {format_id}: {width}x{height} ({ext}) - COMBINED - Original: {is_original}")
             except ValueError:
                 continue
     
     # Strategy 1: Try good quality combined formats with original audio first
     if combined_formats:
-        # Sort combined formats: original audio first, then prefer MP4, then by height (descending)
         combined_formats.sort(key=lambda x: (not x.get('is_original', False), x['height'], x['ext'] == 'mp4'), reverse=True)
-        
-        #logger.debug(f"[{task_id}] Available combined (video+audio) formats:")
-        # for fmt in combined_formats[:3]:
-            #logger.debug(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']}) - Original: {fmt.get('is_original', False)}")
         
         # Find good quality combined format with original audio
         for fmt in combined_formats:
             if fmt['height'] >= 1080 and fmt.get('is_original', False):  # Accept 1080+ combined formats + only original audio
                 can_copy = fmt['ext'] == 'mp4'
                 is_original = fmt.get('is_original', False)
-                #logger.debug(f"[{task_id}] Selected COMBINED format: {fmt['id']} ({fmt['width']}x{fmt['height']} {fmt['ext']}) - Original: {is_original} - Can copy: {can_copy}")
-                return (fmt['id'], can_copy)
+                # If we can't get a real size, use 1GB as a fallback
+                estimated_size = 1_000_000_000
+                return (fmt['id'], can_copy, estimated_size)
     
     # Strategy 2: Merge best video-only + original audio-only for higher quality
     if video_only_formats and audio_only_formats:
@@ -561,15 +491,7 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
             x['ext'] in ['m4a', 'mp4'], # Then prefer m4a/mp4
             x.get('abr', 0) # Then by bitrate
         ), reverse=True)
-        
-        #logger.debug(f"[{task_id}] Available video-only formats:")
-        # for fmt in video_only_formats[:3]:
-            #logger.debug(f"[{task_id}]   {fmt['id']}: {fmt['width']}x{fmt['height']} ({fmt['ext']})")
-        
-        #logger.debug(f"[{task_id}] Available audio-only formats:")
-        # for fmt in audio_only_formats[:5]:
-            #logger.debug(f"[{task_id}]   {fmt['id']}: ({fmt['ext']}) - Original: {fmt.get('is_original', False)}")
-        
+   
         # Find best video at target quality
         best_video = None
         for fmt in video_only_formats:
@@ -589,12 +511,9 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
         
         merge_format = f"{best_video['id']}+{best_audio['id']}"
         is_original = best_audio.get('is_original', False)
-        #logger.debug(f"[{task_id}] Selected MERGE format: {merge_format}")
-        #logger.debug(f"[{task_id}]   Video: {best_video['id']} ({best_video['width']}x{best_video['height']} {best_video['ext']})")
-        #logger.debug(f"[{task_id}]   Audio: {best_audio['id']} ({best_audio['ext']}) - Original: {is_original}")
-        #logger.debug(f"[{task_id}]   Can copy: {can_copy}")
-        
-        return (merge_format, can_copy)
+        # If we can't get a real size, use 1GB as a fallback
+        estimated_size = 1_000_000_000
+        return (merge_format, can_copy, estimated_size)
     
     # If we can't find good formats, return None to allow main function's Strategy 3
     logger.warning(f"[{task_id}] Text analysis found no suitable formats, will try fallback methods")
@@ -654,6 +573,15 @@ async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"[{task_id}] Error verifying video quality: {e}")
         return None
+
+def get_downloaded_bytes(task_id, download_dir=DOWNLOAD_DIR):
+    total = 0
+    for fname in os.listdir(download_dir):
+        if task_id in fname:
+            fpath = os.path.join(download_dir, fname)
+            if os.path.isfile(fpath):
+                total += os.path.getsize(fpath)
+    return total
 
 async def handle_youtube_download_task_with_retries(task_id: str, video_url: str, tmdb_id: int, lang: str, dub: str, video_title: str, video_poster: str):
     """Handle YouTube video download task with simple retry strategy and IP rotation - retries on any error until max attempts"""
@@ -721,8 +649,26 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         if not format_result:
             raise Exception("No suitable format found for video")
         
-        format_selector, can_copy = format_result
-        
+        # After starting the yt-dlp process, add a background task to periodically check progress by file size
+        import threading
+        import time
+        progress_check_interval = 5  # seconds
+        progress_stop_flag = {'stop': False}
+        estimated_size = 0
+        if isinstance(format_result, tuple) and len(format_result) == 3:
+            format_selector, can_copy, estimated_size = format_result
+        else:
+            format_selector, can_copy = format_result
+        def progress_watcher():
+            while not progress_stop_flag['stop']:
+                if estimated_size > 0:
+                    downloaded = get_downloaded_bytes(task_id, DOWNLOAD_DIR)
+                    percent = min(int((downloaded / estimated_size) * 100), 100)
+                    asyncio.run(redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600))
+                time.sleep(progress_check_interval)
+        watcher_thread = threading.Thread(target=progress_watcher, daemon=True)
+        watcher_thread.start()
+
         # Download the video
         output_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
         
@@ -781,18 +727,18 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
 
         import re
         # FIXED: Correct regex for yt-dlp progress lines
-        progress_re = re.compile(r"\[download\]\s+(\d{1,3}\.\d+)%")
-        last_progress = 0
-        last_update_time = asyncio.get_event_loop().time()
-        progress_update_interval = 29  # seconds
+        # progress_re = re.compile(r"\[download\]\s+(\d{1,3}\.\d+)%")
+        # last_progress = 0
+        # last_update_time = asyncio.get_event_loop().time()
+        # progress_update_interval = 29  # seconds
         stderr_lines = []
-        stdout_lines = []
+        # stdout_lines = []
         # For debugging: store a sample of stderr lines
         progress_debug_samples = []
 
         async def read_stream(stream, is_stderr=False):
-            nonlocal last_progress, last_update_time
-            logger.info(f"[{task_id}] 🔍 Starting read_stream for {'stderr' if is_stderr else 'stdout'}")
+            # nonlocal last_progress, last_update_time
+            # logger.info(f"[{task_id}] 🔍 Starting read_stream for {'stderr' if is_stderr else 'stdout'}")
             try:
                 if is_stderr:
                     line_count = 0
@@ -804,45 +750,48 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                         line_count += 1
                         decoded = line.decode(errors="ignore")
                         stderr_lines.append(decoded)
-                else:
-                    chunk_count_stdout = 0
-                    while True:
-                        chunk = await stream.read(4096)
-                        if not chunk:
-                            logger.info(f"[{task_id}] 🔍 stdout stream ended")
-                            break
-                        chunk_count_stdout += 1
-                        decoded = chunk.decode(errors="ignore")
-                        if len(stdout_lines) < 1000:
-                            stdout_lines.append(decoded)
-
-                        match = progress_re.search(decoded)
-                        if match:
-                            progress = float(match.group(1))
-                            now = asyncio.get_running_loop().time()
-                            logger.info(
-                                f"[PROGRESS-MATCH][{task_id}] Matched progress: {progress} from line: {decoded.strip()}")
-                            if progress - last_progress >= 3 or now - last_update_time >= progress_update_interval:
-                                logger.info(f'\n\nback yt_progress:{progress}')
-                                await redis.set(f"download:{task_id}:yt_download_progress", int(progress), ex=3600)
-                                last_progress = progress
-                                last_update_time = now
+                # else:
+                #     chunk_count_stdout = 0
+                #     while True:
+                #         chunk = await stream.read(4096)
+                #         if not chunk:
+                #             logger.info(f"[{task_id}] 🔍 stdout stream ended")
+                #             break
+                #         chunk_count_stdout += 1
+                #         decoded = chunk.decode(errors="ignore")
+                #         if len(stdout_lines) < 1000:
+                #             stdout_lines.append(decoded)
+                #
+                #         match = progress_re.search(decoded)
+                #         if match:
+                #             progress = float(match.group(1))
+                #             now = asyncio.get_running_loop().time()
+                #             logger.info(
+                #                 f"[PROGRESS-MATCH][{task_id}] Matched progress: {progress} from line: {decoded.strip()}")
+                #             if progress - last_progress >= 3 or now - last_update_time >= progress_update_interval:
+                #                 logger.info(f'\n\nback yt_progress:{progress}')
+                #                 await redis.set(f"download:{task_id}:yt_download_progress", int(progress), ex=3600)
+                #                 last_progress = progress
+                #                 last_update_time = now
 
             except Exception as e:
                 logger.error(f"[{task_id}] Error reading process stream: {e}")
 
-        logger.info(f"[{task_id}] 🔍 About to start asyncio.gather for stream reading")
+        # logger.info(f"[{task_id}] 🔍 About to start asyncio.gather for stream reading")
         # Run both readers concurrently
         await asyncio.gather(
             read_stream(process.stderr, is_stderr=True),
-            read_stream(process.stdout, is_stderr=False)
+            # read_stream(process.stdout, is_stderr=False)
         )
-        logger.info(f"[{task_id}] 🔍 Stream reading completed")
+        # logger.info(f"[{task_id}] 🔍 Stream reading completed")
 
+        redis.set(f"download:{task_id}:yt_download_progress", 0, ex=3600)
         returncode = await process.wait()
-        logger.info(f"[{task_id}] 🔍 Process finished with return code: {returncode}")
+        progress_stop_flag['stop'] = True
+        watcher_thread.join(timeout=4)
+        # logger.info(f"[{task_id}] 🔍 Process finished with return code: {returncode}")
         stderr_text = ''.join(stderr_lines)
-        stdout_text = ''.join(stdout_lines)
+        # stdout_text = ''.join(stdout_lines)
 
         if returncode != 0:
             stderr_text = stderr_text or 'Unknown error'
