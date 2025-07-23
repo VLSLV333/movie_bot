@@ -189,10 +189,20 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                         animation_url = "https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif"
                         new_text = gettext(DOWNLOAD_PROCESSING_STATUS).format(status=status)
 
-                    # If status changed, delete old animation and send new one, and update text message
+                    # Check if we need to update the UI
+                    should_update_ui = False
+                    
+                    # Update UI if status changed
                     if status != last_status:
+                        should_update_ui = True
                         logger.info(f"🎬 [User {user_id}] STATUS CHANGE: '{last_status}' → '{status}', showing text: '{new_text}'")
-                        
+                    # Also update UI if status is "downloading" and progress text changed
+                    elif status == "downloading" and new_text != last_text:
+                        should_update_ui = True
+                        logger.info(f"📊 [User {user_id}] Progress update: '{last_text}' → '{new_text}'")
+                    
+                    if should_update_ui:
+                        # Delete old animation and send new one
                         try:
                             await last_animation_msg.delete()
                         except Exception as err:
@@ -220,7 +230,7 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                         last_status = status
                         last_text = new_text
                     else:
-                        logger.info(f"🔄 [User {user_id}] No status change, staying on '{status}'")  
+                        logger.info(f"🔄 [User {user_id}] No UI update needed, staying on '{status}'")  
 
             except Exception as e:
                 error_str = str(e)
