@@ -4,6 +4,7 @@ import hashlib
 import time
 import os
 import hmac
+from urllib.parse import urlparse, parse_qs
 from aiogram import Router, types, F
 from aiogram.filters import Filter
 from aiogram.utils.i18n import gettext
@@ -18,7 +19,7 @@ from bot.locales.keys import (
     AVAILABLE_TO_DOWNLOAD, NO_DUBS_AVAILABLE_IN_LANGUAGE, DOWNLOAD_YOUTUBE_SEND_LINK_PROMPT,
     ADDED_TO_DOWNLOAD_QUEUE, FAILED_TO_TRIGGER_DOWNLOAD, UNEXPECTED_ERROR_DURING_DOWNLOAD,
     DOWNLOAD_LIMIT, DUPLICATE_DOWNLOAD, MOVIE_READY_START_DELIVERY_BOT, OPEN_DELIVERY_BOT,
-    DOWNLOAD_QUEUE_POSITION, DOWNLOAD_EXTRACTING_DATA, DOWNLOAD_UPLOADING_TO_TELEGRAM,
+    DOWNLOAD_QUEUE_POSITION, DOWNLOAD_UPLOADING_TO_TELEGRAM,
     DOWNLOAD_FAILED_START_AGAIN, DOWNLOAD_PROCESSING_STATUS, DOWNLOAD_TIMEOUT_TRY_LATER,
     DOWNLOAD_YOUTUBE_DOWNLOADING
 )
@@ -45,6 +46,50 @@ HDREZKA_URL_PATTERN = r'https?://(?:www\.)?(?:hd)?rezka(?:-ua)?\.(?:ag|co|me|org
 
 # YouTube URL pattern
 YOUTUBE_URL_PATTERN = r'https?://(?:www\.)?(?:youtube\.com|youtu\.be|m\.youtube\.com)/(?:watch\?v=|embed/|v/|shorts/)?([a-zA-Z0-9_-]{11})(?:[^\s]*)?'
+
+def normalize_youtube_url(url: str) -> str:
+    """
+    Normalize YouTube URL to remove UTM parameters and other tracking parameters.
+    Returns a clean, canonical URL with only the video ID.
+    
+    Examples:
+    - https://www.youtube.com/watch?v=I4AgeDIrHGY&utm_source=facebook&feature=share
+    - https://youtu.be/I4AgeDIrHGY?t=30&list=PL123
+    Both become: https://www.youtube.com/watch?v=I4AgeDIrHGY
+    """
+    try:
+        # Handle youtu.be URLs
+        if 'youtu.be' in url:
+            # Extract video ID from youtu.be URLs
+            video_id_match = re.search(r'youtu\.be/([a-zA-Z0-9_-]{11})', url)
+            if video_id_match:
+                video_id = video_id_match.group(1)
+                return f"https://www.youtube.com/watch?v={video_id}"
+        
+        # Handle youtube.com URLs
+        elif 'youtube.com' in url:
+            # Parse the URL
+            parsed = urlparse(url)
+            
+            # Extract video ID from query parameters
+            query_params = parse_qs(parsed.query)
+            video_id = query_params.get('v', [None])[0]
+            
+            if video_id and len(video_id) == 11:
+                # Create clean URL with only the video ID
+                return f"https://www.youtube.com/watch?v={video_id}"
+        
+        # If we can't parse it properly, try regex as fallback
+        video_id_match = re.search(r'([a-zA-Z0-9_-]{11})', url)
+        if video_id_match:
+            video_id = video_id_match.group(1)
+            return f"https://www.youtube.com/watch?v={video_id}"
+            
+    except Exception as e:
+        logger.error(f"Error normalizing YouTube URL '{url}': {e}")
+    
+    # Return original URL if normalization fails
+    return url
 
 # State filter for HDRezka link input
 class HDRezkaLinkInputStateFilter(Filter):
@@ -495,13 +540,19 @@ async def handle_youtube_link_input(message: types.Message):
     processing_msg = await message.answer(gettext(DOWNLOAD_LINK_PROCESSING))
     
     try:
-        # Create mock tmdb_id for YouTube downloads (using video ID from URL)
-        video_id_match = re.search(r'([a-zA-Z0-9_-]{11})', link)
+        # Normalize the URL to remove UTM parameters and other tracking
+        normalized_link = normalize_youtube_url(link)
+        logger.info(f"[User {user_id}] Normalized YouTube link: {normalized_link}")
+
+        # Create mock tmdb_id for YouTube downloads (using video ID from normalized URL)
+        video_id_match = re.search(r'([a-zA-Z0-9_-]{11})', normalized_link)
         if video_id_match:
             video_id = video_id_match.group(1)
             mock_tmdb_id = int(hashlib.md5(video_id.encode()).hexdigest()[:8], 16)
+            logger.info(f"[User {user_id}] Extracted video ID: {video_id}, generated tmdb_id: {mock_tmdb_id}")
         else:
-            mock_tmdb_id = int(hashlib.md5(link.encode()).hexdigest()[:8], 16)
+            mock_tmdb_id = int(hashlib.md5(normalized_link.encode()).hexdigest()[:8], 16)
+            logger.warning(f"[User {user_id}] Could not extract video ID from normalized link: {normalized_link}")
         
         # For YouTube, we don't need to fetch dubs - it's just one video
         # Create payload for YouTube download
@@ -511,7 +562,7 @@ async def handle_youtube_link_input(message: types.Message):
             "dub": "youtube",  # Use "youtube" as dub identifier
             "exp": int(time.time()) + 600,
             "tg_user_id": user_id,
-            "video_url": link,  # YouTube uses video_url instead of movie_url
+            "video_url": normalized_link,  # Use normalized_link
             "video_title": "YouTube Video",
             "video_poster": None
         }
