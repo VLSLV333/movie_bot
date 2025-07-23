@@ -134,11 +134,12 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
         if result.returncode == 0:
             try:
                 video_info = json.loads(result.stdout)
+                video_duration = video_info.get('duration', 0)
                 formats = video_info.get('formats', [])
 
                 if formats:
                     #logger.debug(f"[{task_id}] Found {len(formats)} formats via JSON method")
-                    json_result = await _analyze_formats_from_json(formats, target_quality, task_id)
+                    json_result = await _analyze_formats_from_json(formats, target_quality, task_id, video_duration)
                     if json_result:  # Only return if we found a good format
                         return json_result
                 else:
@@ -260,7 +261,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
     logger.error(f"[{task_id}] All format detection methods failed")
     return None
 
-async def _analyze_formats_from_json(formats: list, target_quality: str, task_id: str) -> Optional[tuple]:
+async def _analyze_formats_from_json(formats: list, target_quality: str, task_id: str, video_duration: float = 0) -> Optional[tuple]:
     """Analyze formats from JSON data with original audio preference and return estimated size"""
     video_only_formats = []
     audio_only_formats = []  
@@ -370,7 +371,18 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         # Try to estimate size from bitrate if filesize is missing/wrong
         video_tbr = best_video.get('tbr', 0) or best_video.get('vbr', 0) or 0
         audio_abr = best_audio.get('abr', 0) or 0
-        duration = best_video.get('duration', 0) or best_audio.get('duration', 0) or 0
+        duration = video_duration or best_video.get('duration', 0) or best_audio.get('duration', 0) or 0
+        
+        # If we still don't have duration, estimate from bitrate and typical video lengths
+        if duration == 0 and video_tbr > 0:
+            # Estimate duration from audio file size and bitrate
+            if audio_size > 0 and audio_abr > 0:
+                duration = audio_size * 8 / (audio_abr * 1000)  # Convert back to seconds
+                logger.info(f"[{task_id}] 🔍 Estimated duration from audio: {duration:.1f}s")
+            else:
+                # Default to 10 minutes for typical videos
+                duration = 600
+                logger.warning(f"[{task_id}] 🔍 No duration available, assuming 10 minutes")
         
         logger.info(f"[{task_id}] 🔍 SIZE CALCULATION:")
         logger.info(f"[{task_id}] 🔍   video_size (from metadata): {video_size} bytes ({video_size/1024/1024:.1f}MB)")
@@ -815,40 +827,40 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                                                         
                     elif downloaded > 0:
                         elapsed_time = asyncio.get_event_loop().time() - start_time
-                    size_growth = downloaded - last_size
-                    last_size = downloaded
-                    
-                    if elapsed_time > 30 and size_growth > 0:
-                        estimated_rate = downloaded / elapsed_time
-                        estimated_total_time = max(300, min(900, downloaded / estimated_rate * 3))
-                        percent = min(int((elapsed_time / estimated_total_time) * 100), 95)
-                    else:
-                        percent = min(int((downloaded / default_size_estimate) * 100), 95)
-                    
-                    if percent != last_progress and percent > 0:
-                        await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
-                        last_progress = percent
-                        logger.info(f"[{task_id}] Progress (estimated): {percent}% ({downloaded} bytes downloaded)")
-                    elif loop_count % 10 == 1:  # Debug every 10 loops
-                        logger.info(f"[{task_id}] 🔍 Progress not updated (no estimate): percent={percent}, last_progress={last_progress}, downloaded={downloaded}")
-                
-                else:
-                    # No files detected yet - provide time-based progress estimate
-                    elapsed_time = asyncio.get_event_loop().time() - start_time
-                    
-                    # Conservative time estimate: most downloads take 2-10 minutes
-                    # Start showing progress after 30 seconds, max out at 90% after 8 minutes
-                    if elapsed_time > 30:
-                        # Linear progress from 1% at 30s to 90% at 8 minutes (480s)
-                        time_progress = min(int(1 + (elapsed_time - 30) / (480 - 30) * 89), 90)
+                        size_growth = downloaded - last_size
+                        last_size = downloaded
                         
-                        if time_progress != last_progress:
-                            await redis.set(f"download:{task_id}:yt_download_progress", time_progress, ex=3600)
-                            last_progress = time_progress
-                            logger.info(f"[{task_id}] Progress (time-based): {time_progress}% (no files detected yet, elapsed: {elapsed_time:.0f}s)")
+                        if elapsed_time > 30 and size_growth > 0:
+                            estimated_rate = downloaded / elapsed_time
+                            estimated_total_time = max(300, min(900, downloaded / estimated_rate * 3))
+                            percent = min(int((elapsed_time / estimated_total_time) * 100), 95)
+                        else:
+                            percent = min(int((downloaded / default_size_estimate) * 100), 95)
+                        
+                        if percent != last_progress and percent > 0:
+                            await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
+                            last_progress = percent
+                            logger.info(f"[{task_id}] Progress (estimated): {percent}% ({downloaded} bytes downloaded)")
+                        elif loop_count % 10 == 1:  # Debug every 10 loops
+                            logger.info(f"[{task_id}] 🔍 Progress not updated (no estimate): percent={percent}, last_progress={last_progress}, downloaded={downloaded}")
                     
-                    elif loop_count % 10 == 1:  # Debug when no download detected
-                        logger.info(f"[{task_id}] 🔍 No download detected: downloaded={downloaded}, estimated_size={estimated_size}, elapsed={elapsed_time:.0f}s")
+                    else:
+                        # No files detected yet - provide time-based progress estimate
+                        elapsed_time = asyncio.get_event_loop().time() - start_time
+                        
+                        # Conservative time estimate: most downloads take 2-10 minutes
+                        # Start showing progress after 30 seconds, max out at 90% after 8 minutes
+                        if elapsed_time > 30:
+                            # Linear progress from 1% at 30s to 90% at 8 minutes (480s)
+                            time_progress = min(int(1 + (elapsed_time - 30) / (480 - 30) * 89), 90)
+                            
+                            if time_progress != last_progress:
+                                await redis.set(f"download:{task_id}:yt_download_progress", time_progress, ex=3600)
+                                last_progress = time_progress
+                                logger.info(f"[{task_id}] Progress (time-based): {time_progress}% (no files detected yet, elapsed: {elapsed_time:.0f}s)")
+                        
+                        elif loop_count % 10 == 1:  # Debug when no download detected
+                            logger.info(f"[{task_id}] 🔍 No download detected: downloaded={downloaded}, estimated_size={estimated_size}, elapsed={elapsed_time:.0f}s")
                     
                     await asyncio.sleep(progress_check_interval)
                     
