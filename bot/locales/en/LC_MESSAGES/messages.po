@@ -81,6 +81,12 @@ msgstr "🧑‍🎤 By Actor"
 msgid "search_by_director_btn"
 msgstr "🎬 By Director"
 
+msgid "search_by_actor_coming_soon"
+msgstr "🚀 Search by Actor coming soon!"
+
+msgid "search_by_director_coming_soon"
+msgstr "🚀 Search by Director coming soon!"
+
 # Common Buttons
 msgid "back_btn"
 msgstr "🔙 Back"

@@ -27,7 +27,7 @@ from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.utils.redis_client import RedisClient
 from hashlib import md5
 from bot.utils.signed_token_manager import SignedTokenManager
-from bot.utils.translate_dub_to_ua import translate_dub_to_ua
+from bot.utils.translate_dub_to_ua import translate_dub_by_language
 from bot.utils.user_service import UserService
 
 router = Router()
@@ -243,8 +243,8 @@ async def download_mirror_handler(query: types.CallbackQuery):
                 "movie_url": movie_url
             }), ex=3600)
 
-            emoji = "🇺🇦" if user_lang == 'uk' else "🎙"
-            display_dub = translate_dub_to_ua(dub) if user_lang == 'uk' else dub
+            emoji = "🇺🇦" if user_lang == 'uk' else ("🇺🇸" if user_lang == 'en' else "🎙")
+            display_dub = translate_dub_by_language(dub, user_lang)
             kb.append([
                 types.InlineKeyboardButton(
                     text=gettext(TEXT_DUBS_READY_TO_DOWNLOAD).format(emoji=emoji, display_dub=display_dub),
@@ -460,8 +460,8 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
                 "movie_url": movie_url
             }), ex=3600)
 
-            emoji = "🇺🇦" if (user_lang == 'uk' and 'no Ukrainian dubs' not in dubs_scrapper_result.get('message','')) else "🎙"
-            display_dub = translate_dub_to_ua(dub) if user_lang == 'uk' else dub
+            emoji = "🇺🇦" if (user_lang == 'uk' and 'no Ukrainian dubs' not in dubs_scrapper_result.get('message','')) else ("🇺🇸" if user_lang == 'en' else "🎙")
+            display_dub = translate_dub_by_language(dub, user_lang)
             kb.append([
                 types.InlineKeyboardButton(
                     text=f"{emoji} {display_dub} dub",
@@ -472,8 +472,9 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
     if available_dubs_can_be_downloaded:
         kb.append([types.InlineKeyboardButton(text=gettext(AVAILABLE_TO_DOWNLOAD), callback_data="noop")])
         for dub in available_dubs_can_be_downloaded:
-            emoji = "🇺🇦" if (user_lang == 'uk' and 'no Ukrainian dubs' not in dubs_scrapper_result.get('message','')) else "🎙"
-            text = emoji +  f" {translate_dub_to_ua(dub)}" if user_lang == 'uk' else f" {dub}"
+            emoji = "🇺🇦" if (user_lang == 'uk' and 'no Ukrainian dubs' not in dubs_scrapper_result.get('message','')) else ("🇺🇸" if user_lang == 'en' else "🎙")
+            display_dub = translate_dub_by_language(dub, user_lang)
+            text = f"{emoji} {display_dub}"
             token = generate_token(tmdb_id, user_lang, dub)
             logger.info(f"Generated token {token} for TMDB_ID={tmdb_id}, dub={dub}, lang={download_task_lang}")
             await redis.set(f"selected_dub_info:{token}", json.dumps({

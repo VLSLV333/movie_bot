@@ -81,6 +81,12 @@ msgstr "🧑‍🎤 За актором"
 msgid "search_by_director_btn"
 msgstr "🎬 За режисером"
 
+msgid "search_by_actor_coming_soon"
+msgstr "🚀 Пошук за актором скоро з'явиться!"
+
+msgid "search_by_director_coming_soon"
+msgstr "🚀 Пошук за режисером скоро з'явиться!"
+
 # Common Buttons
 msgid "back_btn"
 msgstr "🔙 Назад"

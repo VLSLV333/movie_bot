@@ -29,6 +29,8 @@ SEARCH_BY_NAME_BTN = "search_by_name_btn"
 SEARCH_BY_GENRE_BTN = "search_by_genre_btn"
 SEARCH_BY_ACTOR_BTN = "search_by_actor_btn"
 SEARCH_BY_DIRECTOR_BTN = "search_by_director_btn"
+SEARCH_BY_ACTOR_COMING_SOON = "search_by_actor_coming_soon"
+SEARCH_BY_DIRECTOR_COMING_SOON = "search_by_director_coming_soon"
 
 # Common Buttons
 BACK_BTN = "back_btn"

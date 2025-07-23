@@ -12,7 +12,9 @@ STATE_EXPIRATION_SECONDS = 1800  # time to expire redis session if user is inact
 BATCH_SIZE = 5 # number of movies to show at one time when user is searching by movie title
 MINIMUM_NUM_OF_VOTES_FOR_MOVIE_TO_GET_INTO_SUGGESTIONS = 100
 SORT_MOVIES_IN_TMDB_RESPONSE_BY = "vote_average.desc"
-DUB_TRANSLATION_MAP ={
+
+# Ukrainian translations
+DUB_TRANSLATION_MAP_UA = {
     "Украинский": "Український",
     "украинский": "український",
     "одноголосый":"одноголосий",
@@ -27,4 +29,28 @@ DUB_TRANSLATION_MAP ={
     "Оригинал":"Оригінал",
     "Субтитры":"Субтитри",
     "Версия":"Версія",
+}
+
+# English translations
+DUB_TRANSLATION_MAP_EN = {
+    "оригинал": "original",
+    "Оригинал": "Original",
+    "субтитры": "subtitles",
+    "Субтитры": "Subtitles",
+    "одноголосый": "single voice",
+    "Одноголосый": "Single Voice",
+    "двухголосый": "dual voice",
+    "Двухголосый": "Dual Voice",
+    "многоголосый": "multi voice",
+    "Многоголосый": "Multi Voice",
+    "версия": "version",
+    "Версия": "Version",
+    "режиссерская": "director's cut",
+    "Режиссерская": "Director's Cut",
+    "режиссерский": "director's cut",
+    "Режиссерский": "Director's Cut",
+    "реж": "dir",
+    "реж.": "dir.",
+    "Реж": "Dir",
+    "Реж.": "Dir.",
 }

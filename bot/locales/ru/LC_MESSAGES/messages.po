@@ -81,6 +81,12 @@ msgstr "🧑‍🎤 По актеру"
 msgid "search_by_director_btn"
 msgstr "🎬 По режиссеру"
 
+msgid "search_by_actor_coming_soon"
+msgstr "🚀 Поиск по актеру скоро появится!"
+
+msgid "search_by_director_coming_soon"
+msgstr "🚀 Поиск по режиссеру скоро появится!"
+
 # Common Buttons
 msgid "back_btn"
 msgstr "🔙 Назад"

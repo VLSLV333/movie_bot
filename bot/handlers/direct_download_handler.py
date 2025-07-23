@@ -26,7 +26,7 @@ from bot.locales.keys import (
 from bot.utils.logger import Logger
 from bot.utils.session_manager import SessionManager
 from bot.utils.user_service import UserService
-from bot.utils.translate_dub_to_ua import translate_dub_to_ua
+from bot.utils.translate_dub_to_ua import translate_dub_by_language
 from bot.utils.redis_client import RedisClient
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.utils.message_utils import smart_edit_or_send
@@ -500,8 +500,8 @@ async def handle_hdrezka_link_input(message: types.Message):
             await redis.set(f"selected_dub_info:{token}", json.dumps(selected_dub_data), ex=3600)
             
             # Create button with translated dub name
-            emoji = "🇺🇦" if (user_lang == 'uk' and 'no Ukrainian dubs' not in dubs_result.get('message','')) else "🎙"
-            display_dub = translate_dub_to_ua(dub) if user_lang == 'uk' else dub
+            emoji = "🇺🇦" if (user_lang == 'uk' and 'no Ukrainian dubs' not in dubs_result.get('message','')) else ("🇺🇸" if user_lang == 'en' else "🎙")
+            display_dub = translate_dub_by_language(dub, user_lang)
             text = f"{emoji} {display_dub}"
             
             kb.append([types.InlineKeyboardButton(text=text, callback_data=f"select_dub:{token}")])
