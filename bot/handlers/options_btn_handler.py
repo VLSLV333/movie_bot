@@ -7,6 +7,7 @@ from bot.locales.keys import (
 )
 from bot.utils.logger import Logger
 from bot.utils.user_service import UserService
+from bot.utils.command_updater import update_bot_commands_for_user
 from bot.keyboards.options_keyboard import (
     get_options_main_keyboard, get_options_bot_language_keyboard, get_options_movies_language_keyboard
 )
@@ -19,18 +20,28 @@ logger = Logger().get_logger()
 # Backend API URL
 BACKEND_API_URL = "https://moviebot.click"
 
-@router.callback_query(F.data == "options")
-async def options_handler(query: types.CallbackQuery):
-    """Handle options button click - show main options menu"""
-    logger.info(f"[User {query.from_user.id}] Clicked 'Options' button")
-    
+# --- Options Logic (reusable for both command and callback) ---
+async def handle_options_request(message_or_query):
+    """Common logic for handling options requests from both commands and callbacks"""
     keyboard = get_options_main_keyboard()
     
     await smart_edit_or_send(
-        message=query,
+        message=message_or_query,
         text=gettext(OPTIONS_WHAT_TO_CONFIGURE),
         reply_markup=keyboard
     )
+
+
+@router.message(F.text == "/options")
+async def options_command_handler(message: types.Message):
+    """Handle /options command"""
+    await handle_options_request(message)
+
+
+@router.callback_query(F.data == "options")
+async def options_handler(query: types.CallbackQuery):
+    """Handle options button callback"""
+    await handle_options_request(query)
     await query.answer()
 
 @router.callback_query(F.data == "options_bot_lang")
@@ -80,6 +91,13 @@ async def options_bot_language_selection_handler(query: types.CallbackQuery, sta
     
     # Update backend
     await UserService.set_user_bot_language(user_id, selected_lang)
+    
+    # Update bot commands for this user to match the new language
+    try:
+        await update_bot_commands_for_user(query.bot, user_id, selected_lang)
+        logger.info(f"[User {user_id}] Bot commands updated to language: {selected_lang}")
+    except Exception as e:
+        logger.error(f"[User {user_id}] Failed to update bot commands: {e}")
     
     # Show success message and return to options menu
     keyboard = get_options_main_keyboard()

@@ -54,3 +54,23 @@ DUB_TRANSLATION_MAP_EN = {
     "Реж": "Dir",
     "Реж.": "Dir.",
 }
+commands_i18n = {
+    "en": [
+        {"command": "start", "description": "See bot main menu"},
+        {"command": "search_movie", "description": "Search for a content"},
+        {"command": "download_movie", "description": "Download content"},
+        {"command": "options", "description": "Configure bot"},
+    ],
+    "uk": [
+        {"command": "start", "description": "Головне меню бота"},
+        {"command": "search_movie", "description": "Знайти контент"},
+        {"command": "download_movie", "description": "Завантажити контент"},
+        {"command": "options", "description": "Налаштувати бот"},
+    ],
+    "ru": [
+        {"command": "start", "description": "Главное меню бота"},
+        {"command": "search_movie", "description": "Найти контент"},
+        {"command": "download_movie", "description": "Скачать контент"},
+        {"command": "options", "description": "Настроить бот"},
+    ]
+}

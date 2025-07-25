@@ -317,18 +317,28 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
         logger.error(f"[User {user_id}] Could not send timeout message: {e}")
     return None
 
-@router.callback_query(F.data == "download_movie")
-async def direct_download_handler(query: types.CallbackQuery):
-    """Handle main menu download button click"""
-    logger.info(f"[User {query.from_user.id}] Clicked 'Download Movie' button")
-    
+# --- Download Movie Logic (reusable for both command and callback) ---
+async def handle_download_movie_request(message_or_query):
+    """Common logic for handling download movie requests from both commands and callbacks"""
     keyboard = get_download_source_keyboard()
     
     await smart_edit_or_send(
-        message=query,
+        message=message_or_query,
         text=gettext(DOWNLOAD_SOURCE_SELECTION),
         reply_markup=keyboard
     )
+
+
+@router.message(F.text == "/download_movie")
+async def download_movie_command_handler(message: types.Message):
+    """Handle /download_movie command"""
+    await handle_download_movie_request(message)
+
+
+@router.callback_query(F.data == "download_movie")
+async def direct_download_handler(query: types.CallbackQuery):
+    """Handle main menu download button callback"""
+    await handle_download_movie_request(query)
     await query.answer()
 
 @router.callback_query(F.data.startswith("direct_download_source:"))

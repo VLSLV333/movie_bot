@@ -33,18 +33,30 @@ def get_main_menu_keyboard() -> types.InlineKeyboardMarkup:
     return types.InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-@router.callback_query(F.data == "search_movie")
-async def search_movie_handler(query: types.CallbackQuery):
-    logger.info(f"[User {query.from_user.id}] Clicked 'Search Movie' button")
-
+# --- Search Movie Logic (reusable for both command and callback) ---
+async def handle_search_movie_request(message_or_query):
+    """Common logic for handling search movie requests from both commands and callbacks"""
     keyboard = get_search_type_keyboard()
     
     await smart_edit_or_send(
-        message=query,
+        message=message_or_query,
         text=gettext(SEARCH_TYPE_QUESTION),
         reply_markup=keyboard
     )
+
+
+@router.message(F.text == "/search_movie")
+async def search_movie_command_handler(message: types.Message):
+    """Handle /search_movie command"""
+    await handle_search_movie_request(message)
+
+
+@router.callback_query(F.data == "search_movie")
+async def search_movie_handler(query: types.CallbackQuery):
+    """Handle search_movie button callback"""
+    await handle_search_movie_request(query)
     await query.answer()
+
 
 @router.callback_query(F.data == "suggest_movie")
 async def suggest_movie_handler(query: types.CallbackQuery):
