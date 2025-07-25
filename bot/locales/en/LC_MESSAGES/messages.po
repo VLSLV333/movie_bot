@@ -26,7 +26,7 @@ msgid "onboarding_bot_lang_question"
 msgstr "What language should I use when talking with you? 😇"
 
 msgid "onboarding_movies_lang_question"
-msgstr "🎬 Pick your favorite movie language:"
+msgstr "🎬 Pick in which language would you like to watch movies:"
 
 msgid "onboarding_completed"
 msgstr "✅ Great! Your preferences have been saved."
