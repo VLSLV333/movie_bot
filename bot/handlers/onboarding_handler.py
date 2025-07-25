@@ -17,9 +17,7 @@ logger = Logger().get_logger()
 # Backend API URL
 BACKEND_API_URL = "https://moviebot.click"
 
-# Welcome GIF URL - replace with your actual GIF
-WELCOME_GIF_URL = "https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif"
-
+WELCOME_GIF_URL = "https://media.giphy.com/media/TMQHEJEHKyDDaqsOj6/giphy.gif"
 
 async def call_backend_api(endpoint: str, method: str = "GET", data: Optional[dict] = None) -> Optional[dict]:
     """Helper function to call backend API"""

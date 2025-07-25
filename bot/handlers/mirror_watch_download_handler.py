@@ -96,17 +96,16 @@ async def watch_mirror_handler(query: types.CallbackQuery):
 
     logger.info(f"[User {user_id}] Requested ▶️ Watch for: {movie_url}")
 
-    #TODO: WE WILL MAKE BOT PERSON GIFS/PICTURES FOR USER TO SEE WE ARE PREPARING
     if query.message is not None:
         loading_gif_msg = await query.message.answer_animation(
-            animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
+            animation="https://media.giphy.com/media/EEdzwBhYZgSiLj9k4Z/giphy.gif",
             caption=gettext(PREPARING_MOVIE_DUBS_WATCH)
         )
     else:
         if query is not None and getattr(query, 'bot', None) is not None:
             loading_gif_msg = await query.bot.send_animation(  # type: ignore
                 chat_id=query.from_user.id,
-                animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
+                animation="https://media.giphy.com/media/EEdzwBhYZgSiLj9k4Z/giphy.gif",
                 caption=gettext(PREPARING_MOVIE_DUBS_WATCH)
             )
         else:
@@ -304,7 +303,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
         logger.error("CallbackQuery or its data is None in fetch_dubs_handler")
         return
     loading_msg = await query.message.answer_animation(  # type: ignore
-        animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
+        animation="https://media.giphy.com/media/Qtj84ASLs0VnL8hlU8/giphy.gif",
         caption=gettext(CHECKING_DOWNLOADED_VERSIONS_DUBS)
     )
 
@@ -600,14 +599,14 @@ async def select_dub_handler(query: types.CallbackQuery):
     # Notify user we're starting
     if query.message is not None:
         loading_msg = await query.message.answer_animation(
-            animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
+            animation="https://media.giphy.com/media/lR4b8p34o95i0LkWoy/giphy.gif",
             caption=gettext(ADDED_TO_DOWNLOAD_QUEUE)
         )
     else:
         if query is not None and getattr(query, 'bot', None) is not None:
             loading_msg = await query.bot.send_animation(
                 chat_id=query.from_user.id,
-                animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
+                animation="https://media.giphy.com/media/lR4b8p34o95i0LkWoy/giphy.gif",
                 caption=gettext(ADDED_TO_DOWNLOAD_QUEUE)
             )  # type: ignore
         else:

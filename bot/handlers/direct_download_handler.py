@@ -168,11 +168,11 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
 
                     # Determine which animation/caption to use
                     if status == "queued":
-                        animation_url = "https://media.giphy.com/media/F99PZtJC8Hxm0/giphy.gif"
+                        animation_url = "https://media.giphy.com/media/99PFodlfMDhG6KxnL2/giphy.gif"
                         position = data.get("queue_position") or '...'
                         new_text = gettext(DOWNLOAD_QUEUE_POSITION).format(position=position)
                     elif status == "downloading":
-                        animation_url = "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif"
+                        animation_url = "https://media.giphy.com/media/Hpvu9ljTG5YYnAKJPK/giphy.gif"
                         # Fetch progress from Redis
                         redis = RedisClient.get_client()
                         progress = 0
@@ -201,11 +201,11 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                         
                         # Select animation based on poll count
                         if upload_poll_count <= 7:
-                            animation_url = "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif"
+                            animation_url = "https://media.giphy.com/media/zX202CLqU5aqaWKcWY/giphy.gif"
                         elif upload_poll_count <= 14:
-                            animation_url = "https://media.giphy.com/media/zINs6k7lwfawSbLOIc/giphy.gif"
+                            animation_url = "https://media.giphy.com/media/NjRGWOHZJGP0AiSxZb/giphy.gif"
                         else:
-                            animation_url = "https://media.giphy.com/media/olAik8MhYOB9K/giphy.gif"
+                            animation_url = "https://media.giphy.com/media/q9JhdEdX4cUWoTPAud/giphy.gif"
                     elif status == "done":
                         result = data.get("result")
                         if result:
@@ -242,7 +242,7 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                         )
                         return None
                     else:
-                        animation_url = "https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif"
+                        animation_url = "https://media.giphy.com/media/RDqkrKJr5XwPWxz3pa/giphy.gif"
                         new_text = gettext(DOWNLOAD_PROCESSING_STATUS).format(status=status)
 
                     # Check if we need to update the UI
@@ -588,7 +588,7 @@ async def handle_youtube_link_input(message: types.Message):
 
         # Notify user we're starting
         loading_msg = await message.answer_animation(
-            animation="https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif",
+            animation="https://media.giphy.com/media/lR4b8p34o95i0LkWoy/giphy.gif",
             caption=gettext(ADDED_TO_DOWNLOAD_QUEUE)
         )
         logger.info(f"🎬 [User {user_id}] Initial message shown: '{gettext(ADDED_TO_DOWNLOAD_QUEUE)}'")

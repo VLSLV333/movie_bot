@@ -20,13 +20,13 @@ logger = Logger().get_logger()
 
 # Animation URLs for different statuses
 STATUS_ANIMATIONS = {
-    "queued": "https://media.giphy.com/media/F99PZtJC8Hxm0/giphy.gif",
-    "extracting": "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif",
-    "merging": "https://media.giphy.com/media/26ufnwz3wDUli7GU0/giphy.gif",
-    "uploading": "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif",
-    "uploading_phase2": "https://media.giphy.com/media/zINs6k7lwfawSbLOIc/giphy.gif",
-    "uploading_phase3": "https://media.giphy.com/media/olAik8MhYOB9K/giphy.gif",
-    "default": "https://media.giphy.com/media/hvRJCLFzcasrR4ia7z/giphy.gif"
+    "queued": "https://media.giphy.com/media/99PFodlfMDhG6KxnL2/giphy.gif",
+    "extracting": "https://media.giphy.com/media/8spTpadAS5THlYjUSf/giphy.gif",
+    "merging": "https://media.giphy.com/media/yZz8AcxJ6NpNYHbXc9/giphy.gif",
+    "uploading": "https://media.giphy.com/media/Af3gPNhmG0W0B2vchq/giphy.gif",
+    "uploading_phase2": "https://media.giphy.com/media/jTNzYBEbExHjnkvCcY/giphy.gif",
+    "uploading_phase3": "https://media.giphy.com/media/p8jkTJc6Nd1FAwtfkE/giphy.gif",
+    "default": "https://media.giphy.com/media/RDqkrKJr5XwPWxz3pa/giphy.gif"
 }
 
 SPINNER_FRAMES = ['|', '/', '-', '\\']
