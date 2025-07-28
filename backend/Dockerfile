@@ -50,6 +50,7 @@ RUN echo "✅ Python dependencies installed"
 
 RUN pip install playwright
 RUN playwright install chromium
+RUN playwright install firefox
 RUN echo "✅ Playwright installed with Chromium browser"
 
 # Always install the latest yt-dlp nightly version
