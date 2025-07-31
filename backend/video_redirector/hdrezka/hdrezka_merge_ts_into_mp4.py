@@ -8,6 +8,7 @@ from typing import Dict, Optional
 import certifi
 import aiohttp
 import ssl
+import shlex
 
 from backend.video_redirector.config import MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4
 from backend.video_redirector.utils.notify_admin import notify_admin
@@ -336,6 +337,7 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
     """Merge a single chunk M3U8 to MP4"""
     chunk_start_time = time.time()
     ffmpeg_header_str = '\\r\\n'.join(f"{k}: {v}" for k, v in headers.items())
+    quoted_headers = shlex.quote(ffmpeg_header_str)
     
     try:
         # Count segments in this chunk for progress tracking
@@ -351,7 +353,7 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
         cmd = [
             "ffmpeg",
             "-loglevel", "warning",  # Less verbose for parallel processing
-            "-headers", ffmpeg_header_str,
+            "-headers", quoted_headers,
             "-protocol_whitelist", "file,http,https,tcp,tls",
             "-i", m3u8_file,
             "-c:v", "copy",
