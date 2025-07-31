@@ -166,16 +166,17 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         absolute_segment_urls = []
         for segment_url in segment_urls:
             if segment_url.startswith('./'):
-                # Remove the './' prefix and join with base URL
+                # Remove the './' prefix and construct full URL
                 relative_path = segment_url[2:]  # Remove './'
-                absolute_url = urljoin(base_url, relative_path)
+                # For these special URLs with :hls:, we need to construct the full URL manually
+                absolute_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path.rsplit('/', 1)[0]}/{relative_path}"
                 absolute_segment_urls.append(absolute_url)
             elif segment_url.startswith('http'):
                 # Already absolute
                 absolute_segment_urls.append(segment_url)
             else:
                 # Relative URL without './' prefix
-                absolute_url = urljoin(base_url, segment_url)
+                absolute_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path.rsplit('/', 1)[0]}/{segment_url}"
                 absolute_segment_urls.append(absolute_url)
         
         logger.info(f"📋 [{task_id}] URL conversion: {len(segment_urls)} relative → {len(absolute_segment_urls)} absolute")
