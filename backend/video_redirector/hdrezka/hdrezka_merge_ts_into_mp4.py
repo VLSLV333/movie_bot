@@ -155,6 +155,34 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             if line.strip().endswith(".ts"):
                 segment_urls.append(line.strip())
         
+        # Convert relative URLs to absolute URLs
+        from urllib.parse import urljoin, urlparse
+        
+        # Extract base URL from the original m3u8_url
+        parsed_url = urlparse(m3u8_url)
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path.rsplit('/', 1)[0]}/"
+        
+        # Convert relative segment URLs to absolute URLs
+        absolute_segment_urls = []
+        for segment_url in segment_urls:
+            if segment_url.startswith('./'):
+                # Remove the './' prefix and join with base URL
+                relative_path = segment_url[2:]  # Remove './'
+                absolute_url = urljoin(base_url, relative_path)
+                absolute_segment_urls.append(absolute_url)
+            elif segment_url.startswith('http'):
+                # Already absolute
+                absolute_segment_urls.append(segment_url)
+            else:
+                # Relative URL without './' prefix
+                absolute_url = urljoin(base_url, segment_url)
+                absolute_segment_urls.append(absolute_url)
+        
+        logger.info(f"📋 [{task_id}] URL conversion: {len(segment_urls)} relative → {len(absolute_segment_urls)} absolute")
+        logger.info(f"   Base URL: {base_url}")
+        logger.info(f"   Sample relative: {segment_urls[0] if segment_urls else 'N/A'}")
+        logger.info(f"   Sample absolute: {absolute_segment_urls[0] if absolute_segment_urls else 'N/A'}")
+        
         # Log first and last 50 lines of original M3U8 for debugging
         logger.info(f"📋 [{task_id}] Original M3U8 structure analysis:")
         logger.info(f"   Total lines: {len(lines)}")
@@ -215,13 +243,21 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                 f.write("#EXT-X-MEDIA-SEQUENCE:0\n")
                 for i in range(start_idx, end_idx):
                     f.write(f"#EXTINF:10.0,\n")
-                    f.write(f"{segment_urls[i]}\n")
+                    f.write(f"{absolute_segment_urls[i]}\n")
                 f.write("#EXT-X-ENDLIST\n")
             
             # Log chunk creation details
             logger.info(f"📝 [{task_id}] Created chunk {part_num}: {temp_m3u8}")
             logger.info(f"   Segments {start_idx}-{end_idx-1} ({chunk_segments} segments)")
             logger.info(f"   Output: {temp_mp4}")
+            
+            # Debug: Log first few lines of the chunked M3U8 file
+            if part_num == 0:  # Only log for first chunk to avoid spam
+                with open(temp_m3u8, 'r') as f:
+                    chunk_lines = f.readlines()
+                logger.info(f"📋 [{task_id}] Sample chunk M3U8 content (first 10 lines):")
+                for i, line in enumerate(chunk_lines[:10], 1):
+                    logger.info(f"   {i:2d}: {line.strip()}")
             
             temp_m3u8_files.append(temp_m3u8)
             temp_mp4_files.append(temp_mp4)
@@ -339,10 +375,11 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, ffm
             stderr=asyncio.subprocess.STDOUT
         )
         
-        # Monitor chunk progress
+        # Monitor chunk progress and capture output
         processed_segments = 0
         segment_times = []
         last_segment_time = chunk_start_time
+        ffmpeg_output = []
         
         # Check if this is the representative chunk (part 0) for status tracking
         is_representative_chunk = task_id.endswith("_part0")
@@ -353,6 +390,7 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, ffm
                 if not line:
                     break
                 decoded = line.decode().strip()
+                ffmpeg_output.append(decoded)
                 
                 # Track segment processing
                 if ".ts" in decoded and ("Opening" in decoded or "Input" in decoded):
@@ -390,6 +428,10 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, ffm
             return True
         else:
             logger.error(f"❌ [{task_id}] Chunk merge failed with code {returncode}")
+            logger.error(f"❌ [{task_id}] FFmpeg command: {' '.join(cmd)}")
+            logger.error(f"❌ [{task_id}] FFmpeg output (last 20 lines):")
+            for line in ffmpeg_output[-20:]:
+                logger.error(f"   {line}")
             return False
             
     except Exception as e:
