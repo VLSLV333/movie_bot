@@ -336,8 +336,6 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
 async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, headers: Dict[str, str]) -> bool:
     """Merge a single chunk M3U8 to MP4"""
     chunk_start_time = time.time()
-    ffmpeg_header_str = '\\r\\n'.join(f"{k}: {v}" for k, v in headers.items())
-    quoted_headers = shlex.quote(ffmpeg_header_str)
     
     try:
         # Count segments in this chunk for progress tracking
@@ -347,13 +345,21 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
         
         logger.info(f"▶️ [{task_id}] Starting chunk merge: {chunk_segments} segments → {output_file}")
 
-        print(f'\n\nffmpeg_header_str: {ffmpeg_header_str}')
-        
-        # Optimized FFmpeg command for chunk processing
         cmd = [
             "ffmpeg",
             "-loglevel", "warning",  # Less verbose for parallel processing
-            "-headers", quoted_headers,
+        ]
+
+        # Add individual header options
+        if 'user-agent' in headers:
+            cmd.extend(["-user_agent", headers['user-agent']])
+        if 'referer' in headers:
+            cmd.extend(["-referer", headers['referer']])
+        if 'host' in headers:
+            cmd.extend(["-headers", f"Host: {headers['host']}"])
+        
+        # Optimized FFmpeg command for chunk processing
+        cmd.extend([
             "-protocol_whitelist", "file,http,https,tcp,tls",
             "-i", m3u8_file,
             "-c:v", "copy",
@@ -372,7 +378,7 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
             "-analyzeduration", "10M",
             "-y",
             output_file
-        ]
+        ])
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
