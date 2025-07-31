@@ -121,7 +121,6 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
     Returns: List of MP4 file paths [temp1.mp4, temp2.mp4, temp3.mp4] or None if failed
     """
     start_time = time.time()
-    ffmpeg_header_str = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
 
     # Log initial system state
     initial_metrics = get_system_metrics()
@@ -272,7 +271,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                 f"{task_id}_part{part_num}", 
                 temp_m3u8, 
                 temp_mp4_files[part_num], 
-                ffmpeg_header_str
+                headers
             )
             merge_tasks.append(task)
         
@@ -333,9 +332,10 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         
         return None
 
-async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, ffmpeg_header_str: str) -> bool:
+async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, headers: Dict[str, str]) -> bool:
     """Merge a single chunk M3U8 to MP4"""
     chunk_start_time = time.time()
+    ffmpeg_header_str = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
     
     try:
         # Count segments in this chunk for progress tracking
