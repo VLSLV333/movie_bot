@@ -29,3 +29,4 @@ polib
 psutil
 uvloop
 m3u8
+psutil
