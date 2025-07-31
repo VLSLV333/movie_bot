@@ -350,13 +350,16 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
             "-loglevel", "warning",  # Less verbose for parallel processing
         ]
 
-        # Add individual header options
+        header_str = ''
         if 'user-agent' in headers:
-            cmd.extend(["-user_agent", headers['user-agent']])
+            header_str += f"User-Agent: {headers['user-agent']}\r\n"
         if 'referer' in headers:
-            cmd.extend(["-referer", headers['referer']])
+            header_str += f"Referer: {headers['referer']}\r\n"
         if 'host' in headers:
-            cmd.extend(["-headers", f"Host: {headers['host']}"])
+            header_str += f"Host: {headers['host']}"
+
+        if header_str:
+            cmd.extend(["-headers", header_str])
         
         # Optimized FFmpeg command for chunk processing
         cmd.extend([
@@ -379,6 +382,11 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
             "-y",
             output_file
         ])
+        
+        # Log the command for debugging (without sensitive headers)
+        debug_cmd = cmd.copy()
+        if "-headers" in debug_cmd:
+            logger.debug(f"🔧 [{task_id}] FFmpeg command: {' '.join(debug_cmd)}")
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
