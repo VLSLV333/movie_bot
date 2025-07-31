@@ -20,6 +20,8 @@ status_tracker: Dict[str, Dict] = {}  # Example: {task_id: {"total": 0, "done": 
 
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4)
 
+NUM_OF_MP4_FILES_TO_CREATE = 3
+
 def get_system_metrics():
     """Get current system resource usage"""
     try:
@@ -113,14 +115,17 @@ async def monitor_system_resources(task_id: str, duration: int = 120):
     else:
         logger.info(f"✅ [{task_id}] No resource bottlenecks detected")
 
-async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) -> Optional[str]:
+async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) -> Optional[list]:
+    """
+    Parallel merge strategy: split into 3 chunks, merge in parallel, return list of MP4 files
+    Returns: List of MP4 file paths [temp1.mp4, temp2.mp4, temp3.mp4] or None if failed
+    """
     start_time = time.time()
-    output_file = os.path.join(DOWNLOAD_DIR, f"{task_id}.mp4")
     ffmpeg_header_str = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
 
     # Log initial system state
     initial_metrics = get_system_metrics()
-    logger.info(f"🚀 [{task_id}] Starting merge - System: CPU={initial_metrics.get('cpu_percent', 'N/A')}%, "
+    logger.info(f"🚀 [{task_id}] Starting parallel merge - System: CPU={initial_metrics.get('cpu_percent', 'N/A')}%, "
                 f"Memory={initial_metrics.get('memory_percent', 'N/A')}%, "
                 f"Disk={initial_metrics.get('disk_free_gb', 'N/A'):.1f}GB free")
 
@@ -150,6 +155,24 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             if line.strip().endswith(".ts"):
                 segment_urls.append(line.strip())
         
+        # Log first and last 50 lines of original M3U8 for debugging
+        logger.info(f"📋 [{task_id}] Original M3U8 structure analysis:")
+        logger.info(f"   Total lines: {len(lines)}")
+        logger.info(f"   Segment count: {segment_count}")
+        logger.info(f"   Playlist size: {len(m3u8_text)} chars")
+        
+        # Log first 50 lines
+        first_lines = lines[:50]
+        logger.info(f"   First 50 lines:")
+        for i, line in enumerate(first_lines, 1):
+            logger.info(f"     {i:2d}: {line}")
+        
+        # Log last 50 lines
+        last_lines = lines[-50:] if len(lines) > 50 else lines
+        logger.info(f"   Last {len(last_lines)} lines:")
+        for i, line in enumerate(last_lines, max(1, len(lines) - len(last_lines) + 1)):
+            logger.info(f"     {i:2d}: {line}")
+        
         # Log playlist analysis
         logger.info(f"📊 [{task_id}] Playlist analysis: {segment_count} segments, "
                    f"playlist_size={len(m3u8_text)} chars")
@@ -159,44 +182,171 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             await notify_admin(f"❌ [{task_id}] No .ts segments found in playlist")
             return None
 
-        status_tracker[task_id] = {"total": segment_count, "done": 0, "progress": 0.0}
+        chunk_size = segment_count // NUM_OF_MP4_FILES_TO_CREATE
         
-        # Enhanced FFmpeg command with performance logging
+        # Initialize status tracker for tracking one representative chunk (part 0)
+        status_tracker[task_id] = {
+            "total": chunk_size,  # Total segments in the representative chunk
+            "done": 0,            # Completed segments
+            "progress": 0.0       # Progress percentage
+        }
+        
+        logger.info(f"🔄 [{task_id}] Parallel merge: {segment_count} segments → {NUM_OF_MP4_FILES_TO_CREATE} parts "
+                   f"(~{chunk_size} segments per part)")
+        
+        # Create temporary M3U8 files for each chunk
+        temp_m3u8_files = []
+        temp_mp4_files = []
+        
+        for part_num in range(NUM_OF_MP4_FILES_TO_CREATE):
+            start_idx = part_num * chunk_size
+            end_idx = start_idx + chunk_size if part_num < NUM_OF_MP4_FILES_TO_CREATE - 1 else segment_count
+            
+            # Create temporary M3U8 for this chunk
+            temp_m3u8 = os.path.join(DOWNLOAD_DIR, f"{task_id}_part{part_num}.m3u8")
+            temp_mp4 = os.path.join(DOWNLOAD_DIR, f"{task_id}_part{part_num}.mp4")
+            
+            # Write chunk M3U8 (fast string operations)
+            chunk_segments = end_idx - start_idx
+            with open(temp_m3u8, 'w') as f:
+                f.write("#EXTM3U\n")
+                f.write("#EXT-X-VERSION:3\n")
+                f.write("#EXT-X-TARGETDURATION:10\n")
+                f.write("#EXT-X-MEDIA-SEQUENCE:0\n")
+                for i in range(start_idx, end_idx):
+                    f.write(f"#EXTINF:10.0,\n")
+                    f.write(f"{segment_urls[i]}\n")
+                f.write("#EXT-X-ENDLIST\n")
+            
+            # Log chunk creation details
+            logger.info(f"📝 [{task_id}] Created chunk {part_num}: {temp_m3u8}")
+            logger.info(f"   Segments {start_idx}-{end_idx-1} ({chunk_segments} segments)")
+            logger.info(f"   Output: {temp_mp4}")
+            
+            temp_m3u8_files.append(temp_m3u8)
+            temp_mp4_files.append(temp_mp4)
+        
+        # Start parallel merge tasks
+        logger.info(f"🚀 [{task_id}] Starting parallel merge of {NUM_OF_MP4_FILES_TO_CREATE} parts...")
+        
+        merge_tasks = []
+        for part_num, temp_m3u8 in enumerate(temp_m3u8_files):
+            task = merge_chunk_to_mp4(
+                f"{task_id}_part{part_num}", 
+                temp_m3u8, 
+                temp_mp4_files[part_num], 
+                ffmpeg_header_str
+            )
+            merge_tasks.append(task)
+        
+        # Wait for all chunks to complete
+        chunk_results = await asyncio.gather(*merge_tasks, return_exceptions=True)
+        
+        # Check for failures and update progress
+        failed_parts = []
+        completed_parts = 0
+        for i, result in enumerate(chunk_results):
+            if isinstance(result, Exception):
+                failed_parts.append(i)
+            else:
+                completed_parts += 1
+        
+        if failed_parts:
+            logger.error(f"❌ [{task_id}] Failed parts: {failed_parts}")
+            await notify_admin(f"❌ [{task_id}] Parallel merge failed on parts: {failed_parts}")
+            return None
+        
+        # Cleanup temporary M3U8 files (keep MP4 files)
+        for temp_m3u8 in temp_m3u8_files:
+            try:
+                os.remove(temp_m3u8)
+                logger.debug(f"🧹 [{task_id}] Cleaned up {temp_m3u8}")
+            except Exception as e:
+                logger.warning(f"⚠️ [{task_id}] Failed to cleanup {temp_m3u8}: {e}")
+        
+        total_time = time.time() - start_time
+        
+        # Log final results
+        successful_files = [f for f in temp_mp4_files if os.path.exists(f)]
+        total_size_mb = sum(os.path.getsize(f) / (1024 * 1024) for f in successful_files)
+        
+        logger.info(f"✅ [{task_id}] Parallel merge complete: {len(successful_files)} files, "
+                   f"total size: {total_size_mb:.1f}MB, time: {total_time:.2f}s ({total_time/60:.1f}min)")
+        
+        # Clean up status tracker
+        status_tracker.pop(task_id, None)
+        
+        return successful_files if successful_files else None
+
+    except Exception as e:
+        logger.error(f"❌ [{task_id}] Parallel merge operation failed: {e}")
+        await notify_admin(f"❌ [{task_id}] Parallel merge operation failed: {e}")
+        
+        # Clean up status tracker
+        status_tracker.pop(task_id, None)
+        
+        # Clean up any partial files on error
+        for temp_file in temp_m3u8_files + temp_mp4_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                    logger.debug(f"🧹 [{task_id}] Cleaned up partial file: {temp_file}")
+            except Exception as cleanup_e:
+                logger.warning(f"⚠️ [{task_id}] Failed to cleanup partial file {temp_file}: {cleanup_e}")
+        
+        return None
+
+async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, ffmpeg_header_str: str) -> bool:
+    """Merge a single chunk M3U8 to MP4"""
+    chunk_start_time = time.time()
+    
+    try:
+        # Count segments in this chunk for progress tracking
+        with open(m3u8_file, 'r') as f:
+            chunk_content = f.read()
+        chunk_segments = sum(1 for line in chunk_content.splitlines() if line.strip().endswith(".ts"))
+        
+        logger.info(f"▶️ [{task_id}] Starting chunk merge: {chunk_segments} segments → {output_file}")
+        
+        # Optimized FFmpeg command for chunk processing
         cmd = [
             "ffmpeg",
-            "-loglevel", "info",
+            "-loglevel", "warning",  # Less verbose for parallel processing
             "-headers", ffmpeg_header_str,
             "-protocol_whitelist", "file,http,https,tcp,tls",
-            "-i", m3u8_url,
-            "-c", "copy",
+            "-i", m3u8_file,
+            "-c:v", "copy",
+            "-c:a", "copy",
             "-bsf:a", "aac_adtstoasc",
             "-movflags", "+faststart",
+            "-threads", "2",  # Reduced threads for parallel processing
+            "-reconnect", "3",
+            "-reconnect_streamed", "3",
+            "-reconnect_delay_max", "3",
+            "-reconnect_at_eof", "1",
+            "-fflags", "+genpts+igndts",
+            "-avoid_negative_ts", "make_zero",
+            "-max_muxing_queue_size", "1024",
+            "-probesize", "1M",
+            "-analyzeduration", "10M",
             "-y",
             output_file
         ]
-
-        logger.info(f"▶️ [{task_id}] Starting ffmpeg merge for {segment_count} segments...")
-
-        ffmpeg_start = time.time()
-        
-        # Start system resource monitoring in background
-        # Estimate monitoring duration based on segment count (roughly 2-3 minutes for typical merges)
-        estimated_duration = min(180, max(60, segment_count * 0.1))  # 0.1s per segment, min 60s, max 180s
-        monitor_task = asyncio.create_task(monitor_system_resources(task_id, int(estimated_duration)))
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT
         )
-
-        ts_opening_pattern = re.compile(r"Opening '.*?\.ts'")
-        ts_input_pattern = re.compile(r"Input #\d+.*?\.ts")
         
+        # Monitor chunk progress
         processed_segments = 0
         segment_times = []
-        last_segment_time = ffmpeg_start
-
+        last_segment_time = chunk_start_time
+        
+        # Check if this is the representative chunk (part 0) for status tracking
+        is_representative_chunk = task_id.endswith("_part0")
+        
         if process.stdout:
             while True:
                 line = await process.stdout.readline()
@@ -204,98 +354,47 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                     break
                 decoded = line.decode().strip()
                 
-                # Enhanced logging for performance analysis
-                if "ts" in decoded.lower():
-                    logger.debug(f"[{task_id}] FFmpeg: {decoded}")
-                
-                if (ts_opening_pattern.search(decoded) or 
-                    ts_input_pattern.search(decoded) or
-                    ".ts" in decoded and ("Opening" in decoded or "Input" in decoded)):
+                # Track segment processing
+                if ".ts" in decoded and ("Opening" in decoded or "Input" in decoded):
                     current_time = time.time()
                     segment_duration = current_time - last_segment_time
                     segment_times.append(segment_duration)
                     last_segment_time = current_time
                     
                     processed_segments += 1
-                    tracker = status_tracker.get(task_id)
-                    if tracker:
-                        tracker["done"] = processed_segments
-                        tracker["progress"] = round((processed_segments / tracker["total"]) * 100, 1)
-                        
-                        # Log progress every 10% or every 10 segments
-                        if processed_segments % max(1, segment_count // 10) == 0 or processed_segments % 10 == 0:
-                            avg_segment_time = sum(segment_times[-10:]) / min(len(segment_times), 10)
-                            eta = (segment_count - processed_segments) * avg_segment_time
-                            logger.info(f"📈 [{task_id}] Progress: {tracker['progress']}% ({processed_segments}/{segment_count}) "
-                                      f"Avg segment: {avg_segment_time:.2f}s, ETA: {eta/60:.1f}min")
-
+                    
+                    # Update status tracker for representative chunk only
+                    if is_representative_chunk:
+                        tracker = status_tracker.get(task_id.replace("_part0", ""))
+                        if tracker:
+                            tracker["done"] = processed_segments
+                            tracker["progress"] = round((processed_segments / tracker["total"]) * 100, 1)
+                            
+                            # Log progress every 10% or every 10 segments
+                            if processed_segments % max(1, chunk_segments // 10) == 0 or processed_segments % 10 == 0:
+                                avg_segment_time = sum(segment_times[-10:]) / min(len(segment_times), 10)
+                                eta = (chunk_segments - processed_segments) * avg_segment_time
+                                logger.info(f"📈 [{task_id}] Progress: {tracker['progress']}% ({processed_segments}/{chunk_segments}) "
+                                          f"Avg segment: {avg_segment_time:.2f}s, ETA: {eta/60:.1f}min")
+                    
+                    # Debug logging for all chunks
+                    if processed_segments % 50 == 0:  # Log every 50 segments
+                        logger.debug(f"📈 [{task_id}] Progress: {processed_segments}/{chunk_segments} segments")
+        
         returncode = await process.wait()
-        total_ffmpeg_time = time.time() - ffmpeg_start
-        total_time = time.time() - start_time
-
-        # Cancel monitoring task and wait for it to complete
-        monitor_task.cancel()
-        try:
-            await monitor_task
-        except asyncio.CancelledError:
-            pass
-
-        # Final performance analysis
-        if segment_times:
-            avg_segment_time = sum(segment_times) / len(segment_times)
-            min_segment_time = min(segment_times)
-            max_segment_time = max(segment_times)
-            logger.info(f"📊 [{task_id}] Performance Summary:")
-            logger.info(f"   Total time: {total_time:.2f}s ({total_time/60:.1f}min)")
-            logger.info(f"   FFmpeg time: {total_ffmpeg_time:.2f}s")
-            logger.info(f"   M3U8 fetch: {m3u8_time:.2f}s")
-            logger.info(f"   Segment processing: {len(segment_times)} segments")
-            logger.info(f"   Avg segment time: {avg_segment_time:.2f}s")
-            logger.info(f"   Min/Max segment time: {min_segment_time:.2f}s / {max_segment_time:.2f}s")
-            logger.info(f"   Throughput: {segment_count/total_ffmpeg_time:.2f} segments/sec")
-
+        chunk_time = time.time() - chunk_start_time
+        
         if returncode == 0:
-            # Get final file size
             file_size_mb = os.path.getsize(output_file) / (1024 * 1024) if os.path.exists(output_file) else 0
-            logger.info(f"✅ [{task_id}] Merge complete: {output_file} ({file_size_mb:.1f}MB)")
-            status_tracker.pop(task_id, None)
-            return output_file
+            logger.info(f"✅ [{task_id}] Chunk complete: {output_file} ({file_size_mb:.1f}MB, {chunk_time:.2f}s)")
+            return True
         else:
-            logger.error(f"❌ [{task_id}] FFmpeg merge failed with code {returncode}")
-            await notify_admin(f"❌ [{task_id}] FFmpeg merge failed with return code {returncode}")
+            logger.error(f"❌ [{task_id}] Chunk merge failed with code {returncode}")
+            return False
             
-            if os.path.exists(output_file):
-                try:
-                    os.remove(output_file)
-                    logger.info(f"🧹 [{task_id}] Removed partial output file after failure.")
-                except Exception as e:
-                    logger.warning(f"⚠️ [{task_id}] Failed to remove partial file: {e}")
-
-            try:
-                del status_tracker[task_id]
-            except KeyError:
-                pass
-
-            return None
-
     except Exception as e:
-        logger.error(f"❌ [{task_id}] Merge operation failed: {e}")
-        await notify_admin(f"❌ [{task_id}] Merge operation failed: {e}")
-        
-        # Clean up partial file on error
-        if os.path.exists(output_file):
-            try:
-                os.remove(output_file)
-                logger.info(f"🧹 [{task_id}] Removed partial output file after error.")
-            except Exception as cleanup_e:
-                logger.warning(f"⚠️ [{task_id}] Failed to remove partial file: {cleanup_e}")
-
-        try:
-            del status_tracker[task_id]
-        except KeyError:
-            pass
-        
-        return None
+        logger.error(f"❌ [{task_id}] Chunk merge failed: {e}")
+        return False
     
 def get_task_progress(task_id: str) -> Dict:
     if task_id not in status_tracker:
@@ -304,8 +403,12 @@ def get_task_progress(task_id: str) -> Dict:
             "message": f"No active download task found with ID: {task_id}",
         }
 
+    tracker = status_tracker[task_id]
+    
     return {
         "status": "in_progress",
-        "message": "Download task is running.",
-        **status_tracker[task_id]
+        "message": f"Parallel merge in progress: {tracker['done']}/{tracker['total']} segments completed in representative chunk.",
+        "total": tracker.get("total", 0),
+        "done": tracker.get("done", 0),
+        "progress": tracker.get("progress", 0.0)
     }

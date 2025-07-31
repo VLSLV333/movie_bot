@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -35,6 +36,9 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
 
         if not output_path:
             raise Exception("Failed to merge video segments into MP4 file - no output generated")
+
+        print('SLEEPING 30 SECS FOR TEST REMOVE LATER')
+        await asyncio.sleep(30)
 
         await redis.set(f"download:{task_id}:status", "uploading", ex=3600)
         upload_result: Optional[dict] = None
