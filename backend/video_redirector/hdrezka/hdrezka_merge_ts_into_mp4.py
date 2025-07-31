@@ -335,7 +335,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
 async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, headers: Dict[str, str]) -> bool:
     """Merge a single chunk M3U8 to MP4"""
     chunk_start_time = time.time()
-    ffmpeg_header_str = ''.join(f"{k}: {v}\r\n" for k, v in headers.items())
+    ffmpeg_header_str = '\\r\\n'.join(f"{k}: {v}" for k, v in headers.items())
     
     try:
         # Count segments in this chunk for progress tracking
@@ -344,6 +344,8 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
         chunk_segments = sum(1 for line in chunk_content.splitlines() if line.strip().endswith(".ts"))
         
         logger.info(f"▶️ [{task_id}] Starting chunk merge: {chunk_segments} segments → {output_file}")
+
+        print(f'\n\nffmpeg_header_str: {ffmpeg_header_str}')
         
         # Optimized FFmpeg command for chunk processing
         cmd = [
