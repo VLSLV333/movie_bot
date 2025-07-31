@@ -26,15 +26,92 @@ def get_system_metrics():
         cpu_percent = psutil.cpu_percent(interval=0.1)
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage(DOWNLOAD_DIR)
+        
+        # Get disk I/O stats
+        disk_io = psutil.disk_io_counters()
+        
         return {
             "cpu_percent": cpu_percent,
             "memory_percent": memory.percent,
+            "memory_available_gb": memory.available / (1024**3),
             "disk_free_gb": disk.free / (1024**3),
-            "disk_percent": (disk.used / disk.total) * 100
+            "disk_percent": (disk.used / disk.total) * 100,
+            "disk_read_bytes": disk_io.read_bytes if disk_io else 0,
+            "disk_write_bytes": disk_io.write_bytes if disk_io else 0,
+            "disk_read_count": disk_io.read_count if disk_io else 0,
+            "disk_write_count": disk_io.write_count if disk_io else 0
         }
     except Exception as e:
         logger.warning(f"Failed to get system metrics: {e}")
         return {}
+
+async def monitor_system_resources(task_id: str, duration: int = 120):
+    """Monitor system resources during merge process"""
+    start_time = time.time()
+    initial_metrics = get_system_metrics()
+    peak_cpu = 0
+    peak_memory = 0
+    total_disk_writes = 0
+    monitoring_samples = 0
+    
+    logger.info(f"🔍 [{task_id}] Starting system resource monitoring for {duration}s")
+    logger.info(f"   Initial - CPU: {initial_metrics.get('cpu_percent', 'N/A')}%, "
+                f"Memory: {initial_metrics.get('memory_percent', 'N/A')}%, "
+                f"Disk free: {initial_metrics.get('disk_free_gb', 'N/A'):.1f}GB")
+    
+    while time.time() - start_time < duration:
+        try:
+            metrics = get_system_metrics()
+            cpu = metrics.get('cpu_percent', 0)
+            memory = metrics.get('memory_percent', 0)
+            disk_writes = metrics.get('disk_write_bytes', 0)
+            
+            peak_cpu = max(peak_cpu, cpu)
+            peak_memory = max(peak_memory, memory)
+            total_disk_writes = disk_writes
+            monitoring_samples += 1
+            
+            # Log if resources are high
+            if cpu > 80 or memory > 80:
+                logger.warning(f"⚠️ [{task_id}] High resource usage - CPU: {cpu}%, Memory: {memory}%")
+            
+            await asyncio.sleep(5)  # Check every 5 seconds
+            
+        except Exception as e:
+            logger.warning(f"Failed to monitor resources: {e}")
+            await asyncio.sleep(5)
+    
+    # Final resource summary
+    final_metrics = get_system_metrics()
+    disk_writes_delta = final_metrics.get('disk_write_bytes', 0) - initial_metrics.get('disk_write_bytes', 0)
+    
+    # Calculate disk I/O speed
+    write_speed_mbps = 0
+    if disk_writes_delta > 0:
+        write_speed_mbps = (disk_writes_delta / (1024**2)) / (duration / 60)  # MB per minute
+    
+    logger.info(f"📊 [{task_id}] Resource monitoring summary:")
+    logger.info(f"   Peak CPU: {peak_cpu}%")
+    logger.info(f"   Peak Memory: {peak_memory}%")
+    logger.info(f"   Disk writes: {disk_writes_delta / (1024**2):.1f}MB")
+    logger.info(f"   Disk I/O speed: {write_speed_mbps:.1f}MB/min")
+    logger.info(f"   Monitoring samples: {monitoring_samples}")
+    logger.info(f"   Final - CPU: {final_metrics.get('cpu_percent', 'N/A')}%, "
+                f"Memory: {final_metrics.get('memory_percent', 'N/A')}%")
+    
+    # Determine if resources were bottlenecks
+    bottlenecks = []
+    if peak_cpu > 80:
+        bottlenecks.append(f"CPU (peak: {peak_cpu}%)")
+    if peak_memory > 80:
+        bottlenecks.append(f"Memory (peak: {peak_memory}%)")
+    if disk_writes_delta > 0 and write_speed_mbps < 100:  # Less than 100 MB/min
+        bottlenecks.append(f"Disk I/O (speed: {write_speed_mbps:.1f}MB/min)")
+    
+    if bottlenecks:
+        logger.warning(f"🚨 [{task_id}] Potential resource bottlenecks detected: {', '.join(bottlenecks)}")
+    else:
+        logger.info(f"✅ [{task_id}] No resource bottlenecks detected")
 
 async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) -> Optional[str]:
     start_time = time.time()
@@ -101,6 +178,12 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         logger.info(f"▶️ [{task_id}] Starting ffmpeg merge for {segment_count} segments...")
 
         ffmpeg_start = time.time()
+        
+        # Start system resource monitoring in background
+        # Estimate monitoring duration based on segment count (roughly 2-3 minutes for typical merges)
+        estimated_duration = min(180, max(60, segment_count * 0.1))  # 0.1s per segment, min 60s, max 180s
+        monitor_task = asyncio.create_task(monitor_system_resources(task_id, int(estimated_duration)))
+        
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -149,6 +232,13 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         returncode = await process.wait()
         total_ffmpeg_time = time.time() - ffmpeg_start
         total_time = time.time() - start_time
+
+        # Cancel monitoring task and wait for it to complete
+        monitor_task.cancel()
+        try:
+            await monitor_task
+        except asyncio.CancelledError:
+            pass
 
         # Final performance analysis
         if segment_times:
