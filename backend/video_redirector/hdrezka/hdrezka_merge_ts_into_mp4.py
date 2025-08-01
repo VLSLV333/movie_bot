@@ -179,33 +179,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                 absolute_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path.rsplit('/', 1)[0]}/{segment_url}"
                 absolute_segment_urls.append(absolute_url)
         
-        logger.info(f"📋 [{task_id}] URL conversion: {len(segment_urls)} relative → {len(absolute_segment_urls)} absolute")
-        logger.info(f"   Base URL: {base_url}")
-        logger.info(f"   Sample relative: {segment_urls[0] if segment_urls else 'N/A'}")
-        logger.info(f"   Sample absolute: {absolute_segment_urls[0] if absolute_segment_urls else 'N/A'}")
-        
-        # Log first and last 50 lines of original M3U8 for debugging
-        logger.info(f"📋 [{task_id}] Original M3U8 structure analysis:")
-        logger.info(f"   Total lines: {len(lines)}")
-        logger.info(f"   Segment count: {segment_count}")
-        logger.info(f"   Playlist size: {len(m3u8_text)} chars")
-        
-        # Log first 50 lines
-        first_lines = lines[:50]
-        logger.info(f"   First 50 lines:")
-        for i, line in enumerate(first_lines, 1):
-            logger.info(f"     {i:2d}: {line}")
-        
-        # Log last 50 lines
-        last_lines = lines[-50:] if len(lines) > 50 else lines
-        logger.info(f"   Last {len(last_lines)} lines:")
-        for i, line in enumerate(last_lines, max(1, len(lines) - len(last_lines) + 1)):
-            logger.info(f"     {i:2d}: {line}")
-        
-        # Log playlist analysis
-        logger.info(f"📊 [{task_id}] Playlist analysis: {segment_count} segments, "
-                   f"playlist_size={len(m3u8_text)} chars")
-        
+
         if segment_count == 0:
             logger.error(f"❌ [{task_id}] No .ts segments found in playlist")
             await notify_admin(f"❌ [{task_id}] No .ts segments found in playlist")
@@ -350,11 +324,6 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
             "-protocol_whitelist", "file,http,https,tcp,tls",
         ]
 
-        # if 'user-agent' in headers:
-        #     cmd.extend(["-http_user_agent", headers['user-agent']])
-        # if 'referer' in headers:
-        #     cmd.extend(["-referer", headers['referer']])
-
         # Optimized FFmpeg command for chunk processing
         cmd.extend([
             "-i", m3u8_file,
@@ -375,11 +344,6 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
             "-y",
             output_file
         ])
-        
-        # Log the command for debugging (without sensitive headers)
-        debug_cmd = cmd.copy()
-        if "-headers" in debug_cmd:
-            logger.debug(f"🔧 [{task_id}] FFmpeg command: {' '.join(debug_cmd)}")
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -450,15 +414,6 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
         logger.error(f"❌ [{task_id}] Chunk merge failed: {e}")
         return False
     
-    finally:
-        # Clean up temporary header file
-        if temp_header_file and os.path.exists(temp_header_file):
-            try:
-                os.remove(temp_header_file)
-                logger.debug(f"🧹 [{task_id}] Cleaned up header file: {temp_header_file}")
-            except Exception as e:
-                logger.warning(f"⚠️ [{task_id}] Failed to cleanup header file {temp_header_file}: {e}")
-
 def get_task_progress(task_id: str) -> Dict:
     if task_id not in status_tracker:
         return {
