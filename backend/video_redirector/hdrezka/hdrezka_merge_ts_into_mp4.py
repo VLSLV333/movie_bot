@@ -351,13 +351,15 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
             "-protocol_whitelist", "file,http,https,tcp,tls",
         ]
 
-        header_str = ''
+        header_lines = []
         if 'user-agent' in headers:
-            header_str += f"User-Agent: {headers['user-agent']}\r\n"
+            header_lines.append(f"User-Agent: {headers['user-agent']}")
         if 'referer' in headers:
-            header_str += f"Referer: {headers['referer']}\r\n"
+            header_lines.append(f"Referer: {headers['referer']}")
         if 'host' in headers:
-            header_str += f"Host: {headers['host']}\r\n"
+            header_lines.append(f"Host: {headers['host']}")
+
+        header_str = '\r\n'.join(header_lines) + '\r\n'
 
         if header_str:
             cmd.extend(["-headers", header_str])
