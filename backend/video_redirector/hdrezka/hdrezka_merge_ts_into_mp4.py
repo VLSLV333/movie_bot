@@ -336,8 +336,6 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
 async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, headers: Dict[str, str]) -> bool:
     """Merge a single chunk M3U8 to MP4"""
     chunk_start_time = time.time()
-    temp_header_file = None
-    
     try:
         # Count segments in this chunk for progress tracking
         with open(m3u8_file, 'r') as f:
@@ -352,24 +350,11 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
             "-protocol_whitelist", "file,http,https,tcp,tls",
         ]
 
-        # Create temporary header file if headers are provided
-        if headers:
-            temp_header_file = os.path.join(DOWNLOAD_DIR, f"{task_id}_headers.txt")
-            
-            # Write headers to temporary file
-            with open(temp_header_file, 'w') as f:
-                for key, value in headers.items():
-                    f.write(f"{key}: {value}\n")
-            
-            logger.info(f"📝 [{task_id}] Created header file: {temp_header_file}")
-            
-            # Log header file content for debugging
-            with open(temp_header_file, 'r') as f:
-                header_content = f.read().strip()
-            logger.info(f"📋 [{task_id}] Header file content:\n{header_content}")
-            
-            cmd.extend(["-headers", f"@{temp_header_file}"])
-        
+        if 'user-agent' in headers:
+            cmd.extend(["-user_agent", headers['user-agent']])
+        if 'referer' in headers:
+            cmd.extend(["-referer", headers['referer']])
+
         # Optimized FFmpeg command for chunk processing
         cmd.extend([
             "-i", m3u8_file,
