@@ -133,8 +133,9 @@ async def monitor_parallel_merge_resources(task_id: str, merge_tasks: list, temp
             if cpu > 80 or memory > 80:
                 logger.warning(f"⚠️ [{task_id}] High resource usage - CPU: {cpu:.1f}%, Memory: {memory:.1f}%")
             
-            # Stop monitoring if all tasks are complete
+            # If all tasks are done, wait a bit more for final metrics then exit
             if all_complete:
+                await asyncio.sleep(2)  # Wait 2 seconds for final metrics
                 break
                 
             await asyncio.sleep(check_interval)
@@ -311,11 +312,13 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         
         merge_tasks = []
         for part_num, temp_m3u8 in enumerate(temp_m3u8_files):
-            task = merge_chunk_to_mp4(
-                f"{task_id}_part{part_num}", 
-                temp_m3u8, 
-                temp_mp4_files[part_num], 
-                headers
+            task = asyncio.create_task(
+                merge_chunk_to_mp4(
+                    f"{task_id}_part{part_num}", 
+                    temp_m3u8, 
+                    temp_mp4_files[part_num], 
+                    headers
+                )
             )
             merge_tasks.append(task)
         
