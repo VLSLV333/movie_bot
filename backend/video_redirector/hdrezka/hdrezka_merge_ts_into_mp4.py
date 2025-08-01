@@ -350,10 +350,10 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
             "-protocol_whitelist", "file,http,https,tcp,tls",
         ]
 
-        if 'user-agent' in headers:
-            cmd.extend(["-http_user_agent", headers['user-agent']])
-        if 'referer' in headers:
-            cmd.extend(["-referer", headers['referer']])
+        # if 'user-agent' in headers:
+        #     cmd.extend(["-http_user_agent", headers['user-agent']])
+        # if 'referer' in headers:
+        #     cmd.extend(["-referer", headers['referer']])
 
         # Optimized FFmpeg command for chunk processing
         cmd.extend([
