@@ -59,7 +59,7 @@ async def monitor_parallel_merge_resources(task_id: str, merge_tasks: list, temp
     initial_disk_reads = initial_metrics.get('disk_read_bytes', 0)
     monitoring_samples = 0
 
-    logger.info(f"🔍 [{task_id}] Starting parallel merge resource monitoring")
+    logger.debug(f"🔍 [{task_id}] Starting parallel merge resource monitoring")
     logger.info(f"   Initial - CPU: {initial_metrics.get('cpu_percent', 'N/A')}%, "
                 f"Memory: {initial_metrics.get('memory_percent', 'N/A')}%, "
                 f"Disk free: {initial_metrics.get('disk_free_gb', 'N/A'):.1f}GB")
@@ -178,7 +178,7 @@ async def monitor_parallel_merge_resources(task_id: str, merge_tasks: list, temp
     logger.info(f"   Monitoring samples: {monitoring_samples}")
     logger.info(f"   Final - CPU: {final_metrics.get('cpu_percent', 'N/A')}%, "
                 f"Memory: {final_metrics.get('memory_percent', 'N/A')}%")
-                
+
     return {
         "duration": total_time,
         "peak_cpu": peak_cpu,
@@ -264,7 +264,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             "progress": 0.0       # Progress percentage
         }
         
-        logger.info(f"🔄 [{task_id}] Parallel merge: {segment_count} segments → {NUM_OF_MP4_FILES_TO_CREATE} parts "
+        logger.debug(f"🔄 [{task_id}] Parallel merge: {segment_count} segments → {NUM_OF_MP4_FILES_TO_CREATE} parts "
                    f"(~{chunk_size} segments per part)")
         
         # Create temporary M3U8 files for each chunk
@@ -306,10 +306,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             
             temp_m3u8_files.append(temp_m3u8)
             temp_mp4_files.append(temp_mp4)
-        
-        # Start parallel merge tasks
-        logger.info(f"🚀 [{task_id}] Starting parallel merge of {NUM_OF_MP4_FILES_TO_CREATE} parts...")
-        
+
         merge_tasks = []
         for part_num, temp_m3u8 in enumerate(temp_m3u8_files):
             task = asyncio.create_task(
@@ -364,13 +361,6 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         logger.info(f"✅ [{task_id}] Parallel merge complete: {len(successful_files)} files, "
                    f"total size: {total_size_mb:.1f}MB, time: {total_time:.2f}s ({total_time/60:.1f}min)")
         
-        # Log monitoring summary if available
-        if monitoring_results:
-            logger.info(f"📊 [{task_id}] Performance summary:")
-            logger.info(f"   Peak CPU: {monitoring_results.get('peak_cpu', 'N/A'):.1f}%")
-            logger.info(f"   Peak Memory: {monitoring_results.get('peak_memory', 'N/A'):.1f}%")
-            logger.info(f"   Avg write speed: {monitoring_results.get('avg_write_speed_mbps', 'N/A'):.1f}MB/min")
-        
         # Clean up status tracker
         status_tracker.pop(task_id, None)
         
@@ -403,7 +393,7 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
             chunk_content = f.read()
         chunk_segments = sum(1 for line in chunk_content.splitlines() if line.strip().endswith(".ts"))
         
-        logger.info(f"▶️ [{task_id}] Starting chunk merge: {chunk_segments} segments → {output_file}")
+        logger.debug(f"▶️ [{task_id}] Starting chunk merge: {chunk_segments} segments → {output_file}")
 
         cmd = [
             "ffmpeg",
