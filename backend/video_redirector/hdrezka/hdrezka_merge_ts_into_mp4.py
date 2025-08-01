@@ -1,6 +1,5 @@
 import os
 import asyncio
-import re
 import logging
 import time
 import psutil
@@ -8,7 +7,6 @@ from typing import Dict, Optional
 import certifi
 import aiohttp
 import ssl
-import shlex
 
 from backend.video_redirector.config import MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4
 from backend.video_redirector.utils.notify_admin import notify_admin
@@ -48,73 +46,145 @@ def get_system_metrics():
         logger.warning(f"Failed to get system metrics: {e}")
         return {}
 
-async def monitor_system_resources(task_id: str, duration: int = 120):
-    """Monitor system resources during merge process"""
+async def monitor_parallel_merge_resources(task_id: str, merge_tasks: list, temp_mp4_files: list):
+    """
+    Monitor system resources during parallel merge process
+    Tracks CPU, Memory, Disk I/O, and estimates download speeds
+    """
     start_time = time.time()
     initial_metrics = get_system_metrics()
     peak_cpu = 0
     peak_memory = 0
-    total_disk_writes = 0
+    initial_disk_writes = initial_metrics.get('disk_write_bytes', 0)
+    initial_disk_reads = initial_metrics.get('disk_read_bytes', 0)
     monitoring_samples = 0
-    
-    logger.info(f"🔍 [{task_id}] Starting system resource monitoring for {duration}s")
+
+    logger.info(f"🔍 [{task_id}] Starting parallel merge resource monitoring")
     logger.info(f"   Initial - CPU: {initial_metrics.get('cpu_percent', 'N/A')}%, "
                 f"Memory: {initial_metrics.get('memory_percent', 'N/A')}%, "
                 f"Disk free: {initial_metrics.get('disk_free_gb', 'N/A'):.1f}GB")
     
-    while time.time() - start_time < duration:
+    # Monitor until all tasks complete or timeout (30 minutes)
+    timeout = 1800  # 30 minutes
+    check_interval = 10  # Check every 10 seconds
+    
+    while time.time() - start_time < timeout:
         try:
+            # Check if all merge tasks are complete
+            all_complete = all(task.done() for task in merge_tasks)
+            
+            # Get current system metrics
             metrics = get_system_metrics()
             cpu = metrics.get('cpu_percent', 0)
             memory = metrics.get('memory_percent', 0)
-            disk_writes = metrics.get('disk_write_bytes', 0)
+            current_disk_writes = metrics.get('disk_write_bytes', 0)
+            current_disk_reads = metrics.get('disk_read_bytes', 0)
             
+            # Update peaks
             peak_cpu = max(peak_cpu, cpu)
             peak_memory = max(peak_memory, memory)
-            total_disk_writes = disk_writes
             monitoring_samples += 1
             
-            # Log if resources are high
-            if cpu > 80 or memory > 80:
-                logger.warning(f"⚠️ [{task_id}] High resource usage - CPU: {cpu}%, Memory: {memory}%")
+            # Calculate disk I/O deltas
+            disk_writes_delta = current_disk_writes - initial_disk_writes
+            disk_reads_delta = current_disk_reads - initial_disk_reads
             
-            await asyncio.sleep(5)  # Check every 5 seconds
+            # Calculate current file sizes and total written
+            current_total_size = 0
+            current_file_sizes = {}
+            for file_path in temp_mp4_files:
+                if os.path.exists(file_path):
+                    size = os.path.getsize(file_path)
+                    current_file_sizes[file_path] = size
+                    current_total_size += size
+                else:
+                    current_file_sizes[file_path] = 0
+            
+            # Calculate write speeds
+            elapsed_minutes = (time.time() - start_time) / 60
+            total_written_mb = current_total_size / (1024 * 1024)
+            write_speed_mbps = total_written_mb / elapsed_minutes if elapsed_minutes > 0 else 0
+            
+            # Calculate disk I/O speed
+            disk_write_speed_mbps = (disk_writes_delta / (1024**2)) / elapsed_minutes if elapsed_minutes > 0 else 0
+            
+            # Log progress every 30 seconds or when resources are high
+            should_log = (
+                monitoring_samples % 3 == 0 or  # Every 30 seconds (3 * 10s)
+                cpu > 70 or memory > 70 or  # High resource usage
+                all_complete  # Final log when complete
+            )
+            
+            if should_log:
+                logger.info(f"📊 [{task_id}] Merge progress - "
+                           f"CPU: {cpu:.1f}%, Memory: {memory:.1f}%, "
+                           f"Written: {total_written_mb:.1f}MB, "
+                           f"Speed: {write_speed_mbps:.1f}MB/min, "
+                           f"Disk I/O: {disk_write_speed_mbps:.1f}MB/min")
+                
+                # Log individual file progress
+                for i, file_path in enumerate(temp_mp4_files):
+                    if os.path.exists(file_path):
+                        current_size = current_file_sizes[file_path]
+                        size_mb = current_size / (1024 * 1024)
+                        logger.debug(f"   Part {i}: {size_mb:.1f}MB")
+            
+            # Log warnings for high resource usage
+            if cpu > 80 or memory > 80:
+                logger.warning(f"⚠️ [{task_id}] High resource usage - CPU: {cpu:.1f}%, Memory: {memory:.1f}%")
+            
+            # Stop monitoring if all tasks are complete
+            if all_complete:
+                break
+                
+            await asyncio.sleep(check_interval)
             
         except Exception as e:
-            logger.warning(f"Failed to monitor resources: {e}")
-            await asyncio.sleep(5)
+            logger.warning(f"⚠️ [{task_id}] Failed to monitor resources: {e}")
+            await asyncio.sleep(check_interval)
     
     # Final resource summary
     final_metrics = get_system_metrics()
-    disk_writes_delta = final_metrics.get('disk_write_bytes', 0) - initial_metrics.get('disk_write_bytes', 0)
+    total_time = time.time() - start_time
+    final_disk_writes = final_metrics.get('disk_write_bytes', 0)
+    final_disk_reads = final_metrics.get('disk_read_bytes', 0)
     
-    # Calculate disk I/O speed
-    write_speed_mbps = 0
-    if disk_writes_delta > 0:
-        write_speed_mbps = (disk_writes_delta / (1024**2)) / (duration / 60)  # MB per minute
+    # Calculate final statistics
+    total_disk_writes = final_disk_writes - initial_disk_writes
+    total_disk_reads = final_disk_reads - initial_disk_reads
     
-    logger.info(f"📊 [{task_id}] Resource monitoring summary:")
-    logger.info(f"   Peak CPU: {peak_cpu}%")
-    logger.info(f"   Peak Memory: {peak_memory}%")
-    logger.info(f"   Disk writes: {disk_writes_delta / (1024**2):.1f}MB")
-    logger.info(f"   Disk I/O speed: {write_speed_mbps:.1f}MB/min")
+    # Get final file sizes
+    final_total_size = 0
+    final_file_sizes = {}
+    for file_path in temp_mp4_files:
+        if os.path.exists(file_path):
+            size = os.path.getsize(file_path)
+            final_file_sizes[file_path] = size
+            final_total_size += size
+    
+    total_written_mb = final_total_size / (1024 * 1024)
+    avg_write_speed_mbps = total_written_mb / (total_time / 60) if total_time > 0 else 0
+    avg_disk_write_speed_mbps = (total_disk_writes / (1024**2)) / (total_time / 60) if total_time > 0 else 0
+    
+    logger.info(f"📊 [{task_id}] Parallel merge resource monitoring summary:")
+    logger.info(f"   Duration: {total_time:.1f}s ({total_time/60:.1f}min)")
+    logger.info(f"   Peak CPU: {peak_cpu:.1f}%")
+    logger.info(f"   Peak Memory: {peak_memory:.1f}%")
+    logger.info(f"   Total written: {total_written_mb:.1f}MB")
+    logger.info(f"   Average write speed: {avg_write_speed_mbps:.1f}MB/min")
+    logger.info(f"   Disk writes: {total_disk_writes / (1024**2):.1f}MB")
+    logger.info(f"   Disk I/O speed: {avg_disk_write_speed_mbps:.1f}MB/min")
     logger.info(f"   Monitoring samples: {monitoring_samples}")
     logger.info(f"   Final - CPU: {final_metrics.get('cpu_percent', 'N/A')}%, "
                 f"Memory: {final_metrics.get('memory_percent', 'N/A')}%")
-    
-    # Determine if resources were bottlenecks
-    bottlenecks = []
-    if peak_cpu > 80:
-        bottlenecks.append(f"CPU (peak: {peak_cpu}%)")
-    if peak_memory > 80:
-        bottlenecks.append(f"Memory (peak: {peak_memory}%)")
-    if disk_writes_delta > 0 and write_speed_mbps < 100:  # Less than 100 MB/min
-        bottlenecks.append(f"Disk I/O (speed: {write_speed_mbps:.1f}MB/min)")
-    
-    if bottlenecks:
-        logger.warning(f"🚨 [{task_id}] Potential resource bottlenecks detected: {', '.join(bottlenecks)}")
-    else:
-        logger.info(f"✅ [{task_id}] No resource bottlenecks detected")
+                
+    return {
+        "duration": total_time,
+        "peak_cpu": peak_cpu,
+        "peak_memory": peak_memory,
+        "total_written_mb": total_written_mb,
+        "avg_write_speed_mbps": avg_write_speed_mbps,
+    }
 
 async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) -> Optional[list]:
     """
@@ -138,7 +208,6 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                     async with session.get(m3u8_url, headers=headers, ssl=ssl_context) as resp:
                         m3u8_text = await resp.text()
             m3u8_time = time.time() - m3u8_start
-            logger.info(f"📋 [{task_id}] M3U8 fetch: {m3u8_time:.2f}s")
     except Exception as e:
         logger.error(f"❌ [{task_id}] Failed to fetch m3u8 file: {e}")
         await notify_admin(f"❌ [{task_id}] Failed to fetch m3u8 file: {e}")
@@ -222,17 +291,17 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                 f.write("#EXT-X-ENDLIST\n")
             
             # Log chunk creation details
-            logger.info(f"📝 [{task_id}] Created chunk {part_num}: {temp_m3u8}")
-            logger.info(f"   Segments {start_idx}-{end_idx-1} ({chunk_segments} segments)")
-            logger.info(f"   Output: {temp_mp4}")
+            logger.debug(f"📝 [{task_id}] Created chunk {part_num}: {temp_m3u8}")
+            logger.debug(f"   Segments {start_idx}-{end_idx-1} ({chunk_segments} segments)")
+            logger.debug(f"   Output: {temp_mp4}")
             
             # Debug: Log first few lines of the chunked M3U8 file
             if part_num == 0:  # Only log for first chunk to avoid spam
                 with open(temp_m3u8, 'r') as f:
                     chunk_lines = f.readlines()
-                logger.info(f"📋 [{task_id}] Sample chunk M3U8 content (first 10 lines):")
+                logger.debug(f"📋 [{task_id}] Sample chunk M3U8 content (first 10 lines):")
                 for i, line in enumerate(chunk_lines[:10], 1):
-                    logger.info(f"   {i:2d}: {line.strip()}")
+                    logger.debug(f"   {i:2d}: {line.strip()}")
             
             temp_m3u8_files.append(temp_m3u8)
             temp_mp4_files.append(temp_mp4)
@@ -250,8 +319,16 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             )
             merge_tasks.append(task)
         
+        # Start resource monitoring in parallel with merge tasks
+        monitoring_task = asyncio.create_task(
+            monitor_parallel_merge_resources(task_id, merge_tasks, temp_mp4_files)
+        )
+        
         # Wait for all chunks to complete
         chunk_results = await asyncio.gather(*merge_tasks, return_exceptions=True)
+        
+        # Wait for monitoring to complete and get results
+        monitoring_results = await monitoring_task
         
         # Check for failures and update progress
         failed_parts = []
@@ -283,6 +360,13 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
         
         logger.info(f"✅ [{task_id}] Parallel merge complete: {len(successful_files)} files, "
                    f"total size: {total_size_mb:.1f}MB, time: {total_time:.2f}s ({total_time/60:.1f}min)")
+        
+        # Log monitoring summary if available
+        if monitoring_results:
+            logger.info(f"📊 [{task_id}] Performance summary:")
+            logger.info(f"   Peak CPU: {monitoring_results.get('peak_cpu', 'N/A'):.1f}%")
+            logger.info(f"   Peak Memory: {monitoring_results.get('peak_memory', 'N/A'):.1f}%")
+            logger.info(f"   Avg write speed: {monitoring_results.get('avg_write_speed_mbps', 'N/A'):.1f}MB/min")
         
         # Clean up status tracker
         status_tracker.pop(task_id, None)
