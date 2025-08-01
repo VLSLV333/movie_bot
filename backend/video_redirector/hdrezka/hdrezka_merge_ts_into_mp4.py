@@ -336,6 +336,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
 async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, headers: Dict[str, str]) -> bool:
     """Merge a single chunk M3U8 to MP4"""
     chunk_start_time = time.time()
+    temp_header_file = None
     
     try:
         # Count segments in this chunk for progress tracking
@@ -351,18 +352,23 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
             "-protocol_whitelist", "file,http,https,tcp,tls",
         ]
 
-        header_lines = []
-        if 'user-agent' in headers:
-            header_lines.append(f"User-Agent: {headers['user-agent']}")
-        if 'referer' in headers:
-            header_lines.append(f"Referer: {headers['referer']}")
-        if 'host' in headers:
-            header_lines.append(f"Host: {headers['host']}")
-
-        header_str = '\\r\\n'.join(header_lines) + '\\r\\n'
-
-        if header_str:
-            cmd.extend(["-headers", header_str])
+        # Create temporary header file if headers are provided
+        if headers:
+            temp_header_file = os.path.join(DOWNLOAD_DIR, f"{task_id}_headers.txt")
+            
+            # Write headers to temporary file
+            with open(temp_header_file, 'w') as f:
+                for key, value in headers.items():
+                    f.write(f"{key}: {value}\n")
+            
+            logger.info(f"📝 [{task_id}] Created header file: {temp_header_file}")
+            
+            # Log header file content for debugging
+            with open(temp_header_file, 'r') as f:
+                header_content = f.read().strip()
+            logger.info(f"📋 [{task_id}] Header file content:\n{header_content}")
+            
+            cmd.extend(["-headers", f"@{temp_header_file}"])
         
         # Optimized FFmpeg command for chunk processing
         cmd.extend([
@@ -459,6 +465,15 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
         logger.error(f"❌ [{task_id}] Chunk merge failed: {e}")
         return False
     
+    finally:
+        # Clean up temporary header file
+        if temp_header_file and os.path.exists(temp_header_file):
+            try:
+                os.remove(temp_header_file)
+                logger.debug(f"🧹 [{task_id}] Cleaned up header file: {temp_header_file}")
+            except Exception as e:
+                logger.warning(f"⚠️ [{task_id}] Failed to cleanup header file {temp_header_file}: {e}")
+
 def get_task_progress(task_id: str) -> Dict:
     if task_id not in status_tracker:
         return {
