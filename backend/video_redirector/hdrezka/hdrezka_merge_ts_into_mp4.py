@@ -465,7 +465,7 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
                             if processed_segments % max(1, chunk_segments // 10) == 0 or processed_segments % 10 == 0:
                                 avg_segment_time = sum(segment_times[-10:]) / min(len(segment_times), 10)
                                 eta = (chunk_segments - processed_segments) * avg_segment_time
-                                logger.info(f"📈 [{task_id}] Progress: {tracker['progress']}% ({processed_segments}/{chunk_segments}) "
+                                logger.debug(f"📈 [{task_id}] Progress: {tracker['progress']}% ({processed_segments}/{chunk_segments}) "
                                           f"Avg segment: {avg_segment_time:.2f}s, ETA: {eta/60:.1f}min")
                     
                     # Debug logging for all chunks
