@@ -359,7 +359,7 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
         if 'host' in headers:
             header_lines.append(f"Host: {headers['host']}")
 
-        header_str = '\r\n'.join(header_lines) + '\r\n'
+        header_str = '\\r\\n'.join(header_lines) + '\\r\\n'
 
         if header_str:
             cmd.extend(["-headers", header_str])
