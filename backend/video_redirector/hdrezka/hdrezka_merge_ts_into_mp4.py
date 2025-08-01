@@ -397,7 +397,7 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
 
         cmd = [
             "ffmpeg",
-            "-loglevel", "warning",  # Less verbose for parallel processing
+            "-loglevel", "info",  # Less verbose for parallel processing
             "-protocol_whitelist", "file,http,https,tcp,tls",
         ]
 
