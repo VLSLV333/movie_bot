@@ -5,7 +5,6 @@ from zoneinfo import ZoneInfo
 from backend.video_redirector.utils.download_queue_manager import DownloadQueueManager
 from backend.video_redirector.utils.pyrogram_acc_manager import (
     idle_client_cleanup, 
-    initialize_proxy_on_startup,
     initialize_all_accounts_in_db,
     diagnose_account_distribution
 )
@@ -71,7 +70,6 @@ async def scheduled_file_id_validation():
             await asyncio.sleep(3600)  # 1 hour
 
 async def start_background_workers():
-    await initialize_proxy_on_startup()
     await initialize_accounts_in_database()  # Initialize accounts in database
     asyncio.create_task(DownloadQueueManager.queue_worker())
     asyncio.create_task(idle_client_cleanup())

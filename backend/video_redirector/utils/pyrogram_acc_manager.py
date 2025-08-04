@@ -2,7 +2,6 @@ import os
 import json
 import asyncio
 import time
-import aiohttp
 from pathlib import Path
 from pyrogram.client import Client
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,83 +14,32 @@ from backend.video_redirector.db.crud_upload_accounts import (
 )
 import logging
 from backend.video_redirector.config import PROXY_CONFIG
+from backend.video_redirector.utils.notify_admin import notify_admin
 
-# Import aiohttp_socks for SOCKS5 support (optional - will be installed)
-try:
-    from aiohttp_socks import ProxyConnector
-    SOCKS5_AVAILABLE = True
-except ImportError:
-    SOCKS5_AVAILABLE = False
-    ProxyConnector = None
+async def notify_admin_async(message: str):
+    """Non-blocking notification with error handling"""
+    try:
+        await notify_admin(message)
+    except Exception as e:
+        logger.error(f"Failed to send admin notification: {e}")
 
 logger = logging.getLogger(__name__)
 
 MULTI_ACCOUNT_CONFIG_PATH = Path('/app/backend/video_redirector/utils/upload_accounts.json')
 SESSION_DIR = "/app/backend/session_files"
 
-# Log proxy configuration status
-if PROXY_CONFIG["enabled"]:
-    logger.info("🌐 Proxy support enabled")
-    logger.info(f"   Rotation interval: {PROXY_CONFIG['rotation_interval']} uploads")
-    logger.info(f"   Rotation timeout: {PROXY_CONFIG['rotation_timeout']} seconds")
-    if not PROXY_CONFIG["rotation_url"]:
-        logger.warning("⚠️ Proxy enabled but no rotation URL configured")
-    
-    # Log smart rotation configuration
-    if PROXY_CONFIG.get("smart_rotation_enabled", True):
-        logger.info("🧠 Smart IP rotation enabled")
-        logger.info(f"   Rate limit threshold: {PROXY_CONFIG.get('rate_limit_wait_threshold', 5)}s")
-    else:
-        logger.info("🧠 Smart IP rotation disabled - using upload counter only")
-else:
-    logger.info("🌐 Proxy support disabled")
-
-async def initialize_ip_detection():
-    """Initialize IP detection on startup"""
-    if PROXY_CONFIG["enabled"]:
-        initial_ip = await get_current_ip()
-        if not initial_ip:
-            logger.warning("⚠️ Could not detect initial IP address")
-    else:
-        logger.info("🌐 IP detection skipped - proxy not enabled")
-
-async def initialize_proxy_on_startup():
-    """Initialize proxy settings on bot startup"""
-    global _upload_counter
-    
-    if PROXY_CONFIG["enabled"]:
-
-        # Reset upload counter to ensure fresh start
-        _upload_counter = 0
-
-        # Optionally force IP rotation on startup for fresh IP
-        if PROXY_CONFIG.get("rotate_on_startup", False):
-            logger.info("🔄 Forcing IP rotation on startup...")
-            await rotate_proxy_ip()
-        else:
-            logger.info("🌐 Using current proxy IP (no rotation on startup)")
-        
-        # Initialize IP detection
-        await initialize_ip_detection()
-    else:
-        logger.info("🌐 Proxy initialization skipped - proxy not enabled")
-
-# Track uploads for IP rotation
-_upload_counter = 0
-_last_ip_rotation = 0
-_current_ip = None  # Track current IP address
-
-# Smart rotation tracking
-_rate_limit_events = []  # Track rate limit events with timestamps
-_rate_limit_detection_window = PROXY_CONFIG.get("rate_limit_detection_window", 10)
-_rate_limit_wait_threshold = PROXY_CONFIG.get("rate_limit_wait_threshold", 5)
-_max_rate_limit_events = PROXY_CONFIG.get("max_rate_limit_events", 3)
+# Per-account rate limit tracking
+_account_rate_limit_events = {}  # Track per account instead of global
 
 # Global upload management
-_global_upload_lock = asyncio.Lock()  # Prevents new uploads during rotation
 _active_uploads = set()  # Track active upload task IDs
-_rotation_in_progress = False  # Flag to indicate rotation is happening
-_rotation_lock = asyncio.Lock()  # Prevents multiple simultaneous rotation calls
+_account_upload_counters = {}  # Track concurrent uploads per account
+MAX_CONCURRENT_UPLOADS_PER_ACCOUNT = 1  # Maximum concurrent uploads per account
+
+# 🔒 Global lock for account selection to prevent race conditions
+# This ensures that only one task can select an account at a time,
+# preventing race conditions where multiple tasks could select the same account
+_account_selection_lock = asyncio.Lock()
 
 # Initialize UPLOAD_ACCOUNTS with fallback
 logger.debug(f"🔍 Looking for upload accounts config at: {MULTI_ACCOUNT_CONFIG_PATH}")
@@ -109,123 +57,16 @@ else:
 
 IDLE_TIMEOUT_SECONDS = 15 * 60  # 15 minutes
 
-async def get_current_ip():
-    """Get the current public IP address"""
-    global _current_ip
-    
-    try:
-        # Use multiple IP check services for reliability
-        ip_check_urls = [
-            "http://api.ipify.org",
-            "http://ipinfo.io/ip",
-            "http://icanhazip.com",
-            "http://checkip.amazonaws.com"
-        ]
-        
-        # Configure proxy for IP detection if enabled
-        proxy_config = None
-        if PROXY_CONFIG["enabled"] and PROXY_CONFIG["url"]:
-            proxy_url = PROXY_CONFIG["url"]
-            scheme = proxy_url.split("://")[0]
-            hostname = proxy_url.split("@")[-1].split(":")[0]
-            port = int(proxy_url.split(":")[-1])
-            
-            # Extract authentication if present
-            username = None
-            password = None
-            if "@" in proxy_url:
-                auth_part = proxy_url.split("@")[0].split("://")[1]
-                if ":" in auth_part:
-                    username, password = auth_part.split(":")
-            
-            # Configure proxy for aiohttp with proper SOCKS5 support
-            if scheme == "socks5":
-                if SOCKS5_AVAILABLE and ProxyConnector:
-                    if username and password:
-                        connector = ProxyConnector.from_url(f"socks5://{username}:{password}@{hostname}:{port}")
-                    else:
-                        connector = ProxyConnector.from_url(f"socks5://{hostname}:{port}")
-                else:
-                    logger.warning("⚠️ SOCKS5 proxy configured but aiohttp-socks not available. IP detection may fail.")
-                    connector = None
-                    proxy_config = None
-            else:
-                # HTTP proxy configuration (fallback)
-                if username and password:
-                    proxy_config = f"http://{username}:{password}@{hostname}:{port}"
-                else:
-                    proxy_config = f"http://{hostname}:{port}"
-                connector = None
-        else:
-            connector = None
-            proxy_config = None
-        
-        # Create session with appropriate connector
-        if connector:
-            async with aiohttp.ClientSession(connector=connector) as session:
-                for url in ip_check_urls:
-                    try:
-                        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                            if response.status == 200:
-                                ip = (await response.text()).strip()
-                                if ip and len(ip.split('.')) == 4:  # Basic IPv4 validation
-                                    _current_ip = ip
-                                    return ip
-                    except Exception as e:
-                        logger.debug(f"Failed to get IP from {url} via SOCKS5: {e}")
-                        continue
-        else:
-            # Use regular aiohttp session
-            async with aiohttp.ClientSession() as session:
-                for url in ip_check_urls:
-                    try:
-                        if proxy_config:
-                            async with session.get(url, proxy=proxy_config, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                                if response.status == 200:
-                                    ip = (await response.text()).strip()
-                                    if ip and len(ip.split('.')) == 4:  # Basic IPv4 validation
-                                        _current_ip = ip
-                                        logger.info(f"🌐 Current IP detected via HTTP proxy: {ip} (via {url})")
-                                        return ip
-                        else:
-                            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                                if response.status == 200:
-                                    ip = (await response.text()).strip()
-                                    if ip and len(ip.split('.')) == 4:  # Basic IPv4 validation
-                                        _current_ip = ip
-                                        logger.info(f"🌐 Current IP detected: {ip} (via {url})")
-                                        return ip
-                    except Exception as e:
-                        logger.debug(f"Failed to get IP from {url}: {e}")
-                        continue
-        
-        logger.warning("⚠️ Could not detect current IP address from any service")
-        return _current_ip  # Return last known IP if available
-        
-    except Exception as e:
-        logger.error(f"❌ Error getting current IP: {e}")
-        return _current_ip
-
-async def log_ip_change(old_ip: str | None, new_ip: str | None):
-    """Log IP change with detailed information"""
-    if old_ip and new_ip and old_ip != new_ip:
-        logger.info(f"🌐 Previous IP: {old_ip}")
-        logger.info(f"🌐 New IP: {new_ip}")
-        logger.debug(f"IP Changed: ✅")
-    elif old_ip and new_ip and old_ip == new_ip:
-        logger.warning(f"⚠️ IP Rotation Completed but IP remains the same")
-        logger.debug(f"   Current IP: {new_ip}")
-        logger.debug(f"   IP Changed: ❌ (same IP)")
-    elif not old_ip and new_ip:
-        logger.info(f"🌐 Initial IP detected: {new_ip}")
-    else:
-        logger.error(f"❌ IP detection failed")
+class AllProxiesExhaustedError(Exception):
+    """Raised when all proxies in an account's pool have failed"""
+    pass
 
 class UploadAccount:
     def __init__(self, config):
         api_id = config.get("api_id")
         api_hash = config.get("api_hash")
         session_name = config.get("session_name")
+        
         # Type and presence checks
         if api_id is None:
             raise ValueError(f"api_id missing in account config: {config}")
@@ -239,15 +80,175 @@ class UploadAccount:
             raise ValueError(f"api_hash missing or not a string in account config: {config}")
         if session_name is None or not isinstance(session_name, str):
             raise ValueError(f"session_name missing or not a string in account config: {config}")
+        
         self.api_id = api_id
         self.api_hash = api_hash
         self.session_name = session_name
         self.lock = asyncio.Lock()
         self.client = None
         self.last_used = 0
-        self.busy = False
-        self.last_client_creation = 0  # Track when client was last created
-        self.client_creation_cooldown = 60  # 60 seconds cooldown between client creations
+        self.last_client_creation = 0
+        self.client_creation_cooldown = 10  # 10 seconds cooldown between client creations
+        
+        # New proxy pool management
+        self.proxy_pool = config.get("proxy_pool", [])
+        self.proxy_usage_count = {i: 0 for i in range(len(self.proxy_pool))}
+        self.proxy_success_count = {i: 0 for i in range(len(self.proxy_pool))}
+        self.proxy_failure_count = {i: 0 for i in range(len(self.proxy_pool))}
+        self.proxy_consecutive_failures = {i: 0 for i in range(len(self.proxy_pool))}  # Track consecutive failures
+        self.proxy_cooldowns = {}  # Temporary cooldowns
+        self.blacklisted_proxies = set()  # Permanent blacklist
+        self.current_proxy_index = 0
+        self.connection_attempts = 0  # Track connection attempts for current proxy
+        
+        # Configurable settings
+        proxy_settings = config.get("proxy_settings", {})
+        self.cooldown_hours = proxy_settings.get("cooldown_hours", 2)
+        self.max_consecutive_failures = proxy_settings.get("max_consecutive_failures", 3)
+        self.connection_retry_limit = proxy_settings.get("connection_retry_limit", 3)
+        
+        logger.info(f"🔧 [{self.session_name}] Initialized with {len(self.proxy_pool)} proxies")
+
+    def select_best_proxy(self) -> int:
+        """Select proxy with lowest usage count, then highest success rate"""
+        available_proxies = []
+        
+        for i in range(len(self.proxy_pool)):
+            # Skip blacklisted proxies
+            if i in self.blacklisted_proxies:
+                continue
+                
+            # Skip proxies in cooldown
+            if i in self.proxy_cooldowns:
+                cooldown_until = self.proxy_cooldowns[i]
+                if time.time() < cooldown_until:
+                    continue
+                else:
+                    del self.proxy_cooldowns[i]
+                    logger.info(f"🔄 [{self.session_name}] Proxy {i} cooldown expired")
+            
+            # Calculate success rate
+            total_attempts = self.proxy_success_count[i] + self.proxy_failure_count[i]
+            success_rate = self.proxy_success_count[i] / total_attempts if total_attempts > 0 else 0.5
+            
+            available_proxies.append({
+                'index': i,
+                'usage_count': self.proxy_usage_count[i],
+                'success_rate': success_rate,
+                'total_attempts': total_attempts
+            })
+        
+        if not available_proxies:
+            raise AllProxiesExhaustedError(f"Account {self.session_name}: All proxies unavailable")
+        
+        # Sort by usage count first, then by success rate
+        available_proxies.sort(key=lambda x: (x['usage_count'], -x['success_rate']))
+        selected = available_proxies[0]
+        
+        proxy_key = f"{self.proxy_pool[selected['index']]['ip']}:{self.proxy_pool[selected['index']]['port']}"
+        logger.info(f"🎯 [{self.session_name}] Selected proxy: {proxy_key}")
+        logger.info(f"   Usage: {selected['usage_count']}, Success rate: {selected['success_rate']:.1%}")
+        
+        return selected['index']
+
+    def mark_proxy_success(self, proxy_index: int):
+        """Mark proxy as successful - reset consecutive failures"""
+        self.proxy_success_count[proxy_index] += 1
+        self.proxy_usage_count[proxy_index] += 1
+        self.proxy_consecutive_failures[proxy_index] = 0  # Reset consecutive failures
+        self.connection_attempts = 0  # Reset connection attempts
+        
+        proxy_key = f"{self.proxy_pool[proxy_index]['ip']}:{self.proxy_pool[proxy_index]['port']}"
+        logger.info(f"🟢 [{self.session_name}] Proxy {proxy_key} successful (consecutive failures reset)")
+
+    def mark_proxy_failure(self, proxy_index: int, reason: str, is_significant_event: bool = False):
+        """Mark proxy as failed - handle cooldown/blacklist logic"""
+        self.proxy_failure_count[proxy_index] += 1
+        self.proxy_consecutive_failures[proxy_index] += 1  # Increment consecutive failures
+        proxy_key = f"{self.proxy_pool[proxy_index]['ip']}:{self.proxy_pool[proxy_index]['port']}"
+        
+        # Check if this is a significant event (rate limit, network issue, timeout)
+        if is_significant_event:
+            # Immediate cooldown for significant events
+            self._put_proxy_in_cooldown(proxy_index, reason, "significant_event")
+            logger.warning(f"🔄 [{self.session_name}] Proxy {proxy_key} in cooldown: {reason}")
+        else:
+            # Increment connection attempts for regular failures
+            self.connection_attempts += 1
+            
+            if self.connection_attempts >= self.connection_retry_limit:
+                # Max connection attempts reached
+                self._put_proxy_in_cooldown(proxy_index, reason, "connection_failure")
+                logger.warning(f"🔄 [{self.session_name}] Proxy {proxy_key} in cooldown after {self.connection_retry_limit} connection failures")
+                self.connection_attempts = 0
+            else:
+                logger.warning(f"⚠️ [{self.session_name}] Proxy {proxy_index} connection attempt {self.connection_attempts}/{self.connection_retry_limit}")
+        
+        # Check for permanent blacklist using ACTUAL consecutive failures
+        consecutive_failures = self.proxy_consecutive_failures[proxy_index]
+        
+        if consecutive_failures >= self.max_consecutive_failures:
+            self._blacklist_proxy(proxy_index, reason)
+
+    def _put_proxy_in_cooldown(self, proxy_index: int, reason: str, failure_type: str):
+        """Put proxy in temporary cooldown"""
+        cooldown_until = time.time() + (self.cooldown_hours * 3600)
+        self.proxy_cooldowns[proxy_index] = cooldown_until
+        
+        # Check if we need to notify admin about low proxy count
+        available_count = len(self.proxy_pool) - len(self.blacklisted_proxies) - len(self.proxy_cooldowns)
+        if available_count <= 1:
+            self.notify_admin_low_proxy_count(available_count, reason)
+
+    def _blacklist_proxy(self, proxy_index: int, reason: str):
+        """Permanently blacklist a proxy"""
+        self.blacklisted_proxies.add(proxy_index)
+        proxy_key = f"{self.proxy_pool[proxy_index]['ip']}:{self.proxy_pool[proxy_index]['port']}"
+        
+        logger.error(f"🔴 [{self.session_name}] Proxy {proxy_key} permanently blacklisted: {reason}")
+        
+        # Notify admin with full details
+        self.notify_admin_proxy_blacklisted(proxy_index, reason)
+        
+        # Check if all proxies are now blacklisted
+        if len(self.blacklisted_proxies) >= len(self.proxy_pool):
+            raise AllProxiesExhaustedError(f"Account {self.session_name}: All proxies blacklisted")
+
+    def notify_admin_proxy_blacklisted(self, proxy_index: int, reason: str):
+        """Notify admin about blacklisted proxy with full details"""
+        proxy = self.proxy_pool[proxy_index]
+        proxy_key = f"{proxy['ip']}:{proxy['port']}"
+        
+        total_attempts = self.proxy_success_count[proxy_index] + self.proxy_failure_count[proxy_index]
+        success_rate = self.proxy_success_count[proxy_index] / total_attempts if total_attempts > 0 else 0
+        
+        message = f"""
+‼️‼️‼️ Proxy Blacklisted Alert:
+Account: {self.session_name}
+Proxy: {proxy_key}
+Reason: {reason}
+Total attempts: {total_attempts}
+Success rate: {success_rate:.1%}
+Usage count: {self.proxy_usage_count[proxy_index]}
+Total failure count: {self.proxy_failure_count[proxy_index]}
+Consecutive failures: {self.proxy_consecutive_failures[proxy_index]}
+
+Action required: Investigate proxy or replace with new one‼️‼️‼️
+        """
+        logger.error(message)
+        asyncio.create_task(notify_admin_async(message))
+
+    def notify_admin_low_proxy_count(self, available_count: int, reason: str):
+        """Notify admin when proxy pool is running low"""
+        message = f"""
+⚠️ Low Proxy Count Alert:
+Account: {self.session_name}
+Available proxies: {available_count}/{len(self.proxy_pool)}
+Last rotation reason: {reason}
+Action: Consider adding more proxies or investigating issues
+        """
+        logger.warning(message)
+        asyncio.create_task(notify_admin_async(message))
 
     async def stop_client(self):
         if self.client is not None:
@@ -255,23 +256,47 @@ class UploadAccount:
                 await self.client.stop()
                 logger.info(f"Stopped client for account {self.session_name}")
             except Exception as e:
-                # Log but don't raise - client might already be stopped
                 logger.warning(f"Error stopping client for {self.session_name}: {e}")
             finally:
                 self.client = None
-                # Don't update last_client_creation here - only when creating new clients
 
     async def is_client_healthy(self):
         """Check if the client is healthy and can be used"""
         if self.client is None:
             return False
         try:
-            # Check if client is connected without making API calls
-            if not self.client.is_connected:
-                return False
+            await self.client.get_me()
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Client health check failed for {self.session_name}: {type(e).__name__}: {e}")
             return False
+
+    async def ensure_client_ready_with_retry(self):
+        """Ensure client is ready with connection retry logic"""
+        for attempt in range(self.connection_retry_limit):
+            try:
+                client = await self.ensure_client_ready()
+                if client is not None:
+                    # Connection successful
+                    self.connection_attempts = 0
+                    return client
+                else:
+                    # Client creation failed
+                    self.mark_proxy_failure(self.current_proxy_index, "Client creation failed", is_significant_event=False)
+                    
+            except Exception as e:
+                # Connection error
+                self.mark_proxy_failure(self.current_proxy_index, f"Connection error: {type(e).__name__}", is_significant_event=False)
+                
+                if attempt < self.connection_retry_limit - 1:
+                    logger.warning(f"⚠️ [{self.session_name}] Connection attempt {attempt + 1} failed, retrying...")
+                    await asyncio.sleep(2)  # Brief delay before retry
+                else:
+                    logger.error(f"❌ [{self.session_name}] All connection attempts failed")
+        
+        # All connection attempts failed, rotate proxy
+        await self.rotate_proxy("Connection retry limit exceeded")
+        return await self.ensure_client_ready_with_retry()
 
     async def ensure_client_ready(self):
         """Ensure client is ready for use, start if needed"""
@@ -287,69 +312,46 @@ class UploadAccount:
         if self.client is None:
             session_path = os.path.join(str(SESSION_DIR), str(self.session_name))
             
-            # 🔍 ENHANCED DIAGNOSTICS: Check session file
+            # Check session file
             session_file = f"{session_path}.session"
             logger.info(f"🔍 [{self.session_name}] Checking session file: {session_file}")
             
             if not os.path.exists(session_file):
                 logger.error(f"❌ [{self.session_name}] Session file not found: {session_file}")
-                logger.error(f"   Expected directory: {SESSION_DIR}")
-                logger.error(f"   Directory exists: {os.path.exists(SESSION_DIR)}")
-                logger.error(f"   Directory contents: {os.listdir(SESSION_DIR) if os.path.exists(SESSION_DIR) else 'N/A'}")
                 return None
             
-            # Check session file size and permissions
+            # Check session file size
             try:
                 session_size = os.path.getsize(session_file)
-                session_permissions = oct(os.stat(session_file).st_mode)[-3:]
-                logger.info(f"📁 [{self.session_name}] Session file size: {session_size} bytes, permissions: {session_permissions}")
-                
                 if session_size == 0:
                     logger.error(f"❌ [{self.session_name}] Session file is empty: {session_file}")
                     return None
-                elif session_size < 100:
-                    logger.warning(f"⚠️ [{self.session_name}] Session file seems too small: {session_size} bytes")
             except Exception as e:
                 logger.error(f"❌ [{self.session_name}] Error checking session file: {e}")
                 return None
             
-            # 🔍 ENHANCED DIAGNOSTICS: Check API credentials
-            logger.info(f"🔑 [{self.session_name}] API credentials check:")
-            logger.info(f"   API ID: {self.api_id} (type: {type(self.api_id)})")
-            logger.info(f"   API Hash: {self.api_hash[:10]}... (length: {len(self.api_hash)})")
-            
-            if not self.api_id or not self.api_hash:
-                logger.error(f"❌ [{self.session_name}] Missing API credentials")
+            # Select best proxy for this account
+            try:
+                self.current_proxy_index = self.select_best_proxy()
+            except AllProxiesExhaustedError as e:
+                logger.error(f"❌ [{self.session_name}] {e}")
                 return None
             
-            # Configure proxy if enabled
+            # Configure proxy
             proxy_config = None
-            if PROXY_CONFIG["enabled"] and PROXY_CONFIG["url"]:
+            if self.proxy_pool:
+                proxy_info = self.proxy_pool[self.current_proxy_index]
                 proxy_config = {
-                    "scheme": PROXY_CONFIG["url"].split("://")[0],
-                    "hostname": PROXY_CONFIG["url"].split("@")[-1].split(":")[0],
-                    "port": int(PROXY_CONFIG["url"].split(":")[-1]),
+                    "scheme": proxy_info.get("type", "socks5"),
+                    "hostname": proxy_info["ip"],
+                    "port": proxy_info["port"],
+                    "username": proxy_info["username"],
+                    "password": proxy_info["password"],
                 }
                 
-                # Add authentication if present
-                if "@" in PROXY_CONFIG["url"]:
-                    auth_part = PROXY_CONFIG["url"].split("@")[0].split("://")[1]
-                    if ":" in auth_part:
-                        username, password = auth_part.split(":")
-                        proxy_config["username"] = username
-                        proxy_config["password"] = password
-                
-                # 🔍 ENHANCED DIAGNOSTICS: Log proxy configuration
-                logger.info(f"🌐 [{self.session_name}] Proxy configuration:")
-                logger.info(f"   Scheme: {proxy_config['scheme']}")
-                logger.info(f"   Hostname: {proxy_config['hostname']}")
-                logger.info(f"   Port: {proxy_config['port']}")
-                logger.info(f"   Username: {proxy_config.get('username', 'None')}")
-                logger.info(f"   Password: {'***' if proxy_config.get('password') else 'None'}")
-            else:
-                logger.info(f"🌐 [{self.session_name}] No proxy configured")
+                logger.info(f"🌐 [{self.session_name}] Using proxy: {proxy_info['ip']}:{proxy_info['port']}")
             
-            # Create client with detailed error handling
+            # Create client
             try:
                 logger.info(f"🔧 [{self.session_name}] Creating Pyrogram client...")
                 
@@ -361,50 +363,58 @@ class UploadAccount:
                         proxy=proxy_config
                     )
                 else:
-                    self.client = Client(
-                        session_path,
-                        api_id=self.api_id,
-                        api_hash=self.api_hash
-                    )
+                    return None
                 
-                logger.info(f"✅ [{self.session_name}] Client object created successfully")
-                
-                # Start client with detailed logging
-                logger.info(f"🚀 [{self.session_name}] Starting client...")
                 await self.client.start()
                 logger.info(f"✅ [{self.session_name}] Client started successfully")
                 
                 self.last_client_creation = current_time
-                
-                # Get and log current IP after client creation
-                if PROXY_CONFIG["enabled"]:
-                    current_ip = await get_current_ip()
-                    if current_ip:
-                        logger.info(f"🌐 [{self.session_name}] Client created with IP: {current_ip}")
-                    else:
-                        logger.warning(f"⚠️ [{self.session_name}] Client created but IP detection failed")
-                else:
-                    logger.info(f"✅ [{self.session_name}] Client created successfully (no proxy)")
                     
             except Exception as e:
                 logger.error(f"❌ [{self.session_name}] Failed to create/start client: {type(e).__name__}: {e}")
-                
-                # 🔍 ENHANCED DIAGNOSTICS: Categorize the error
-                error_str = str(e).lower()
-                if "session" in error_str or "auth" in error_str:
-                    logger.error(f"🔐 [{self.session_name}] Authentication/Session error - check API credentials and session file")
-                elif "proxy" in error_str or "connection" in error_str:
-                    logger.error(f"🌐 [{self.session_name}] Proxy/Connection error - check proxy configuration")
-                elif "timeout" in error_str:
-                    logger.error(f"⏰ [{self.session_name}] Timeout error - check network connectivity")
-                else:
-                    logger.error(f"❓ [{self.session_name}] Unknown error type - {type(e).__name__}")
-                
                 self.client = None
                 return None
         
         self.last_used = time.time()
         return self.client
+
+    async def rotate_proxy(self, reason: str) -> bool:
+        """Rotate to next available proxy"""
+        try:
+            # Mark current proxy as having rotation event
+            self.mark_proxy_failure(self.current_proxy_index, reason, is_significant_event=True)
+            
+            # Select new proxy
+            self.current_proxy_index = self.select_best_proxy()
+            
+            # Recreate client with new proxy
+            await self.stop_client()
+            success = await self.ensure_client_ready() is not None
+            
+            if success:
+                logger.info(f"✅ [{self.session_name}] Successfully rotated to new proxy")
+            else:
+                # New proxy also failed, mark it and try again
+                self.mark_proxy_failure(self.current_proxy_index, "Client creation failed", is_significant_event=True)
+                return await self.rotate_proxy("Previous rotation failed")
+            
+            return success
+            
+        except AllProxiesExhaustedError:
+            await self.notify_admin_all_proxies_failed(reason)
+            raise
+
+    async def notify_admin_all_proxies_failed(self, reason: str):
+        """Notify admin when all proxies for an account are exhausted"""
+        message = f"""
+🔴 CRITICAL: All Proxies Exhausted
+Account: {self.session_name}
+Total proxies: {len(self.proxy_pool)}
+Final reason: {reason}
+Action required: Add new proxies or investigate account issues
+        """
+        logger.error(message)
+        await notify_admin(message)
 
 UPLOAD_ACCOUNT_POOL = [UploadAccount(cfg) for cfg in UPLOAD_ACCOUNTS]
 
@@ -431,54 +441,18 @@ async def register_upload_end(task_id: str):
     _active_uploads.discard(task_id)
     logger.debug(f"✅ Upload {task_id} completed and unregistered")
 
-async def wait_for_ongoing_uploads(timeout: int | None = None):
-    """Wait for all ongoing uploads to complete"""
-    global _active_uploads, _rotation_in_progress
+def release_account_reservation(account_session_name: str):
+    """Release the account reservation (decrement counter)"""
+    global _account_upload_counters
     
-    if timeout is None:
-        timeout = PROXY_CONFIG["rotation_timeout"]
-    
-    if not _active_uploads:
-        logger.debug("🔄 No active uploads to wait for")
-        return True
-    
-    logger.info(f"⏳ Waiting for {len(_active_uploads)} ongoing uploads to complete...")
-    logger.debug(f"   Active uploads: {list(_active_uploads)}")
-    
-    start_time = time.time()
-    timeout_seconds = timeout or PROXY_CONFIG["rotation_timeout"]
-    while _active_uploads and (time.time() - start_time) < timeout_seconds:
-        remaining = list(_active_uploads)
-        logger.info(f"⏳ Still waiting for {len(remaining)} uploads: {remaining}")
-        await asyncio.sleep(5)  # Check every 5 seconds
-    
-    if _active_uploads:
-        logger.warning(f"⚠️ Timeout reached, {len(_active_uploads)} uploads still active: {list(_active_uploads)}")
-        return False
-    else:
-        logger.info("✅ All uploads completed successfully")
-        return True
-
-async def acquire_upload_permission():
-    """Acquire permission to start a new upload (waits if rotation is in progress)"""
-    global _rotation_in_progress
-    
-    # Wait for any ongoing rotation to complete
-    while _rotation_in_progress:
-        logger.info("⏳ Upload rotation in progress, waiting for completion...")
-        await asyncio.sleep(2)
-    
-    # Acquire the global upload lock
-    await _global_upload_lock.acquire()
-    return True
-
-def release_upload_permission():
-    """Release the upload permission lock"""
     try:
-        _global_upload_lock.release()
-    except RuntimeError:
-        # Lock might already be released
-        pass
+        if account_session_name in _account_upload_counters:
+            _account_upload_counters[account_session_name] = max(0, _account_upload_counters[account_session_name] - 1)
+            logger.info(f"🔓 [{account_session_name}] Released account reservation (active: {_account_upload_counters[account_session_name]})")
+        else:
+            logger.warning(f"⚠️ [{account_session_name}] Attempted to release reservation for account not in counters")
+    except Exception as e:
+        logger.error(f"❌ [{account_session_name}] Error releasing account reservation: {e}")
 
 # --- DB-based stat functions ---
 
@@ -572,44 +546,123 @@ async def get_least_used_accounts(db: AsyncSession):
     return [i for i, acc in enumerate(UPLOAD_ACCOUNT_POOL) if acc.session_name in least_used_names]
 
 async def select_upload_account(db: AsyncSession):
-    """Select the best available upload account with improved rate limiting handling"""
+    """
+    Select the best available upload account with atomic reservation to prevent race conditions.
+    
+    This function:
+    1. Uses a global lock to prevent race conditions during account selection
+    2. Atomically reserves the selected account by incrementing its counter
+    3. Returns the account index and account object
+    4. Ensures truly non-blocking concurrent uploads across different accounts
+    
+    The caller is responsible for calling release_account_reservation() when done.
+    """
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # First try to get least used accounts
-            least_used = await get_least_used_accounts(db)
-            
-            # Check least used accounts first
-            for idx in least_used:
-                acc = UPLOAD_ACCOUNT_POOL[idx]
-                if not acc.busy:
-                    # Check if account was recently used (within last 30 seconds)
-                    if time.time() - acc.last_used > 30:
+            # 🔒 Global lock prevents selection race conditions
+            async with _account_selection_lock:
+                # First try to get least used accounts
+                least_used = await get_least_used_accounts(db)
+                
+                # Check least used accounts first - prioritize non-uploading accounts
+                for idx in least_used:
+                    acc = UPLOAD_ACCOUNT_POOL[idx]
+                    # Check if account is currently uploading using the counter system
+                    is_currently_uploading = _account_upload_counters.get(acc.session_name, 0) > 0
+                    
+                    if not is_currently_uploading:
+                        # Check if account was recently used (within last 30 seconds)
+                        if time.time() - acc.last_used > 30:
+                            # Only check health if client exists, don't create new connections
+                            if acc.client is None or await acc.is_client_healthy():
+                                # 🔒 ATOMICALLY reserve this account
+                                _account_upload_counters[acc.session_name] = _account_upload_counters.get(acc.session_name, 0) + 1
+                                logger.info(f"✅ Selected least used account {acc.session_name} (not currently uploading)")
+                                return idx, acc
+                            else:
+                                # Client is unhealthy, stop it and continue
+                                logger.warning(f"Account {acc.session_name} has unhealthy client, stopping it")
+                                await acc.stop_client()
+                
+                # If no non-uploading least used accounts available, try any non-uploading account
+                for idx, acc in enumerate(UPLOAD_ACCOUNT_POOL):
+                    # Check if account is currently uploading using the counter system
+                    is_currently_uploading = _account_upload_counters.get(acc.session_name, 0) > 0
+                    
+                    if not is_currently_uploading:
+                        # Check if account was recently used (within last 30 seconds)
+                        if time.time() - acc.last_used > 30:
+                            # Only check health if client exists, don't create new connections
+                            if acc.client is None or await acc.is_client_healthy():
+                                # 🔒 ATOMICALLY reserve this account
+                                _account_upload_counters[acc.session_name] = _account_upload_counters.get(acc.session_name, 0) + 1
+                                logger.info(f"✅ Selected available account {acc.session_name} (not currently uploading)")
+                                return idx, acc
+                            else:
+                                # Client is unhealthy, stop it and continue
+                                logger.warning(f"Account {acc.session_name} has unhealthy client, stopping it")
+                                await acc.stop_client()
+                
+                # Before queuing, try any non-uploading account (even if recently used) to maximize parallelism
+                logger.info("No non-uploading accounts after cooldown available, trying any non-uploading account...")
+                for idx, acc in enumerate(UPLOAD_ACCOUNT_POOL):
+                    # Check if account is currently uploading using the counter system
+                    is_currently_uploading = _account_upload_counters.get(acc.session_name, 0) > 0
+                    
+                    if not is_currently_uploading:
+                        # Skip the 30-second cooldown check - use any non-uploading account
                         # Only check health if client exists, don't create new connections
                         if acc.client is None or await acc.is_client_healthy():
+                            # 🔒 ATOMICALLY reserve this account
+                            _account_upload_counters[acc.session_name] = _account_upload_counters.get(acc.session_name, 0) + 1
+                            logger.info(f"✅ Selected non-uploading account {acc.session_name} (bypassing cooldown)")
                             return idx, acc
                         else:
                             # Client is unhealthy, stop it and continue
                             logger.warning(f"Account {acc.session_name} has unhealthy client, stopping it")
                             await acc.stop_client()
-            
-            # If no least used accounts available, try any non-busy account
-            for idx, acc in enumerate(UPLOAD_ACCOUNT_POOL):
-                if not acc.busy:
+                
+                # If all accounts are currently uploading, find the one with least uploads and queue there
+                logger.warning("All upload accounts are currently uploading, selecting least used for queuing...")
+                
+                # Among currently uploading accounts, select the one with least uploads
+                for idx in least_used:
+                    acc = UPLOAD_ACCOUNT_POOL[idx]
                     # Check if account was recently used (within last 30 seconds)
                     if time.time() - acc.last_used > 30:
                         # Only check health if client exists, don't create new connections
                         if acc.client is None or await acc.is_client_healthy():
+                            # 🔒 ATOMICALLY reserve this account
+                            _account_upload_counters[acc.session_name] = _account_upload_counters.get(acc.session_name, 0) + 1
+                            logger.info(f"⏳ Selected least used account {acc.session_name} for queuing (currently uploading)")
                             return idx, acc
                         else:
                             # Client is unhealthy, stop it and continue
                             logger.warning(f"Account {acc.session_name} has unhealthy client, stopping it")
                             await acc.stop_client()
-            
-            # If all accounts are busy or recently used, wait a bit and return the first one
-            logger.warning("All upload accounts are busy or recently used, waiting...")
-            await asyncio.sleep(10)  # Wait 10 seconds
-            return 0, UPLOAD_ACCOUNT_POOL[0]
+                
+                # If all least used accounts are unhealthy, try any account
+                for idx, acc in enumerate(UPLOAD_ACCOUNT_POOL):
+                    # Check if account was recently used (within last 30 seconds)
+                    if time.time() - acc.last_used > 30:
+                        # Only check health if client exists, don't create new connections
+                        if acc.client is None or await acc.is_client_healthy():
+                            # 🔒 ATOMICALLY reserve this account
+                            _account_upload_counters[acc.session_name] = _account_upload_counters.get(acc.session_name, 0) + 1
+                            logger.info(f"⏳ Selected available account {acc.session_name} for queuing (currently uploading)")
+                            return idx, acc
+                        else:
+                            # Client is unhealthy, stop it and continue
+                            logger.warning(f"Account {acc.session_name} has unhealthy client, stopping it")
+                            await acc.stop_client()
+                
+                # If all accounts are unhealthy or recently used, wait a bit and return the first one
+                logger.warning("All upload accounts are unhealthy or recently used, waiting...")
+                await asyncio.sleep(10)  # Wait 10 seconds
+                # 🔒 ATOMICALLY reserve the first account
+                _account_upload_counters[UPLOAD_ACCOUNT_POOL[0].session_name] = _account_upload_counters.get(UPLOAD_ACCOUNT_POOL[0].session_name, 0) + 1
+                return 0, UPLOAD_ACCOUNT_POOL[0]
             
         except Exception as e:
             if attempt < max_retries - 1:
@@ -617,9 +670,8 @@ async def select_upload_account(db: AsyncSession):
                 await asyncio.sleep(1 * (attempt + 1))  # Exponential backoff
                 continue
             else:
-                logger.error(f"Database error in select_upload_account after {max_retries} attempts: {e}")
-                # Fallback to first account
-                return 0, UPLOAD_ACCOUNT_POOL[0]
+                 logger.error(f"Database error in select_upload_account after {max_retries} attempts: {e}")
+                 raise Exception(f"Failed to select upload account after {max_retries} attempts: {e}")
 
 async def idle_client_cleanup():
     while True:
@@ -629,264 +681,43 @@ async def idle_client_cleanup():
                 await account.stop_client()
         await asyncio.sleep(300)  # Check every 5 minutes
 
-async def rotate_proxy_ip():
-    """Rotate the proxy IP address with upload coordination"""
-    global _last_ip_rotation, _rotation_in_progress, _current_ip
-    
-    if not PROXY_CONFIG["enabled"] or not PROXY_CONFIG["rotation_url"]:
-        logger.info("🔄 Proxy rotation skipped - proxy not enabled or no rotation URL")
-        return
-    
-    current_time = time.time()
-    # Prevent too frequent rotations (minimum 30 seconds between rotations)
-    if current_time - _last_ip_rotation < 30:
-        logger.info("🔄 Proxy rotation skipped - too recent (minimum 30s between rotations)")
-        return
-    
-    # Get current IP before rotation
-    old_ip = await get_current_ip()
+# --- Per-account rate limit tracking functions ---
 
-    # Set rotation flag to prevent new uploads
-    _rotation_in_progress = True
-
-    try:
-        # Wait for ongoing uploads to complete
-        all_completed = await wait_for_ongoing_uploads()
-        
-        if not all_completed:
-            logger.warning("⚠️ Some uploads didn't complete before timeout, proceeding with rotation anyway")
-        
-        # Perform the actual IP rotation
-        async with aiohttp.ClientSession() as session:
-            if PROXY_CONFIG["rotation_method"].upper() == "POST":
-                async with session.post(
-                    PROXY_CONFIG["rotation_url"],
-                    headers=PROXY_CONFIG["rotation_headers"],
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    if response.status == 200:
-                        logger.debug("✅ Proxy rotation request successful")
-                        _last_ip_rotation = current_time
-                    else:
-                        logger.warning(f"⚠️ Proxy rotation failed with status {response.status}")
-                        logger.warning(f"   Response: {await response.text()}")
-            else:
-                async with session.get(
-                    PROXY_CONFIG["rotation_url"],
-                    headers=PROXY_CONFIG["rotation_headers"],
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    if response.status == 200:
-                        logger.debug("✅ Proxy rotation request successful")
-                        _last_ip_rotation = current_time
-                    else:
-                        logger.warning(f"⚠️ Proxy rotation failed with status {response.status}")
-                        logger.warning(f"   Response: {await response.text()}")
-        
-        # Wait a moment for the new IP to be active
-        await asyncio.sleep(5)
-        
-        # Get new IP after rotation
-        new_ip = await get_current_ip()
-        
-        # Log IP change details
-        await log_ip_change(old_ip, new_ip)
-        
-        # Update global IP tracker
-        _current_ip = new_ip
-        
-        # Clear rate limit events after successful rotation
-        clear_rate_limit_events()
-        
-    except Exception as e:
-        logger.error(f"❌ Proxy rotation error: {e}")
-        logger.error(f"   Error type: {type(e).__name__}")
-    finally:
-        # Clear rotation flag to allow new uploads
-        _rotation_in_progress = False
-
-async def rotate_proxy_ip_immediate(reason: str = "emergency"):
-    """Rotate the proxy IP address immediately without waiting for uploads to complete"""
-    global _last_ip_rotation, _current_ip, _rotation_lock
-    
-    if not PROXY_CONFIG["enabled"] or not PROXY_CONFIG["rotation_url"]:
-        logger.info("🔄 Immediate proxy rotation skipped - proxy not enabled or no rotation URL")
-        return
-    
-    current_time = time.time()
-    # Prevent too frequent rotations (use configurable cooldown)
-    cooldown_seconds = PROXY_CONFIG.get("immediate_rotation_cooldown", 30)
-    if current_time - _last_ip_rotation < cooldown_seconds:
-        await asyncio.sleep(current_time - _last_ip_rotation)
-        logger.info(f"🔄Sleeping for {current_time - _last_ip_rotation}sec. Frequent rotation detected")
-
-    if _rotation_lock.locked():
-        logger.debug("🔄 Immediate proxy rotation already in progress (locked)")
-        return
-    
-    async with _rotation_lock:
-        # Get current IP before rotation
-        old_ip = await get_current_ip()
-
-        logger.warning(f"🚨 EMERGENCY: Immediate proxy rotation triggered due to: {reason}")
-        logger.warning(f"   Bypassing upload wait - rotation will proceed immediately")
-
-        try:
-            # Perform the actual IP rotation immediately
-            async with aiohttp.ClientSession() as session:
-                if PROXY_CONFIG["rotation_method"].upper() == "POST":
-                    async with session.post(
-                        PROXY_CONFIG["rotation_url"],
-                        headers=PROXY_CONFIG["rotation_headers"],
-                        timeout=aiohttp.ClientTimeout(total=10)
-                    ) as response:
-                        if response.status == 200:
-                            logger.debug("✅ Immediate proxy rotation request successful")
-                            _last_ip_rotation = current_time
-                        elif response.status == 429:
-                            logger.error(f"❌ Proxy rotation rate limited (429) - rotation service overloaded")
-                            logger.error(f"   Response: {await response.text()}")
-                            # Don't update _last_ip_rotation to allow retry after cooldown
-                            return
-                        else:
-                            logger.warning(f"⚠️ Immediate proxy rotation failed with status {response.status}")
-                            logger.warning(f"   Response: {await response.text()}")
-                            # Don't update _last_ip_rotation for non-429 errors
-                            return
-                else:
-                    async with session.get(
-                        PROXY_CONFIG["rotation_url"],
-                        headers=PROXY_CONFIG["rotation_headers"],
-                        timeout=aiohttp.ClientTimeout(total=10)
-                    ) as response:
-                        if response.status == 200:
-                            logger.debug("✅ Immediate proxy rotation request successful")
-                            _last_ip_rotation = current_time
-                        elif response.status == 429:
-                            logger.error(f"❌ Proxy rotation rate limited (429) - rotation service overloaded")
-                            logger.error(f"   Response: {await response.text()}")
-                            # Don't update _last_ip_rotation to allow retry after cooldown
-                            return
-                        else:
-                            logger.warning(f"⚠️ Immediate proxy rotation failed with status {response.status}")
-                            logger.warning(f"   Response: {await response.text()}")
-                            # Don't update _last_ip_rotation for non-429 errors
-                            return
-
-            # Wait a moment for the new IP to be active
-            await asyncio.sleep(5)
-
-            # Get new IP after rotation
-            new_ip = await get_current_ip()
-
-            # Log IP change details
-            await log_ip_change(old_ip, new_ip)
-
-            # Update global IP tracker
-            _current_ip = new_ip
-
-            # Clear rate limit events after successful rotation
-            clear_rate_limit_events()
-
-            logger.info(f"✅ Immediate proxy rotation completed successfully due to: {reason}")
-
-        except Exception as e:
-            logger.error(f"❌ Immediate proxy rotation error: {e}")
-            logger.error(f"   Error type: {type(e).__name__}")
-            logger.error(f"   Reason: {reason}")
-            # Don't update _last_ip_rotation on exceptions to allow retry
-
-def should_rotate_ip():
-    """Check if we should rotate IP based on upload count or rate limiting signals"""
-    global _upload_counter
-    
-    if not PROXY_CONFIG["enabled"]:
-        return False
-    
-    # Check smart rotation first (if enabled)
-    if PROXY_CONFIG.get("smart_rotation_enabled", True):
-        rate_limit_stats = get_rate_limit_stats()
-        significant_events = rate_limit_stats["significant_events"]
-        
-        if significant_events >= _max_rate_limit_events:
-            logger.warning(f"🚨 Smart IP rotation triggered: {significant_events} significant rate limit events")
-            return True
-    
-    # Fallback to upload counter-based rotation
-    should_rotate = _upload_counter >= PROXY_CONFIG["rotation_interval"]
-    
-    if should_rotate:
-        logger.info(f"🔄 IP rotation triggered after {PROXY_CONFIG['rotation_interval']} uploads")
-        logger.info(f"   Upload counter reset to 0")
-    else:
-        # Log current status for debugging
-        rate_limit_stats = get_rate_limit_stats()
-        logger.debug(f"📊 Upload counter: {_upload_counter}/{PROXY_CONFIG['rotation_interval']} (rotation at {PROXY_CONFIG['rotation_interval']})")
-        if rate_limit_stats["total_events"] > 0:
-            logger.debug(f"📊 Rate limit events: {rate_limit_stats['significant_events']}/{_max_rate_limit_events} significant")
-    
-    return should_rotate
-
-def increment_upload_counter():
-    """Increment upload counter - call this once per actual upload"""
-    global _upload_counter
-    
-    if not PROXY_CONFIG["enabled"]:
-        return
-    
-    _upload_counter += 1
-    logger.debug(f"📊 Upload counter incremented to: {_upload_counter}/{PROXY_CONFIG['rotation_interval']}")
-    
-    # Check if we should rotate after incrementing
-    if _upload_counter >= PROXY_CONFIG["rotation_interval"]:
-        _upload_counter = 0
-        logger.info(f"🔄 Upload counter reset to 0 after reaching rotation threshold")
-
-def clear_rate_limit_events():
-    """Clear rate limit events after successful IP rotation"""
-    global _rate_limit_events
-    
-    if _rate_limit_events:
-        logger.info(f"🧹 Clearing {len(_rate_limit_events)} rate limit events after IP rotation")
-        _rate_limit_events.clear()
-
-def track_rate_limit_event(wait_seconds: int):
-    """Track a rate limiting event from Telegram"""
-    global _rate_limit_events
-    
-    if not PROXY_CONFIG["enabled"] or not PROXY_CONFIG.get("smart_rotation_enabled", True):
-        return
+def track_rate_limit_event_per_account(account_session_name: str, wait_seconds: int):
+    """Track rate limit events per account (adapted from current global tracking)"""
+    if account_session_name not in _account_rate_limit_events:
+        _account_rate_limit_events[account_session_name] = []
     
     current_time = time.time()
     
     # Add the rate limit event
-    _rate_limit_events.append({
+    _account_rate_limit_events[account_session_name].append({
         "timestamp": current_time,
         "wait_seconds": wait_seconds
     })
     
-    # Keep only events within the detection window
-    cutoff_time = current_time - (_rate_limit_detection_window * 60)  # Convert to seconds
-    _rate_limit_events = [event for event in _rate_limit_events if event["timestamp"] > cutoff_time]
+    # Keep only events within detection window
+    cutoff_time = current_time - (PROXY_CONFIG.get("rate_limit_detection_window", 10) * 60)
+    _account_rate_limit_events[account_session_name] = [
+        event for event in _account_rate_limit_events[account_session_name] 
+        if event["timestamp"] > cutoff_time
+    ]
     
-    # Log rate limit event
-    logger.info(f"⏰ Rate limit event detected: {wait_seconds}s wait")
-    logger.info(f"   Recent rate limit events: {len(_rate_limit_events)} in last {_rate_limit_detection_window} minutes")
+    # Check if we should trigger rotation for this specific account
+    significant_events = [
+        event for event in _account_rate_limit_events[account_session_name]
+        if event["wait_seconds"] >= PROXY_CONFIG.get("rate_limit_wait_threshold", 5)
+    ]
     
-    # Check if we should trigger rotation
-    significant_events = [event for event in _rate_limit_events if event["wait_seconds"] >= _rate_limit_wait_threshold]
-    
-    if len(significant_events) >= _max_rate_limit_events:
-        logger.warning(f"🚨 Smart IP rotation triggered: {len(significant_events)} significant rate limit events detected")
+    if len(significant_events) >= PROXY_CONFIG.get("max_rate_limit_events", 3):
+        logger.warning(f"🚨 [{account_session_name}] Smart rotation triggered: {len(significant_events)} significant events")
         return True
     
     return False
 
-def get_rate_limit_stats():
-    """Get current rate limiting statistics"""
-    global _rate_limit_events
-    
-    if not _rate_limit_events:
+def get_rate_limit_stats_per_account(account_session_name: str):
+    """Get current rate limiting statistics for specific account"""
+    if account_session_name not in _account_rate_limit_events:
         return {
             "total_events": 0,
             "significant_events": 0,
@@ -895,13 +726,17 @@ def get_rate_limit_stats():
             "events_in_window": 0
         }
     
-    significant_events = [event for event in _rate_limit_events if event["wait_seconds"] >= _rate_limit_wait_threshold]
-    wait_times = [event["wait_seconds"] for event in _rate_limit_events]
+    events = _account_rate_limit_events[account_session_name]
+    significant_events = [
+        event for event in events 
+        if event["wait_seconds"] >= PROXY_CONFIG.get("rate_limit_wait_threshold", 5)
+    ]
+    wait_times = [event["wait_seconds"] for event in events]
     
     return {
-        "total_events": len(_rate_limit_events),
+        "total_events": len(events),
         "significant_events": len(significant_events),
         "max_wait_time": max(wait_times) if wait_times else 0,
         "average_wait_time": sum(wait_times) / len(wait_times) if wait_times else 0,
-        "events_in_window": len(_rate_limit_events)
+        "events_in_window": len(events)
     }

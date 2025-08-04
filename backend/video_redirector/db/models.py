@@ -1,6 +1,6 @@
 from enum import Enum
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy import Column, String, Boolean, DateTime, Integer, BigInteger, UniqueConstraint,Text, ForeignKey, Date
+from sqlalchemy import Column, String, Boolean, DateTime, Integer, BigInteger, UniqueConstraint, Text, ForeignKey, Date, Index
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -44,7 +44,12 @@ class Mirror(Base):
 
 class DownloadedFile(Base):
     __tablename__ = "downloaded_files"
-    __table_args__ = (UniqueConstraint("tmdb_id", "lang", "dub", name="uq_tmdb_lang_dub"),)
+    __table_args__ = (
+        UniqueConstraint("tmdb_id", "lang", "dub", name="uq_tmdb_lang_dub"),
+        Index("idx_created_at", "created_at"),  # Fast time-based queries
+        Index("idx_tmdb_id", "tmdb_id"),  # Fast movie lookups
+        Index("idx_session_name", "session_name"),  # Fast session-based queries
+    )
 
     id = Column(Integer, primary_key=True)
     tmdb_id = Column(BigInteger, nullable=False)
@@ -61,15 +66,16 @@ class DownloadedFile(Base):
 
 class DownloadedFilePart(Base):
     __tablename__ = "downloaded_file_parts"
+    __table_args__ = (
+        UniqueConstraint("downloaded_file_id", "part_number", name="uq_file_part"),
+        Index("idx_telegram_file_id", "telegram_file_id"),  # Fast file ID lookups
+        Index("idx_downloaded_file_id", "downloaded_file_id"),  # Fast part queries
+    )
 
     id = Column(Integer, primary_key=True)
     downloaded_file_id = Column(Integer, ForeignKey("downloaded_files.id", ondelete="CASCADE"), nullable=False)
     part_number = Column(Integer, nullable=False)
     telegram_file_id = Column(Text, nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("downloaded_file_id", "part_number", name="uq_file_part"),
-    )
 
 class UploadAccountStats(Base):
     __tablename__ = "upload_account_stats"
