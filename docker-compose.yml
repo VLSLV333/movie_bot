@@ -84,7 +84,6 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - PYTHONPATH=/app
       - PROXY_ENABLED=${PROXY_ENABLED}
-      - PROXY_ROTATION_URL=${PROXY_ROTATION_URL}
     restart: unless-stopped
 
   delivery_bot:
