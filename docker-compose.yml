@@ -31,7 +31,7 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PG_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PG_PASS}
-      SCRIPT_NAME: /pgadmin
+      ENABLE_PROXY_FIX: "True"
     volumes:
       - ./pgadmin_config_local.py:/pgadmin4/config_local.py
     ports:
