@@ -62,7 +62,7 @@ coverage.xml
 # ✅ VSCode (if you use it in future)
 .vscode/
 
-pgadmin_custom_config.py
+pgadmin_config_local.py
 
 bot/locales/__pycache__/
 bot/locales/*.pot
