@@ -32,6 +32,8 @@ services:
       PGADMIN_DEFAULT_EMAIL: ${PG_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PG_PASS}
       ENABLE_PROXY_FIX: "True"
+      PGADMIN_CONFIG_PROXY_X_HOST_COUNT: 1
+      PGADMIN_CONFIG_WSGI_SCRIPT_NAME: /pgadmin
     volumes:
       - ./pgadmin_config_local.py:/pgadmin4/config_local.py
     ports:
