@@ -343,7 +343,7 @@ Action: Consider adding more proxies or investigating issues
         except AllProxiesExhaustedError:
             # All proxies exhausted, return None
             logger.error(f"❌ [{self.session_name}] All proxies exhausted after connection retries")
-            return None
+            raise AllProxiesExhaustedError(f"Account {self.session_name}: All proxies exhausted")
 
     async def ensure_client_ready(self):
         """Ensure client is ready for use, start if needed"""
