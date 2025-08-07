@@ -233,7 +233,7 @@ async def get_video_metadata_for_upload(file_path: str, task_id: str) -> Optiona
         duration = format_info.get('duration') or video_stream.get('duration')
         logger.info(f"   Raw duration: {duration} (type: {type(duration)})")
         if duration:
-            duration = float(duration)
+            duration = int(float(duration))
             logger.info(f"   Processed duration: {duration} (type: {type(duration)})")
         
         # Extract bitrate (prefer format, fallback to stream)
