@@ -187,6 +187,33 @@ async def rotate_account_on_failure(task_id: str, db, current_account):
         logger.error(f"❌ [{task_id}] Error rotating account: {e}")
         return current_account
 
+async def rotate_account_on_proxy_exhaustion(task_id: str, db, current_account):
+    """When all proxies are exhausted for an account, try the next account"""
+    try:
+        logger.warning(f"🔄 [{task_id}] All proxies exhausted for {current_account.session_name}, attempting account rotation")
+        
+        # Get a new account (already reserved by select_upload_account)
+        new_account_idx, new_account = await select_upload_account(db)
+        
+        if new_account.session_name != current_account.session_name:
+            logger.info(f"🔄 [{task_id}] Switched from {current_account.session_name} to {new_account.session_name} due to proxy exhaustion")
+            
+            # Release the current account's reservation since we're switching
+            release_account_reservation(current_account.session_name)
+            
+            # Reset rate limit events for the new account
+            from .pyrogram_acc_manager import reset_rate_limit_events_for_account
+            reset_rate_limit_events_for_account(new_account.session_name)
+            
+            return new_account
+        else:
+            logger.error(f"❌ [{task_id}] No alternative accounts available")
+            return None
+            
+    except Exception as e:
+        logger.error(f"❌ [{task_id}] Error rotating account on proxy exhaustion: {e}")
+        return None
+
 async def get_video_metadata_for_upload(file_path: str, task_id: str) -> Optional[Dict[str, Any]]:
     """Extract video metadata for Telegram upload"""
     try:
@@ -218,11 +245,6 @@ async def get_video_metadata_for_upload(file_path: str, task_id: str) -> Optiona
         width = video_stream.get('width')
         height = video_stream.get('height')
         
-        # DEBUG: Log raw values from ffprobe
-        logger.info(f"🔍 [{task_id}] DEBUG - Raw ffprobe values:")
-        logger.info(f"   Raw width: {width} (type: {type(width)})")
-        logger.info(f"   Raw height: {height} (type: {type(height)})")
-        
         # Convert to integers for Pyrogram compatibility
         if width:
             width = int(width)
@@ -231,11 +253,9 @@ async def get_video_metadata_for_upload(file_path: str, task_id: str) -> Optiona
         
         # Extract duration (prefer format, fallback to stream)
         duration = format_info.get('duration') or video_stream.get('duration')
-        logger.info(f"   Raw duration: {duration} (type: {type(duration)})")
         if duration:
             duration = int(float(duration))
-            logger.info(f"   Processed duration: {duration} (type: {type(duration)})")
-        
+
         # Extract bitrate (prefer format, fallback to stream)
         bitrate = format_info.get('bit_rate') or video_stream.get('bit_rate')
         if bitrate:
@@ -276,9 +296,7 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
     try:
         # Extract metadata for Telegram upload
         upload_metadata = await get_video_metadata_for_upload(file_path, task_id)
-        if upload_metadata:
-            logger.info(f"📤 [{task_id}] Will send to Telegram: {upload_metadata['width']}x{upload_metadata['height']}, duration: {upload_metadata['duration']}s")
-        else:
+        if not upload_metadata:
             logger.warning(f"⚠️ [{task_id}] Could not extract metadata for upload - Telegram may receive incorrect dimensions")
         
         # Pre-upload checks
@@ -357,20 +375,6 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                         send_video_params["height"] = upload_metadata["height"]
                         if upload_metadata["duration"]:
                             send_video_params["duration"] = upload_metadata["duration"]
-                        
-                        # DEBUG: Log exact types and values being sent to Pyrogram
-                        logger.info(f"🔍 [{task_id}] DEBUG - send_video_params types and values:")
-                        logger.info(f"   width: {send_video_params['width']} (type: {type(send_video_params['width'])})")
-                        logger.info(f"   height: {send_video_params['height']} (type: {type(send_video_params['height'])})")
-                        if 'duration' in send_video_params:
-                            logger.info(f"   duration: {send_video_params['duration']} (type: {type(send_video_params['duration'])})")
-                        logger.info(f"   chat_id: {send_video_params['chat_id']} (type: {type(send_video_params['chat_id'])})")
-                        logger.info(f"   video: {send_video_params['video']} (type: {type(send_video_params['video'])})")
-                        logger.info(f"   caption: {send_video_params['caption']} (type: {type(send_video_params['caption'])})")
-                        logger.info(f"   disable_notification: {send_video_params['disable_notification']} (type: {type(send_video_params['disable_notification'])})")
-                        logger.info(f"   supports_streaming: {send_video_params['supports_streaming']} (type: {type(send_video_params['supports_streaming'])})")
-                        
-                        logger.info(f"📐 [{task_id}] Sending with metadata: {upload_metadata['width']}x{upload_metadata['height']}, duration: {upload_metadata['duration']}s")
                     else:
                         logger.warning(f"⚠️ [{task_id}] Sending without metadata - Telegram will auto-detect dimensions")
                     
@@ -483,18 +487,30 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                 except AllProxiesExhaustedError as e:
                     error_msg = f"All proxies exhausted for account {account.session_name}: {e}"
                     logger.error(f"❌ [{task_id}] {error_msg}")
-                    await notify_admin(f"🔴 [{task_id}] {error_msg}")
                     
-                    # Track the error in database
-                    await update_last_error(db, account.session_name, "All proxies exhausted")
-                    
-                    await log_upload_metrics(task_id, file_size, False, retry_count)
-                    
-                    # Log failed upload
-                    total_duration = time.time() - upload_start_time
-                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-                    
-                    raise Exception(f"❌{error_msg}")
+                    # Try to switch to next account instead of failing immediately
+                    new_account = await rotate_account_on_proxy_exhaustion(task_id, db, account)
+                    if new_account:
+                        account = new_account
+                        logger.info(f"🔄 [{task_id}] Switched to account: {account.session_name}")
+                        # Reset retry counters for new account
+                        retry_count = 0
+                        flood_wait_count = 0
+                        continue  # Retry with new account
+                    else:
+                        # No alternative accounts available
+                        await notify_admin(f"🔴 [{task_id}] {error_msg}")
+                        
+                        # Track the error in database
+                        await update_last_error(db, account.session_name, "All proxies exhausted")
+                        
+                        await log_upload_metrics(task_id, file_size, False, retry_count)
+                        
+                        # Log failed upload
+                        total_duration = time.time() - upload_start_time
+                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+                        
+                        raise Exception(f"❌{error_msg}")
 
                 except Exception as e:
                     retry_count += 1

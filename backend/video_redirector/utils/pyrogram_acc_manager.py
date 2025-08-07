@@ -172,6 +172,8 @@ class UploadAccount:
             # Immediate cooldown for significant events
             self._put_proxy_in_cooldown(proxy_index, reason, "significant_event")
             logger.warning(f"🔄 [{self.session_name}] Proxy {proxy_key} in cooldown: {reason}")
+            # Notify admin about proxy rotation
+            asyncio.create_task(notify_admin(f"🔄 [{self.session_name}] Proxy {proxy_key} rotated due to: {reason}"))
         else:
             # Increment connection attempts for regular failures
             self.connection_attempts += 1
@@ -180,9 +182,11 @@ class UploadAccount:
                 # Max connection attempts reached
                 self._put_proxy_in_cooldown(proxy_index, reason, "connection_failure")
                 logger.warning(f"🔄 [{self.session_name}] Proxy {proxy_key} in cooldown after {self.connection_retry_limit} connection failures")
+                # Notify admin about proxy rotation
+                asyncio.create_task(notify_admin(f"🔄 [{self.session_name}] Proxy {proxy_key} rotated due to connection failures"))
                 self.connection_attempts = 0
             else:
-                logger.warning(f"⚠️ [{self.session_name}] Proxy {proxy_index} connection attempt {self.connection_attempts}/{self.connection_retry_limit}")
+                logger.warning(f"⚠️ [{self.session_name}] Proxy {proxy_key} connection attempt {self.connection_attempts}/{self.connection_retry_limit}")
         
         # Check for permanent blacklist using ACTUAL consecutive failures
         consecutive_failures = self.proxy_consecutive_failures[proxy_index]
@@ -294,9 +298,15 @@ Action: Consider adding more proxies or investigating issues
                 else:
                     logger.error(f"❌ [{self.session_name}] All connection attempts failed")
         
-        # All connection attempts failed, rotate proxy
-        await self.rotate_proxy("Connection retry limit exceeded")
-        return await self.ensure_client_ready_with_retry()
+        # All connection attempts failed, try to rotate proxy
+        try:
+            await self.rotate_proxy("Connection retry limit exceeded")
+            # Try one more time after rotation
+            return await self.ensure_client_ready_with_retry()
+        except AllProxiesExhaustedError:
+            # All proxies exhausted, return None
+            logger.error(f"❌ [{self.session_name}] All proxies exhausted after connection retries")
+            return None
 
     async def ensure_client_ready(self):
         """Ensure client is ready for use, start if needed"""
@@ -381,24 +391,31 @@ Action: Consider adding more proxies or investigating issues
     async def rotate_proxy(self, reason: str) -> bool:
         """Rotate to next available proxy"""
         try:
-            # Mark current proxy as having rotation event
+            # 1. Mark current proxy as failed
             self.mark_proxy_failure(self.current_proxy_index, reason, is_significant_event=True)
             
-            # Select new proxy
-            self.current_proxy_index = self.select_best_proxy()
-            
-            # Recreate client with new proxy
+            # 2. Stop current client FIRST to prevent reuse of old client
             await self.stop_client()
-            success = await self.ensure_client_ready() is not None
             
-            if success:
+            # 3. Select new proxy (this can raise AllProxiesExhaustedError)
+            try:
+                self.current_proxy_index = self.select_best_proxy()
+            except AllProxiesExhaustedError:
+                # No proxies available - raise immediately
+                raise
+            
+            # 4. Create client with new proxy
+            client = await self.ensure_client_ready()
+            
+            if client is not None:
+                # Success - reset events and return True
+                reset_rate_limit_events_for_account(self.session_name)
                 logger.info(f"✅ [{self.session_name}] Successfully rotated to new proxy")
+                return True
             else:
-                # New proxy also failed, mark it and try again
+                # Client creation failed - mark proxy as failed and raise exception
                 self.mark_proxy_failure(self.current_proxy_index, "Client creation failed", is_significant_event=True)
-                return await self.rotate_proxy("Previous rotation failed")
-            
-            return success
+                raise AllProxiesExhaustedError(f"Account {self.session_name}: All proxies unavailable")
             
         except AllProxiesExhaustedError:
             await self.notify_admin_all_proxies_failed(reason)
@@ -682,6 +699,12 @@ async def idle_client_cleanup():
         await asyncio.sleep(300)  # Check every 5 minutes
 
 # --- Per-account rate limit tracking functions ---
+
+def reset_rate_limit_events_for_account(account_session_name: str):
+    """Reset rate limit event counter after successful proxy rotation"""
+    if account_session_name in _account_rate_limit_events:
+        _account_rate_limit_events[account_session_name] = []
+        logger.info(f"🔄 [{account_session_name}] Rate limit events reset after proxy rotation")
 
 def track_rate_limit_event_per_account(account_session_name: str, wait_seconds: int):
     """Track rate limit events per account (adapted from current global tracking)"""

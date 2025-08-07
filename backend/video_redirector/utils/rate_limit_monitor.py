@@ -178,20 +178,30 @@ class RateLimitLogHandler(logging.Handler):
                 logger.error(f"❌ Account {account_session_name} not found in pool")
                 return
             
+            # Get current proxy key for logging
+            current_proxy_key = f"{account.proxy_pool[account.current_proxy_index]['ip']}:{account.proxy_pool[account.current_proxy_index]['port']}"
+            
             # Trigger proxy rotation
-            logger.info(f"🔄 [{account_session_name}] Triggering proxy rotation: {reason}")
+            logger.info(f"🔄 [{account_session_name}] Triggering proxy rotation from {current_proxy_key}: {reason}")
             
             # Immediately rotate to a new proxy (this also marks the current one as failed)
             try:
                 await account.rotate_proxy(reason)
-                logger.info(f"✅ [{account_session_name}] Successfully rotated to new proxy")
+                
+                # Get new proxy key for logging
+                new_proxy_key = f"{account.proxy_pool[account.current_proxy_index]['ip']}:{account.proxy_pool[account.current_proxy_index]['port']}"
+                logger.info(f"✅ [{account_session_name}] Successfully rotated from {current_proxy_key} to {new_proxy_key}")
+                
+                # Notify admin about the successful rotation
+                await notify_admin(f"🔄 [{account_session_name}] Proxy rotation: {current_proxy_key} → {new_proxy_key} (reason: {reason})")
+                
             except Exception as rotation_error:
-                logger.error(f"❌ [{account_session_name}] Failed to rotate proxy: {rotation_error}")
+                logger.error(f"❌ [{account_session_name}] Failed to rotate proxy {current_proxy_key}: {rotation_error}")
                 # Fallback: just mark the current proxy as failed
                 account.mark_proxy_failure(account.current_proxy_index, reason, is_significant_event=is_significant_event)
-            
-            # Notify admin about the rotation
-            await notify_admin(f"🔄 [{account_session_name}] Proxy rotation triggered: {reason}")
+                
+                # Notify admin about the failed rotation
+                await notify_admin(f"❌ [{account_session_name}] Proxy rotation failed for {current_proxy_key}: {rotation_error}")
             
         except Exception as e:
             logger.error(f"❌ Error triggering proxy rotation for {account_session_name}: {e}")
