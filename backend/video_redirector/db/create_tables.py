@@ -13,15 +13,15 @@ logger = logging.getLogger(__name__)
 
 def create_all_tables():
     """Create all database tables from scratch"""
-    logger.info("🔧 Creating all database tables...")
+    print("🔧 Creating all database tables...")
     
     engine = create_engine(DATABASE_URL)
     Base.metadata.create_all(bind=engine)
-    logger.info("✅ All tables created")
+    print("✅ All tables created")
 
 async def create_indexes():
     """Create database indexes for performance optimization"""
-    logger.info("🔧 Creating database indexes...")
+    print("🔧 Creating database indexes...")
     
     async for db in get_db():
         try:
@@ -53,7 +53,7 @@ async def create_indexes():
             """))
             
             await db.commit()
-            logger.info("✅ Database indexes created successfully")
+            print("✅ Database indexes created successfully")
             
         except Exception as e:
             logger.error(f"❌ Error creating indexes: {e}")
@@ -66,7 +66,7 @@ def create_tables_and_indexes():
     """Create tables and indexes in one go"""
     create_all_tables()
     asyncio.run(create_indexes())
-    logger.info("✅ Tables and indexes created successfully")
+    print("✅ Tables and indexes created successfully")
 
 if __name__ == "__main__":
     create_tables_and_indexes()

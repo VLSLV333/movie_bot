@@ -168,36 +168,38 @@ async def process_parallel_uploads(output_files: list, task_id: str) -> list:
         
         try:
             upload_tasks = []
-            async for db in get_db():
-                for i, file_path in enumerate(output_files):
-                    # Create unique task ID for each file
-                    file_task_id = f"{task_id}_file{i+1}"
-                    
-                    # Create task with individual error handling
-                    async def upload_single_file(file_path, file_task_id, file_index, db, bot_info):
-                        try:
+            for i, file_path in enumerate(output_files):
+                # Create unique task ID for each file
+                file_task_id = f"{task_id}_file{i+1}"
+                
+                # Create task with individual error handling and its own database session
+                async def upload_single_file(file_path, file_task_id, file_index, bot_info):
+                    try:
+                        # Each task gets its own database session
+                        async for db in get_db():
                             result = await check_size_upload_large_file(file_path, file_task_id, db, bot_info)
-                            return {
-                                "file_index": file_index,
-                                "file_path": file_path,
-                                "result": result,
-                                "success": True
-                            }
-                        except Exception as e:
-                            logger.error(f"❌ [{task_id}] File {file_index+1} upload exception with bot {bot_username}: {e}")
-                            return {
-                                "file_index": file_index,
-                                "file_path": file_path,
-                                "result": None,
-                                "success": False,
-                                "error": str(e)
-                            }
-                    
-                    task = asyncio.create_task(
-                        upload_single_file(file_path, file_task_id, i, db, bot_config)
-                    )
-                    upload_tasks.append(task)
-                break  # Only need one session
+                            break  # Only need one session
+                        
+                        return {
+                            "file_index": file_index,
+                            "file_path": file_path,
+                            "result": result,
+                            "success": True
+                        }
+                    except Exception as e:
+                        logger.error(f"❌ [{task_id}] File {file_index+1} upload exception with bot {bot_username}: {e}")
+                        return {
+                            "file_index": file_index,
+                            "file_path": file_path,
+                            "result": None,
+                            "success": False,
+                            "error": str(e)
+                        }
+                
+                task = asyncio.create_task(
+                    upload_single_file(file_path, file_task_id, i, bot_config)
+                )
+                upload_tasks.append(task)
             
             # Wait for ALL uploads to complete simultaneously with this bot
             logger.info(f"⏳ [{task_id}] Waiting for {len(upload_tasks)} parallel uploads with bot {bot_username}...")

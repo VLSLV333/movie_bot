@@ -88,7 +88,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     
     try:
         async with AsyncSessionLocal() as session:
+            # Add session ID for debugging
+            session_id = id(session)
+            logger.info(f"🔗 Database session {session_id} created")
             yield session
+            logger.info(f"🔗 Database session {session_id} closed")
     except Exception as e:
         global _db_error_count, _db_lock_count
         
@@ -96,9 +100,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         error_str = str(e).lower()
         
         # Categorize errors
-        if "database is locked" in error_str or "operationalerror" in str(type(e).__name__).lower():
+        if ("database is locked" in error_str or 
+            "operationalerror" in str(type(e).__name__).lower() or
+            "illegalstatechangeerror" in error_str):
             _db_lock_count += 1
-            logger.error(f"🔒 Database lock detected in get_db: {type(e).__name__}: {e}")
+            logger.error(f"🔒 Database session state error in get_db: {type(e).__name__}: {e}")
             try:
                 pool = engine.pool
                 logger.error(f"   Pool status - Checked out: {pool.checkedout()}, Size: {pool.size()}")

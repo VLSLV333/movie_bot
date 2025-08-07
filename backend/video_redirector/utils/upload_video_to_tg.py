@@ -218,6 +218,12 @@ async def get_video_metadata_for_upload(file_path: str, task_id: str) -> Optiona
         width = video_stream.get('width')
         height = video_stream.get('height')
         
+        # Convert to integers for Pyrogram compatibility
+        if width:
+            width = int(width)
+        if height:
+            height = int(height)
+        
         # Extract duration (prefer format, fallback to stream)
         duration = format_info.get('duration') or video_stream.get('duration')
         if duration:
