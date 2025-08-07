@@ -5,7 +5,9 @@ import time
 from backend.video_redirector.utils.pyrogram_acc_manager import (
     track_rate_limit_event_per_account, 
     UPLOAD_ACCOUNT_POOL,
-    get_rate_limit_stats_per_account
+    get_rate_limit_stats_per_account,
+    AllProxiesExhaustedError,
+    reset_rate_limit_events_for_account
 )
 from backend.video_redirector.utils.notify_admin import notify_admin
 
@@ -27,6 +29,9 @@ REQUEST_TIMEOUT_PATTERN = re.compile(
 
 # Track which account is currently uploading (will be set by upload process)
 _upload_contexts = {}
+
+# Track uploads that need account rotation due to proxy exhaustion
+_account_rotation_requests = {}  # task_id -> {"old_account": str, "reason": str, "timestamp": float}
 
 # Track recent events to avoid duplicate handling
 _recent_events = {}  # account_name -> {event_type: timestamp}
@@ -94,12 +99,13 @@ class RateLimitLogHandler(logging.Handler):
                 
                 if should_rotate:
                     logger.warning(f"🚨 [{account_session_name}] Rate limit threshold exceeded, triggering proxy rotation")
+                    # Mark this event type as handled BEFORE rotation to prevent duplicate processing
+                    self._mark_event_handled(account_session_name, "rate_limit")
                     await self._trigger_proxy_rotation(account_session_name, f"Rate limit: {wait_seconds}s wait", is_significant_event=True)
                 else:
                     logger.info(f"⏰ [{account_session_name}] Rate limit event: {wait_seconds}s wait")
-                
-                # Mark event as handled
-                self._mark_event_handled(account_session_name, "rate_limit")
+                    # Mark event as handled
+                    self._mark_event_handled(account_session_name, "rate_limit")
                 
         except Exception as e:
             logger.error(f"Error handling rate limit: {e}")
@@ -395,5 +401,3 @@ def get_network_failure_summary():
             logger.debug(f"   {account_name}: No network failures")
     
     return summary
-
-

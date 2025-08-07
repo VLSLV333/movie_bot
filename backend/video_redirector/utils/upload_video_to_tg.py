@@ -493,6 +493,10 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     if new_account:
                         account = new_account
                         logger.info(f"🔄 [{task_id}] Switched to account: {account.session_name}")
+
+                        # Update rate limit monitor context
+                        set_current_uploading_account(task_id, account.session_name)
+
                         # Reset retry counters for new account
                         retry_count = 0
                         flood_wait_count = 0

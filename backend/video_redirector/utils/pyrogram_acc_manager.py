@@ -196,19 +196,34 @@ class UploadAccount:
 
     def _put_proxy_in_cooldown(self, proxy_index: int, reason: str, failure_type: str):
         """Put proxy in temporary cooldown"""
+        # Don't put already blacklisted proxies in cooldown
+        if proxy_index in self.blacklisted_proxies:
+            return
+            
         cooldown_until = time.time() + (self.cooldown_hours * 3600)
         self.proxy_cooldowns[proxy_index] = cooldown_until
         
         # Check if we need to notify admin about low proxy count
-        available_count = len(self.proxy_pool) - len(self.blacklisted_proxies) - len(self.proxy_cooldowns)
+        # Count proxies that are neither blacklisted nor in cooldown
+        unavailable_proxies = self.blacklisted_proxies.union(set(self.proxy_cooldowns.keys()))
+        available_count = len(self.proxy_pool) - len(unavailable_proxies)
         if available_count <= 1:
             self.notify_admin_low_proxy_count(available_count, reason)
 
     def _blacklist_proxy(self, proxy_index: int, reason: str):
         """Permanently blacklist a proxy"""
+        # Check if already blacklisted to prevent duplicate notifications
+        if proxy_index in self.blacklisted_proxies:
+            logger.debug(f"⏭️ [{self.session_name}] Proxy index {proxy_index} already blacklisted, skipping")
+            return
+            
         self.blacklisted_proxies.add(proxy_index)
-        proxy_key = f"{self.proxy_pool[proxy_index]['ip']}:{self.proxy_pool[proxy_index]['port']}"
         
+        # Remove from cooldowns if present (blacklisted proxies don't need cooldowns)
+        if proxy_index in self.proxy_cooldowns:
+            del self.proxy_cooldowns[proxy_index]
+        
+        proxy_key = f"{self.proxy_pool[proxy_index]['ip']}:{self.proxy_pool[proxy_index]['port']}"
         logger.error(f"🔴 [{self.session_name}] Proxy {proxy_key} permanently blacklisted: {reason}")
         
         # Notify admin with full details
@@ -274,6 +289,28 @@ Action: Consider adding more proxies or investigating issues
         except Exception as e:
             logger.debug(f"Client health check failed for {self.session_name}: {type(e).__name__}: {e}")
             return False
+    
+    def has_available_proxies(self) -> bool:
+        """Check if this account has any available proxies"""
+        if not self.proxy_pool:
+            return False
+        
+        current_time = time.time()
+        for i in range(len(self.proxy_pool)):
+            # Skip blacklisted proxies
+            if i in self.blacklisted_proxies:
+                continue
+                
+            # Skip proxies in cooldown
+            if i in self.proxy_cooldowns:
+                cooldown_until = self.proxy_cooldowns[i]
+                if current_time < cooldown_until:
+                    continue
+            
+            # Found at least one available proxy
+            return True
+        
+        return False
 
     async def ensure_client_ready_with_retry(self):
         """Ensure client is ready with connection retry logic"""
@@ -311,6 +348,11 @@ Action: Consider adding more proxies or investigating issues
     async def ensure_client_ready(self):
         """Ensure client is ready for use, start if needed"""
         current_time = time.time()
+        
+        # First check if we have any available proxies at all
+        if not self.has_available_proxies():
+            logger.error(f"❌ [{self.session_name}] No available proxies for client creation")
+            raise AllProxiesExhaustedError(f"Account {self.session_name}: No available proxies")
         
         # Check if we're in cooldown period
         if (self.client is None and 
@@ -585,6 +627,12 @@ async def select_upload_account(db: AsyncSession):
                 # Check least used accounts first - prioritize non-uploading accounts
                 for idx in least_used:
                     acc = UPLOAD_ACCOUNT_POOL[idx]
+                    
+                    # Skip accounts without available proxies
+                    if not acc.has_available_proxies():
+                        logger.debug(f"⏭️ Skipping account {acc.session_name}: no available proxies")
+                        continue
+                    
                     # Check if account is currently uploading using the counter system
                     is_currently_uploading = _account_upload_counters.get(acc.session_name, 0) > 0
                     
@@ -604,6 +652,11 @@ async def select_upload_account(db: AsyncSession):
                 
                 # If no non-uploading least used accounts available, try any non-uploading account
                 for idx, acc in enumerate(UPLOAD_ACCOUNT_POOL):
+                    # Skip accounts without available proxies
+                    if not acc.has_available_proxies():
+                        logger.debug(f"⏭️ Skipping account {acc.session_name}: no available proxies")
+                        continue
+                    
                     # Check if account is currently uploading using the counter system
                     is_currently_uploading = _account_upload_counters.get(acc.session_name, 0) > 0
                     
@@ -703,8 +756,11 @@ async def idle_client_cleanup():
 def reset_rate_limit_events_for_account(account_session_name: str):
     """Reset rate limit event counter after successful proxy rotation"""
     if account_session_name in _account_rate_limit_events:
+        old_count = len(_account_rate_limit_events[account_session_name])
         _account_rate_limit_events[account_session_name] = []
-        logger.info(f"🔄 [{account_session_name}] Rate limit events reset after proxy rotation")
+        logger.info(f"🔄 [{account_session_name}] Rate limit events reset after proxy rotation (cleared {old_count} events)")
+    else:
+        logger.info(f"🔄 [{account_session_name}] Rate limit events reset (no events to clear)")
 
 def track_rate_limit_event_per_account(account_session_name: str, wait_seconds: int):
     """Track rate limit events per account (adapted from current global tracking)"""
