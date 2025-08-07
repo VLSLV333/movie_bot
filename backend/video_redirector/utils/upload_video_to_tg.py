@@ -218,6 +218,11 @@ async def get_video_metadata_for_upload(file_path: str, task_id: str) -> Optiona
         width = video_stream.get('width')
         height = video_stream.get('height')
         
+        # DEBUG: Log raw values from ffprobe
+        logger.info(f"🔍 [{task_id}] DEBUG - Raw ffprobe values:")
+        logger.info(f"   Raw width: {width} (type: {type(width)})")
+        logger.info(f"   Raw height: {height} (type: {type(height)})")
+        
         # Convert to integers for Pyrogram compatibility
         if width:
             width = int(width)
@@ -226,8 +231,10 @@ async def get_video_metadata_for_upload(file_path: str, task_id: str) -> Optiona
         
         # Extract duration (prefer format, fallback to stream)
         duration = format_info.get('duration') or video_stream.get('duration')
+        logger.info(f"   Raw duration: {duration} (type: {type(duration)})")
         if duration:
             duration = float(duration)
+            logger.info(f"   Processed duration: {duration} (type: {type(duration)})")
         
         # Extract bitrate (prefer format, fallback to stream)
         bitrate = format_info.get('bit_rate') or video_stream.get('bit_rate')
@@ -350,6 +357,19 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                         send_video_params["height"] = upload_metadata["height"]
                         if upload_metadata["duration"]:
                             send_video_params["duration"] = upload_metadata["duration"]
+                        
+                        # DEBUG: Log exact types and values being sent to Pyrogram
+                        logger.info(f"🔍 [{task_id}] DEBUG - send_video_params types and values:")
+                        logger.info(f"   width: {send_video_params['width']} (type: {type(send_video_params['width'])})")
+                        logger.info(f"   height: {send_video_params['height']} (type: {type(send_video_params['height'])})")
+                        if 'duration' in send_video_params:
+                            logger.info(f"   duration: {send_video_params['duration']} (type: {type(send_video_params['duration'])})")
+                        logger.info(f"   chat_id: {send_video_params['chat_id']} (type: {type(send_video_params['chat_id'])})")
+                        logger.info(f"   video: {send_video_params['video']} (type: {type(send_video_params['video'])})")
+                        logger.info(f"   caption: {send_video_params['caption']} (type: {type(send_video_params['caption'])})")
+                        logger.info(f"   disable_notification: {send_video_params['disable_notification']} (type: {type(send_video_params['disable_notification'])})")
+                        logger.info(f"   supports_streaming: {send_video_params['supports_streaming']} (type: {type(send_video_params['supports_streaming'])})")
+                        
                         logger.info(f"📐 [{task_id}] Sending with metadata: {upload_metadata['width']}x{upload_metadata['height']}, duration: {upload_metadata['duration']}s")
                     else:
                         logger.warning(f"⚠️ [{task_id}] Sending without metadata - Telegram will auto-detect dimensions")
