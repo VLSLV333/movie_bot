@@ -29,8 +29,6 @@ STATUS_ANIMATIONS = {
     "default": "https://media.giphy.com/media/RDqkrKJr5XwPWxz3pa/giphy.gif"
 }
 
-SPINNER_FRAMES = ['|', '/', '-', '\\']
-
 def make_progress_bar(percent, length=10):
     filled = int(percent / 100 * length)
     return "█" * filled + "-" * (length - filled)
@@ -41,13 +39,14 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
     Polls the backend for download status and updates the user with animation and caption.
     If query.message is None, uses the provided bot instance to send animations.
     """
-    max_attempts = 120  # 60 minutes if 30s interval
-    interval = 30
+    max_attempts = 120  # 20 minutes if 10s interval
+    interval = 10
     last_status = None
     last_animation_msg = loading_msg
     last_text_msg = None
     last_text = None
     upload_poll_count = 0  # Counter for upload progress
+    last_animation_key = None  # Track last sent animation phase/key
 
     async with ClientSession() as session:
         for attempt in range(max_attempts):
@@ -62,17 +61,21 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                     status = data.get("status")
                     new_text = None
                     animation_url = None
+                    animation_key = None
 
                     # Determine which animation/caption to use
                     if status == "queued":
-                        animation_url = STATUS_ANIMATIONS["queued"]
+                        animation_key = "queued"
+                        animation_url = STATUS_ANIMATIONS[animation_key]
                         position = data.get("queue_position") or '...'
                         new_text = gettext(DOWNLOAD_QUEUE_POSITION).format(position=position)
                     elif status == "extracting":
-                        animation_url = STATUS_ANIMATIONS["extracting"]
+                        animation_key = "extracting"
+                        animation_url = STATUS_ANIMATIONS[animation_key]
                         new_text = gettext(DOWNLOAD_EXTRACTING_DATA)
                     elif status == "merging":
-                        animation_url = STATUS_ANIMATIONS["merging"]
+                        animation_key = "merging"
+                        animation_url = STATUS_ANIMATIONS[animation_key]
                         # Fetch progress from merge_progress endpoint
                         try:
                             async with session.get(f"https://moviebot.click/hd/status/merge_progress/{task_id}") as merge_resp:
@@ -95,11 +98,12 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                         
                         # Select animation based on poll count
                         if upload_poll_count <= 7:
-                            animation_url = STATUS_ANIMATIONS["uploading"]
+                            animation_key = "uploading"
                         elif upload_poll_count <= 14:
-                            animation_url = STATUS_ANIMATIONS["uploading_phase2"]
+                            animation_key = "uploading_phase2"
                         else:
-                            animation_url = STATUS_ANIMATIONS["uploading_phase3"]
+                            animation_key = "uploading_phase3"
+                        animation_url = STATUS_ANIMATIONS[animation_key]
                     elif status == "done":
                         result = data.get("result")
                         if result:
@@ -135,11 +139,12 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                         )
                         return None
                     else:
-                        animation_url = STATUS_ANIMATIONS["default"]
+                        animation_key = "default"
+                        animation_url = STATUS_ANIMATIONS[animation_key]
                         new_text = gettext(DOWNLOAD_PROCESSING_STATUS).format(status=status)
 
                     # If status changed, delete old animation and send new one, and update text message
-                    if status != last_status:
+                    if status != last_status or animation_key != last_animation_key:
                         try:
                             await last_animation_msg.delete()
                         except Exception as err:
@@ -176,6 +181,7 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                             logger.error(f"[User {user_id}] Cannot send text message: both query.message and bot are None.")
                             raise RuntimeError("Cannot send text message: both query.message and bot are None.")
                         last_status = status
+                        last_animation_key = animation_key
                         last_text = new_text
                     # If status is merging, update text message for progress (even if status didn't change)
                     elif status == "merging" and new_text != last_text:

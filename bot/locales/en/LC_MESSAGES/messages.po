@@ -270,7 +270,7 @@ msgid "no_btn"
 msgstr "❌ No"
 
 msgid "confirm_report_movie_not_found"
-msgstr "Are you sure you want to report to admin that you cannot find this movie?"
+msgstr "😥 Are you sure you want to report to admin that you cannot find this movie?"
 
 msgid "report_thanks_message"
 msgstr "Thanks for your report, we will try to find this movie, so you can watch it later ❤️"
@@ -306,7 +306,7 @@ msgid "movie_ready_to_watch"
 msgstr "🎬 Your {movie_title} is ready:"
 
 msgid "text_dubs_ready_to_download"
-msgstr "{emoji} {display_dub} dub"
+msgstr "{emoji} {display_dub}"
 
 msgid "download_another_dub"
 msgstr "📥 Download with another dub"
