@@ -524,6 +524,29 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     # Mark proxy failure for consecutive failure tracking
                     account.mark_proxy_failure(account.current_proxy_index, f"Upload error: {type(e).__name__}", is_significant_event=False)
                     
+                    # If proxies are no longer available (exhausted or all in cooldown/blacklist), escalate to switch accounts
+                    try:
+                        if not account.has_available_proxies():
+                            raise AllProxiesExhaustedError(f"Account {account.session_name}: No available proxies after error")
+                    except AllProxiesExhaustedError as exhausted_err:
+                        error_msg = f"All proxies exhausted for account {account.session_name}: {exhausted_err}"
+                        logger.error(f"❌ [{task_id}] {error_msg}")
+                        new_account = await rotate_account_on_proxy_exhaustion(task_id, db, account)
+                        if new_account:
+                            account = new_account
+                            logger.info(f"🔄 [{task_id}] Switched to account: {account.session_name}")
+                            set_current_uploading_account(task_id, account.session_name)
+                            retry_count = 0
+                            flood_wait_count = 0
+                            continue
+                        else:
+                            await notify_admin(f"🔴 [{task_id}] {error_msg}")
+                            await update_last_error(db, account.session_name, "All proxies exhausted")
+                            await log_upload_metrics(task_id, file_size, False, retry_count)
+                            total_duration = time.time() - upload_start_time
+                            await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+                            raise Exception(f"❌{error_msg}")
+
                     # Track the error in database
                     await update_last_error(db, account.session_name, f"Upload error: {type(e).__name__}")
                     

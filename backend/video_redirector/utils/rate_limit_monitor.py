@@ -80,38 +80,51 @@ class RateLimitLogHandler(logging.Handler):
             logger.debug(f"Error in log handler: {e}")
     
     async def _handle_rate_limit(self, wait_seconds: int):
-        """Handle rate limiting events proactively"""
+        """Handle rate limiting events proactively without direct rotation"""
         try:
+            # Target only the account(s) currently uploading
             current_accounts = list(_upload_contexts.values())
-            
             if not current_accounts:
                 logger.warning("⚠️ Rate limit event detected but no account context available")
                 return
-            
-            # Handle all current accounts (since we can't determine which one triggered it)
+
             for account_session_name in current_accounts:
                 if self._is_duplicate_event(account_session_name, "rate_limit"):
                     logger.debug(f"⏭️ Skipping duplicate rate limit event for {account_session_name}")
                     continue
-                
-                # Track rate limit event for the specific account
+
                 should_rotate = track_rate_limit_event_per_account(account_session_name, wait_seconds)
-                
-                if should_rotate:
-                    logger.warning(f"🚨 [{account_session_name}] Rate limit threshold exceeded, triggering proxy rotation")
-                    # Mark this event type as handled BEFORE rotation to prevent duplicate processing
+
+                # Find the corresponding account object
+                account = None
+                for acc in UPLOAD_ACCOUNT_POOL:
+                    if acc.session_name == account_session_name:
+                        account = acc
+                        break
+
+                if not account:
+                    logger.error(f"❌ Account {account_session_name} not found in pool")
                     self._mark_event_handled(account_session_name, "rate_limit")
-                    await self._trigger_proxy_rotation(account_session_name, f"Rate limit: {wait_seconds}s wait", is_significant_event=True)
+                    continue
+
+                if should_rotate:
+                    logger.warning(f"🚨 [{account_session_name}] Rate limit threshold exceeded — cooldown current proxy and stopping client")
+                    try:
+                        # Mark as non-significant to avoid immediate blacklist for plain rate-limits
+                        account.mark_proxy_failure(account.current_proxy_index, f"Rate limit: {wait_seconds}s wait", is_significant_event=True)
+                        await account.stop_client()
+                    except Exception as e:
+                        logger.debug(f"Error applying cooldown/stop on rate limit: {e}")
                 else:
                     logger.info(f"⏰ [{account_session_name}] Rate limit event: {wait_seconds}s wait")
-                    # Mark event as handled
-                    self._mark_event_handled(account_session_name, "rate_limit")
+
+                self._mark_event_handled(account_session_name, "rate_limit")
                 
         except Exception as e:
             logger.error(f"Error handling rate limit: {e}")
     
     async def _handle_network_issue(self):
-        """Handle network connectivity issues proactively with threshold-based rotation"""
+        """Handle network connectivity issues proactively without direct rotation"""
         try:
             current_accounts = list(_upload_contexts.values())
             
@@ -127,10 +140,25 @@ class RateLimitLogHandler(logging.Handler):
                 # Track failure count
                 failure_count = self._track_network_failure(account_session_name, "network_issue")
                 
+                # Find the corresponding account object
+                account = None
+                for acc in UPLOAD_ACCOUNT_POOL:
+                    if acc.session_name == account_session_name:
+                        account = acc
+                        break
+
+                if not account:
+                    logger.error(f"❌ Account {account_session_name} not found in pool")
+                    self._mark_event_handled(account_session_name, "network_issue")
+                    continue
+
                 if failure_count >= NETWORK_FAILURE_THRESHOLD:
-                    logger.warning(f"🚨 [{account_session_name}] Network failure threshold exceeded ({failure_count}/{NETWORK_FAILURE_THRESHOLD}), triggering rotation")
-                    await self._trigger_proxy_rotation(account_session_name, "Network connectivity issue", is_significant_event=False)
-                    # Reset failure count after rotation
+                    logger.warning(f"🚨 [{account_session_name}] Network failure threshold exceeded ({failure_count}/{NETWORK_FAILURE_THRESHOLD}) — cooling down and stopping client")
+                    try:
+                        account.mark_proxy_failure(account.current_proxy_index, "Network connectivity issue", is_significant_event=True)
+                        await account.stop_client()
+                    except Exception as e:
+                        logger.debug(f"Error applying cooldown/stop on network issue: {e}")
                     self._reset_network_failures(account_session_name, "network_issue")
                 else:
                     logger.info(f"🌐 [{account_session_name}] Network issue detected ({failure_count}/{NETWORK_FAILURE_THRESHOLD}) - giving proxy a chance")
@@ -141,7 +169,7 @@ class RateLimitLogHandler(logging.Handler):
             logger.error(f"Error handling network issue: {e}")
     
     async def _handle_request_timeout(self):
-        """Handle request timeout issues proactively with threshold-based rotation"""
+        """Handle request timeout issues proactively without direct rotation"""
         try:
             current_accounts = list(_upload_contexts.values())
             
@@ -157,10 +185,25 @@ class RateLimitLogHandler(logging.Handler):
                 # Track failure count
                 failure_count = self._track_network_failure(account_session_name, "timeout")
                 
+                # Find the corresponding account object
+                account = None
+                for acc in UPLOAD_ACCOUNT_POOL:
+                    if acc.session_name == account_session_name:
+                        account = acc
+                        break
+
+                if not account:
+                    logger.error(f"❌ Account {account_session_name} not found in pool")
+                    self._mark_event_handled(account_session_name, "timeout")
+                    continue
+
                 if failure_count >= NETWORK_FAILURE_THRESHOLD:
-                    logger.warning(f"🚨 [{account_session_name}] Timeout failure threshold exceeded ({failure_count}/{NETWORK_FAILURE_THRESHOLD}), triggering rotation")
-                    await self._trigger_proxy_rotation(account_session_name, "Request timeout", is_significant_event=False)
-                    # Reset failure count after rotation
+                    logger.warning(f"🚨 [{account_session_name}] Timeout threshold exceeded ({failure_count}/{NETWORK_FAILURE_THRESHOLD}) — cooling down and stopping client")
+                    try:
+                        account.mark_proxy_failure(account.current_proxy_index, "Request timeout", is_significant_event=True)
+                        await account.stop_client()
+                    except Exception as e:
+                        logger.debug(f"Error applying cooldown/stop on timeout: {e}")
                     self._reset_network_failures(account_session_name, "timeout")
                 else:
                     logger.info(f"⏰ [{account_session_name}] Request timeout detected ({failure_count}/{NETWORK_FAILURE_THRESHOLD}) - giving proxy a chance")
@@ -169,48 +212,6 @@ class RateLimitLogHandler(logging.Handler):
                 
         except Exception as e:
             logger.error(f"Error handling request timeout: {e}")
-    
-    async def _trigger_proxy_rotation(self, account_session_name: str, reason: str, is_significant_event: bool = False):
-        """Trigger proxy rotation for the specified account"""
-        try:
-            # Find the account in the pool
-            account = None
-            for acc in UPLOAD_ACCOUNT_POOL:
-                if acc.session_name == account_session_name:
-                    account = acc
-                    break
-            
-            if not account:
-                logger.error(f"❌ Account {account_session_name} not found in pool")
-                return
-            
-            # Get current proxy key for logging
-            current_proxy_key = f"{account.proxy_pool[account.current_proxy_index]['ip']}:{account.proxy_pool[account.current_proxy_index]['port']}"
-            
-            # Trigger proxy rotation
-            logger.info(f"🔄 [{account_session_name}] Triggering proxy rotation from {current_proxy_key}: {reason}")
-            
-            # Immediately rotate to a new proxy (this also marks the current one as failed)
-            try:
-                await account.rotate_proxy(reason)
-                
-                # Get new proxy key for logging
-                new_proxy_key = f"{account.proxy_pool[account.current_proxy_index]['ip']}:{account.proxy_pool[account.current_proxy_index]['port']}"
-                logger.info(f"✅ [{account_session_name}] Successfully rotated from {current_proxy_key} to {new_proxy_key}")
-                
-                # Notify admin about the successful rotation
-                await notify_admin(f"🔄 [{account_session_name}] Proxy rotation: {current_proxy_key} → {new_proxy_key} (reason: {reason})")
-                
-            except Exception as rotation_error:
-                logger.error(f"❌ [{account_session_name}] Failed to rotate proxy {current_proxy_key}: {rotation_error}")
-                # Fallback: just mark the current proxy as failed
-                account.mark_proxy_failure(account.current_proxy_index, reason, is_significant_event=is_significant_event)
-                
-                # Notify admin about the failed rotation
-                await notify_admin(f"❌ [{account_session_name}] Proxy rotation failed for {current_proxy_key}: {rotation_error}")
-            
-        except Exception as e:
-            logger.error(f"❌ Error triggering proxy rotation for {account_session_name}: {e}")
     
     def _is_duplicate_event(self, account_name: str, event_type: str) -> bool:
         """Check if this event is a duplicate within the deduplication window"""

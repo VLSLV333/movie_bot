@@ -314,36 +314,45 @@ Action: Consider adding more proxies or investigating issues
 
     async def ensure_client_ready_with_retry(self):
         """Ensure client is ready with connection retry logic"""
-        for attempt in range(self.connection_retry_limit):
+        rotation_done = False
+        while True:
+            for attempt in range(self.connection_retry_limit):
+                try:
+                    client = await self.ensure_client_ready()
+                    if client is not None:
+                        # Connection successful
+                        self.connection_attempts = 0
+                        return client
+                    else:
+                        # Client creation failed
+                        self.mark_proxy_failure(self.current_proxy_index, "Client creation failed", is_significant_event=False)
+                except Exception as e:
+                    # Connection error
+                    self.mark_proxy_failure(self.current_proxy_index, f"Connection error: {type(e).__name__}", is_significant_event=False)
+                    if attempt < self.connection_retry_limit - 1:
+                        logger.warning(f"⚠️ [{self.session_name}] Connection attempt {attempt + 1} failed, retrying...")
+                        await asyncio.sleep(2)
+                    else:
+                        logger.error(f"❌ [{self.session_name}] All connection attempts failed")
+
+            # If we've already rotated once, break and decide based on availability
+            if rotation_done:
+                break
+
+            # Try a single proxy rotation, then attempt again
             try:
-                client = await self.ensure_client_ready()
-                if client is not None:
-                    # Connection successful
-                    self.connection_attempts = 0
-                    return client
-                else:
-                    # Client creation failed
-                    self.mark_proxy_failure(self.current_proxy_index, "Client creation failed", is_significant_event=False)
-                    
-            except Exception as e:
-                # Connection error
-                self.mark_proxy_failure(self.current_proxy_index, f"Connection error: {type(e).__name__}", is_significant_event=False)
-                
-                if attempt < self.connection_retry_limit - 1:
-                    logger.warning(f"⚠️ [{self.session_name}] Connection attempt {attempt + 1} failed, retrying...")
-                    await asyncio.sleep(2)  # Brief delay before retry
-                else:
-                    logger.error(f"❌ [{self.session_name}] All connection attempts failed")
-        
-        # All connection attempts failed, try to rotate proxy
-        try:
-            await self.rotate_proxy("Connection retry limit exceeded")
-            # Try one more time after rotation
-            return await self.ensure_client_ready_with_retry()
-        except AllProxiesExhaustedError:
-            # All proxies exhausted, return None
-            logger.error(f"❌ [{self.session_name}] All proxies exhausted after connection retries")
+                await self.rotate_proxy("Connection retry limit exceeded")
+                rotation_done = True
+                continue
+            except AllProxiesExhaustedError:
+                logger.error(f"❌ [{self.session_name}] All proxies exhausted after connection retries")
+                raise AllProxiesExhaustedError(f"Account {self.session_name}: All proxies exhausted")
+
+        # After retries (and at most one rotation), if no client, decide outcome
+        if not self.has_available_proxies():
+            logger.error(f"❌ [{self.session_name}] No available proxies after retries")
             raise AllProxiesExhaustedError(f"Account {self.session_name}: All proxies exhausted")
+        return None
 
     async def ensure_client_ready(self):
         """Ensure client is ready for use, start if needed"""
@@ -785,7 +794,7 @@ def track_rate_limit_event_per_account(account_session_name: str, wait_seconds: 
     # Check if we should trigger rotation for this specific account
     significant_events = [
         event for event in _account_rate_limit_events[account_session_name]
-        if event["wait_seconds"] >= PROXY_CONFIG.get("rate_limit_wait_threshold", 5)
+        if event["wait_seconds"] >= PROXY_CONFIG.get("rate_limit_wait_threshold", 7)
     ]
     
     if len(significant_events) >= PROXY_CONFIG.get("max_rate_limit_events", 3):
