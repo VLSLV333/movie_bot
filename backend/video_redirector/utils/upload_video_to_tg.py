@@ -36,7 +36,7 @@ TG_USER_ID_TO_UPLOAD = 7841848291
 
 # Upload configuration
 UPLOAD_TIMEOUT = 600  # 10 minutes per part
-MAX_RETRIES = 5  # Increased from 3
+MAX_RETRIES = 5  # Each retry uses 2 proxies. So we probably should set this num to = all proxies for acc / 2
 RETRY_DELAY = 5  # Increased from 2 seconds
 MIN_DISK_SPACE_MB = 1000  # 1GB minimum free space
 FLOOD_WAIT_BUFFER = 5  # Additional buffer time after FloodWait
@@ -285,7 +285,10 @@ async def get_video_metadata_for_upload(file_path: str, task_id: str) -> Optiona
         return None
 
 async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: int, db, account, bot_username: str):
-    """Upload a part with retry logic and comprehensive error handling"""
+    """Upload a part with retry logic and comprehensive error handling.
+
+    Returns a tuple: (file_id or None, used_session_name)
+    """
     
     # Register this upload as active
     await register_upload_start(task_id)
@@ -402,7 +405,7 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                         total_duration = time.time() - upload_start_time
                         await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, True)
                         await get_upload_performance_summary()
-                        return file_id
+                        return file_id, account.session_name
                     else:
                         logger.error(f"[{task_id}] Upload succeeded but no video data returned")
                         await log_upload_metrics(task_id, file_size, False, retry_count)
@@ -411,7 +414,7 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                         total_duration = time.time() - upload_start_time
                         await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
                         
-                        return None
+                        return None, account.session_name
 
                 except FloodWait as e:
                     # Pyrogram already handled the rate limit internally, so this is a failure case
@@ -578,7 +581,7 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
         await register_upload_end(task_id)
 
 async def upload_part_to_tg(file_path: str, task_id: str, part_num: int, db, account, bot_username: str):
-    """Simple wrapper for upload_part_to_tg_with_retry"""
+    """Simple wrapper for upload_part_to_tg_with_retry returning (file_id, used_session_name)"""
     return await upload_part_to_tg_with_retry(file_path, task_id, part_num, db, account, bot_username)
 
 async def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_duration: float) -> list[str] | None:
@@ -756,13 +759,13 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
             
             if file_size_mb <= MAX_MB:
                 logger.info(f"[{task_id}] File is {round(file_size_mb)} MB — uploading as one part")
-                file_id = await upload_part_to_tg(file_path, task_id, 1, db, account, bot_username)
+                file_id, used_session = await upload_part_to_tg(file_path, task_id, 1, db, account, bot_username)
                 logger.info(f"✅ [{task_id}] Single-part upload complete. file_id: {file_id}")
 
                 return {
                     "bot_token": bot_token,
                     "parts": {part_num:[{"part": 0, "file_id": file_id}]},
-                    "session_name": account.session_name
+                    "session_name": used_session
                 }
 
             logger.info(f"[{task_id}] File is {round(file_size_mb)} MB — splitting...")
@@ -819,9 +822,11 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
             # so all total 6 parts are uploaded (has not tested this scenario yet)
 
             # Upload parts sequentially (no delays for faster uploads)
+            used_sessions = set()
             for idx, part_path in enumerate(part_paths or []):
                 try:
-                    file_id = await upload_part_to_tg(part_path, task_id, idx + 1, db, account, bot_username)
+                    file_id, used_session = await upload_part_to_tg(part_path, task_id, idx + 1, db, account, bot_username)
+                    used_sessions.add(used_session)
                     parts_result.append({"part": idx, "file_id": file_id})
                 except Exception as e:
                     logger.exception(f"[{task_id}] Error uploading part {idx + 1}")
@@ -846,9 +851,17 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
                 raise Exception(f"❌ [Task {task_id}] Upload incomplete. Uploaded {len(parts_result)} of {num_parts} parts.")
 
         finally:
-            # Release account reservation
-            if selected_account:
-                release_account_reservation(selected_account.session_name)
+            # Release all reserved accounts used during this task
+            try:
+                # Always release the initially selected account
+                if selected_account:
+                    release_account_reservation(selected_account.session_name)
+                # Also release any additional accounts used through rotation
+                for used_session in locals().get('used_sessions', set()):
+                    if not selected_account or used_session != selected_account.session_name:
+                        release_account_reservation(used_session)
+            except Exception as release_err:
+                logger.warning(f"[{task_id}] Error releasing account reservations: {release_err}")
 
     except Exception as e:
         logger.exception(f"[{task_id}] Critical error during upload")
