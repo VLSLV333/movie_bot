@@ -817,7 +817,7 @@ def get_rate_limit_stats_per_account(account_session_name: str):
     events = _account_rate_limit_events[account_session_name]
     significant_events = [
         event for event in events 
-        if event["wait_seconds"] >= PROXY_CONFIG.get("rate_limit_wait_threshold", 5)
+        if event["wait_seconds"] >= PROXY_CONFIG.get("rate_limit_wait_threshold", 7)
     ]
     wait_times = [event["wait_seconds"] for event in events]
     

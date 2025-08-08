@@ -2,6 +2,7 @@ import re
 import logging
 import asyncio
 import time
+from backend.video_redirector.config import PROXY_CONFIG
 from backend.video_redirector.utils.pyrogram_acc_manager import (
     track_rate_limit_event_per_account, 
     UPLOAD_ACCOUNT_POOL,
@@ -50,6 +51,11 @@ class RateLimitLogHandler(logging.Handler):
         try:
             message = record.getMessage()
             
+            # Attempt to extract session name from messages like:
+            # [/app/backend/session_files/session5] Waiting for 7 seconds before continuing (required by "upload.SaveBigFilePart")
+            session_match = re.search(r"\[(?:.+/)?session_files/([^\]]+)\]", message)
+            session_from_message = session_match.group(1) if session_match else None
+            
             # Check for rate limiting (primary mechanism)
             if (
                 record.name == "pyrogram.session.session"
@@ -59,36 +65,39 @@ class RateLimitLogHandler(logging.Handler):
                 match = re.search(r'Waiting for (\d+) seconds', message)
                 if match:
                     wait_seconds = int(match.group(1))
-                    # Use asyncio to avoid blocking
-                    asyncio.create_task(self._handle_rate_limit(wait_seconds))
+                    # Use asyncio to avoid blocking; act only on the emitting session if available
+                    asyncio.create_task(self._handle_rate_limit(wait_seconds, session_from_message))
             
             # Check for network issues (proactive handling)
             elif (
                 record.name == "pyrogram.connection.connection"
                 and NETWORK_ISSUE_PATTERN.search(message)
             ):
-                asyncio.create_task(self._handle_network_issue())
+                # Try to act on the emitting session if present; fallback to current upload contexts
+                asyncio.create_task(self._handle_network_issue(session_from_message))
             
             # Check for request timeouts (proactive handling)
             elif (
                 record.name == "pyrogram.session.session"
                 and REQUEST_TIMEOUT_PATTERN.search(message)
             ):
-                asyncio.create_task(self._handle_request_timeout())
+                asyncio.create_task(self._handle_request_timeout(session_from_message))
 
         except Exception as e:
             logger.debug(f"Error in log handler: {e}")
     
-    async def _handle_rate_limit(self, wait_seconds: int):
-        """Handle rate limiting events proactively without direct rotation"""
+    async def _handle_rate_limit(self, wait_seconds: int, account_session_name: str | None = None):
+        """Handle rate limiting events proactively without direct rotation, targeting only the emitting session when provided"""
         try:
-            # Target only the account(s) currently uploading
-            current_accounts = list(_upload_contexts.values())
-            if not current_accounts:
+            # Determine which accounts to handle: specific session if given, else all current uploads
+            target_accounts = [account_session_name] if account_session_name else list(_upload_contexts.values())
+            if not target_accounts:
                 logger.warning("⚠️ Rate limit event detected but no account context available")
                 return
 
-            for account_session_name in current_accounts:
+            significant_threshold = PROXY_CONFIG.get("rate_limit_wait_threshold", 7)
+
+            for account_session_name in target_accounts:
                 if self._is_duplicate_event(account_session_name, "rate_limit"):
                     logger.debug(f"⏭️ Skipping duplicate rate limit event for {account_session_name}")
                     continue
@@ -116,17 +125,19 @@ class RateLimitLogHandler(logging.Handler):
                     except Exception as e:
                         logger.debug(f"Error applying cooldown/stop on rate limit: {e}")
                 else:
-                    logger.info(f"⏰ [{account_session_name}] Rate limit event: {wait_seconds}s wait")
+                    # Only log events that meet or exceed the significant threshold; ignore sub-threshold logs
+                    if wait_seconds >= significant_threshold:
+                        logger.info(f"⏰ [{account_session_name}] Rate limit event: {wait_seconds}s wait")
 
                 self._mark_event_handled(account_session_name, "rate_limit")
                 
         except Exception as e:
             logger.error(f"Error handling rate limit: {e}")
     
-    async def _handle_network_issue(self):
-        """Handle network connectivity issues proactively without direct rotation"""
+    async def _handle_network_issue(self, account_session_name: str | None = None):
+        """Handle network connectivity issues proactively without direct rotation, targeting only the emitting session when provided"""
         try:
-            current_accounts = list(_upload_contexts.values())
+            current_accounts = [account_session_name] if account_session_name else list(_upload_contexts.values())
             
             if not current_accounts:
                 logger.warning("⚠️ Network issue detected but no account context available")
@@ -168,10 +179,10 @@ class RateLimitLogHandler(logging.Handler):
         except Exception as e:
             logger.error(f"Error handling network issue: {e}")
     
-    async def _handle_request_timeout(self):
-        """Handle request timeout issues proactively without direct rotation"""
+    async def _handle_request_timeout(self, account_session_name: str | None = None):
+        """Handle request timeout issues proactively without direct rotation, targeting only the emitting session when provided"""
         try:
-            current_accounts = list(_upload_contexts.values())
+            current_accounts = [account_session_name] if account_session_name else list(_upload_contexts.values())
             
             if not current_accounts:
                 logger.warning("⚠️ Request timeout detected but no account context available")
