@@ -3,6 +3,7 @@ import json
 import asyncio
 import time
 from pathlib import Path
+import sqlite3
 from pyrogram.client import Client
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.video_redirector.db.crud_upload_accounts import (
@@ -35,6 +36,9 @@ _account_rate_limit_events = {}  # Track per account instead of global
 _active_uploads = set()  # Track active upload task IDs
 _account_upload_counters = {}  # Track concurrent uploads per account
 MAX_CONCURRENT_UPLOADS_PER_ACCOUNT = 1  # Maximum concurrent uploads per account
+
+# Quarantine configuration for session DB issues
+ACCOUNT_QUARANTINE_SECONDS = 5 * 60  # 5 minutes
 
 # 🔒 Global lock for account selection to prevent race conditions
 # This ensures that only one task can select an account at a time,
@@ -88,7 +92,9 @@ class UploadAccount:
         self.client = None
         self.last_used = 0
         self.last_client_creation = 0
-        self.client_creation_cooldown = 10  # 10 seconds cooldown between client creations
+        self.client_creation_cooldown = 15
+        # Account-level quarantine for session file issues (e.g., SQLite locked)
+        self.quarantine_until = 0.0
         
         # New proxy pool management
         self.proxy_pool = config.get("proxy_pool", [])
@@ -108,6 +114,18 @@ class UploadAccount:
         self.connection_retry_limit = proxy_settings.get("connection_retry_limit", 3)
         
         logger.info(f"🔧 [{self.session_name}] Initialized with {len(self.proxy_pool)} proxies")
+
+    def is_quarantined(self) -> bool:
+        return time.time() < self.quarantine_until
+
+    def quarantine(self, reason: str, seconds: int = ACCOUNT_QUARANTINE_SECONDS):
+        self.quarantine_until = time.time() + seconds
+        cooldown_until = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.quarantine_until))
+        logger.warning(f"🚧 [{self.session_name}] Account quarantined for {seconds}s (until {cooldown_until}) due to: {reason}")
+        asyncio.create_task(notify_admin_async(
+            f"🚧 Account {self.session_name} quarantined for {seconds}s due to: {reason}\n"
+            f"Action: investigate or regenerate session file"
+        ))
 
     def select_best_proxy(self) -> int:
         """Select proxy with lowest usage count, then highest success rate"""
@@ -270,14 +288,16 @@ Action: Consider adding more proxies or investigating issues
         asyncio.create_task(notify_admin_async(message))
 
     async def stop_client(self):
-        if self.client is not None:
-            try:
-                await self.client.stop()
-                logger.info(f"Stopped client for account {self.session_name}")
-            except Exception as e:
-                logger.warning(f"Error stopping client for {self.session_name}: {e}")
-            finally:
-                self.client = None
+        # Serialize stop to avoid races with start
+        async with self.lock:
+            if self.client is not None:
+                try:
+                    await self.client.stop()
+                    logger.info(f"Stopped client for account {self.session_name}")
+                except Exception as e:
+                    logger.warning(f"Error stopping client for {self.session_name}: {e}")
+                finally:
+                    self.client = None
 
     async def is_client_healthy(self):
         """Check if the client is healthy and can be used"""
@@ -356,88 +376,110 @@ Action: Consider adding more proxies or investigating issues
 
     async def ensure_client_ready(self):
         """Ensure client is ready for use, start if needed"""
-        current_time = time.time()
-        
-        # First check if we have any available proxies at all
-        if not self.has_available_proxies():
-            logger.error(f"❌ [{self.session_name}] No available proxies for client creation")
-            raise AllProxiesExhaustedError(f"Account {self.session_name}: No available proxies")
-        
-        # Check if we're in cooldown period
-        if (self.client is None and 
-            current_time - self.last_client_creation < self.client_creation_cooldown):
-            remaining_cooldown = self.client_creation_cooldown - (current_time - self.last_client_creation)
-            logger.warning(f"Account {self.session_name} in cooldown, waiting {remaining_cooldown:.1f}s...")
-            await asyncio.sleep(remaining_cooldown)
-        
-        if self.client is None:
-            session_path = os.path.join(str(SESSION_DIR), str(self.session_name))
-            
-            # Check session file
-            session_file = f"{session_path}.session"
-            logger.info(f"🔍 [{self.session_name}] Checking session file: {session_file}")
-            
-            if not os.path.exists(session_file):
-                logger.error(f"❌ [{self.session_name}] Session file not found: {session_file}")
+        async with self.lock:
+            current_time = time.time()
+
+            # Quarantine check
+            if self.is_quarantined():
+                remaining = int(self.quarantine_until - current_time)
+                logger.warning(f"🚧 [{self.session_name}] In quarantine for {remaining}s, skipping client creation")
                 return None
-            
-            # Check session file size
-            try:
-                session_size = os.path.getsize(session_file)
-                if session_size == 0:
-                    logger.error(f"❌ [{self.session_name}] Session file is empty: {session_file}")
+
+            # First check if we have any available proxies at all
+            if not self.has_available_proxies():
+                logger.error(f"❌ [{self.session_name}] No available proxies for client creation")
+                raise AllProxiesExhaustedError(f"Account {self.session_name}: No available proxies")
+
+            # Check if we're in cooldown period
+            if (self.client is None and 
+                current_time - self.last_client_creation < self.client_creation_cooldown):
+                remaining_cooldown = self.client_creation_cooldown - (current_time - self.last_client_creation)
+                logger.warning(f"Account {self.session_name} in cooldown, waiting {remaining_cooldown:.1f}s...")
+                await asyncio.sleep(remaining_cooldown)
+
+            if self.client is None:
+                session_path = os.path.join(str(SESSION_DIR), str(self.session_name))
+
+                # Check session file
+                session_file = f"{session_path}.session"
+                logger.info(f"🔍 [{self.session_name}] Checking session file: {session_file}")
+
+                if not os.path.exists(session_file):
+                    logger.error(f"❌ [{self.session_name}] Session file not found: {session_file}")
                     return None
-            except Exception as e:
-                logger.error(f"❌ [{self.session_name}] Error checking session file: {e}")
-                return None
-            
-            # Select best proxy for this account
-            try:
-                self.current_proxy_index = self.select_best_proxy()
-            except AllProxiesExhaustedError as e:
-                logger.error(f"❌ [{self.session_name}] {e}")
-                return None
-            
-            # Configure proxy
-            proxy_config = None
-            if self.proxy_pool:
-                proxy_info = self.proxy_pool[self.current_proxy_index]
-                proxy_config = {
-                    "scheme": proxy_info.get("type", "socks5"),
-                    "hostname": proxy_info["ip"],
-                    "port": proxy_info["port"],
-                    "username": proxy_info["username"],
-                    "password": proxy_info["password"],
-                }
-                
-                logger.info(f"🌐 [{self.session_name}] Using proxy: {proxy_info['ip']}:{proxy_info['port']}")
-            
-            # Create client
-            try:
-                logger.info(f"🔧 [{self.session_name}] Creating Pyrogram client...")
-                
-                if proxy_config:
-                    self.client = Client(
-                        session_path,
-                        api_id=self.api_id,
-                        api_hash=self.api_hash,
-                        proxy=proxy_config
-                    )
-                else:
+
+                # Check session file size
+                try:
+                    session_size = os.path.getsize(session_file)
+                    if session_size == 0:
+                        logger.error(f"❌ [{self.session_name}] Session file is empty: {session_file}")
+                        return None
+                except Exception as e:
+                    logger.error(f"❌ [{self.session_name}] Error checking session file: {e}")
                     return None
-                
-                await self.client.start()
-                logger.info(f"✅ [{self.session_name}] Client started successfully")
-                
-                self.last_client_creation = current_time
-                    
-            except Exception as e:
-                logger.error(f"❌ [{self.session_name}] Failed to create/start client: {type(e).__name__}: {e}")
-                self.client = None
-                return None
-        
-        self.last_used = time.time()
-        return self.client
+
+                # Select best proxy for this account
+                try:
+                    self.current_proxy_index = self.select_best_proxy()
+                except AllProxiesExhaustedError as e:
+                    logger.error(f"❌ [{self.session_name}] {e}")
+                    return None
+
+                # Configure proxy
+                proxy_config = None
+                if self.proxy_pool:
+                    proxy_info = self.proxy_pool[self.current_proxy_index]
+                    proxy_config = {
+                        "scheme": proxy_info.get("type", "socks5"),
+                        "hostname": proxy_info["ip"],
+                        "port": proxy_info["port"],
+                        "username": proxy_info["username"],
+                        "password": proxy_info["password"],
+                    }
+
+                    logger.info(f"🌐 [{self.session_name}] Using proxy: {proxy_info['ip']}:{proxy_info['port']}")
+
+                # Create client
+                try:
+                    logger.info(f"🔧 [{self.session_name}] Creating Pyrogram client...")
+
+                    if proxy_config:
+                        self.client = Client(
+                            session_path,
+                            api_id=self.api_id,
+                            api_hash=self.api_hash,
+                            proxy=proxy_config
+                        )
+                    else:
+                        return None
+
+                    await self.client.start()
+                    logger.info(f"✅ [{self.session_name}] Client started successfully")
+
+                    self.last_client_creation = current_time
+
+                except sqlite3.OperationalError as e:
+                    # Session SQLite contention — quarantine account, do not penalize proxy
+                    if "locked" in str(e).lower():
+                        self.client = None
+                        self.quarantine("Session DB is locked")
+                        return None
+                    logger.error(f"❌ [{self.session_name}] sqlite3 OperationalError: {e}")
+                    self.client = None
+                    return None
+                except Exception as e:
+                    err_text = f"{type(e).__name__}: {e}"
+                    if "OperationalError" in err_text and "locked" in err_text.lower():
+                        # Handle wrapped OperationalError
+                        self.client = None
+                        self.quarantine("Session DB is locked (wrapped)")
+                        return None
+                    logger.error(f"❌ [{self.session_name}] Failed to create/start client: {err_text}")
+                    self.client = None
+                    return None
+
+            self.last_used = time.time()
+            return self.client
 
     async def rotate_proxy(self, reason: str) -> bool:
         """Rotate to next available proxy"""

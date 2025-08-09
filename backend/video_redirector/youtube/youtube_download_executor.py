@@ -751,15 +751,10 @@ async def handle_youtube_download_task_with_retries(task_id: str, video_url: str
             logger.error(f"[{task_id}] Error on attempt {attempt + 1}: {e}")
             
             if attempt < max_attempts - 1:
-                await notify_admin(f"[Download Task {task_id}] Retrying YouTube download (attempt {attempt + 1}/{max_attempts}). Error: {e}")
-                from backend.video_redirector.utils.pyrogram_acc_manager import rotate_proxy_ip_immediate
-                logger.warning(f"[{task_id}] Triggering IP rotation due to YouTube download failure")
-                await rotate_proxy_ip_immediate("YouTube download failures")
                 await asyncio.sleep(sleep_between_retries)
                 continue
             else:
                 logger.error(f"[{task_id}] All {max_attempts} attempts failed")
-                # Set final error status only when all retries are exhausted
                 redis = RedisClient.get_client()
                 await redis.set(f"download:{task_id}:status", "error", ex=3600)
                 await redis.set(f"download:{task_id}:error", str(e), ex=3600)

@@ -12,6 +12,7 @@ from pyrogram.errors import FloodWait
 import re
 
 from backend.video_redirector.utils.notify_admin import notify_admin
+from backend.video_redirector.db.session import get_db
 from backend.video_redirector.utils.pyrogram_acc_manager import (
     select_upload_account, 
     increment_daily_stat, 
@@ -741,7 +742,7 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
         raise Exception("Invalid bot configuration: missing username or token")
     
     parts_result = []
-    selected_account = None  # Track the selected account for permission management
+    selected_account = None  # Track the selected account for permission management (single-part path)
 
     try:
         part_num = re.search(r'_part(\d+)\.mp4$', file_path)
@@ -753,11 +754,12 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
             raise Exception("No part number found.")
         
         try:
-            idx, account = await select_upload_account(db)
-            selected_account = account  # Store for reservation management
-            logger.info(f"[{task_id}] Selected account: {account.session_name}")
-            
+            # Single-part path: select and reserve one account and upload
             if file_size_mb <= MAX_MB:
+                idx, account = await select_upload_account(db)
+                selected_account = account  # Store for reservation management
+                logger.info(f"[{task_id}] Selected account: {account.session_name}")
+
                 logger.info(f"[{task_id}] File is {round(file_size_mb)} MB — uploading as one part")
                 file_id, used_session = await upload_part_to_tg(file_path, task_id, 1, db, account, bot_username)
                 logger.info(f"✅ [{task_id}] Single-part upload complete. file_id: {file_id}")
@@ -821,17 +823,51 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
             # and we will get here and this logic upload each part sequntially, so probably 3 parallel uploads each will sequentially upload 2 parts
             # so all total 6 parts are uploaded (has not tested this scenario yet)
 
-            # Upload parts sequentially (no delays for faster uploads)
+            # Upload parts in parallel — select a separate account per part
             used_sessions = set()
-            for idx, part_path in enumerate(part_paths or []):
+
+            async def upload_one(idx: int, part_path: str):
+                local_db = None
+                reserved_account = None
                 try:
-                    file_id, used_session = await upload_part_to_tg(part_path, task_id, idx + 1, db, account, bot_username)
-                    used_sessions.add(used_session)
-                    parts_result.append({"part": idx, "file_id": file_id})
+                    # Create an isolated DB session for this task
+                    async for db_task in get_db():
+                        local_db = db_task
+                        break
+
+                    # Reserve a separate account for this part
+                    _, reserved_account = await select_upload_account(local_db)
+                    used_sessions.add(reserved_account.session_name)
+
+                    file_id, used_session = await upload_part_to_tg(
+                        part_path, task_id, idx + 1, local_db, reserved_account, bot_username
+                    )
+                    return {"part": idx, "file_id": file_id, "used_session": used_session, "success": True}
                 except Exception as e:
                     logger.exception(f"[{task_id}] Error uploading part {idx + 1}")
-                    await notify_admin(f"❌ [Task {task_id}] Part {idx + 1} upload failed: {e}")
-                    raise Exception(f"❌ [Task {task_id}] Part {idx + 1} upload failed: {e}")
+                    return {"part": idx, "error": str(e), "success": False}
+                finally:
+                    # Release reservation for this part's account
+                    try:
+                        if reserved_account is not None:
+                            release_account_reservation(reserved_account.session_name)
+                    except Exception as release_err:
+                        logger.warning(f"[{task_id}] Error releasing reservation for part {idx + 1}: {release_err}")
+
+            tasks = [asyncio.create_task(upload_one(idx, p)) for idx, p in enumerate(part_paths or [])]
+            results = await asyncio.gather(*tasks)
+
+            failures = [r for r in results if not r.get("success")]
+            if failures:
+                first_err = failures[0].get("error", "Unknown error")
+                await notify_admin(f"❌ [Task {task_id}] Parallel upload failed for {len(failures)} part(s): {first_err}")
+                raise Exception(f"❌ [{task_id}] Some parts failed: {first_err}")
+
+            # Aggregate successful results in order
+            parts_result = [
+                {"part": r["part"], "file_id": r["file_id"]}
+                for r in sorted(results, key=lambda x: x["part"])
+            ]
 
             if len(parts_result) == num_parts:
                 try:
@@ -840,10 +876,16 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
                     logger.warning(f"[{task_id}] Couldn't clean up original movie file: {errr}")
                 logger.info(f"[{task_id}] Upload successful with bot: {bot_username}")
                 logger.info(f"✅ [{task_id}] Multipart upload complete. {len(parts_result)} parts uploaded.")
+                # Use the first used session for reporting; actual parts may span multiple sessions
+                first_used_session = None
+                try:
+                    first_used_session = next(iter(used_sessions))
+                except StopIteration:
+                    first_used_session = None
                 return {
                     "bot_token": bot_token,
                     "parts": {part_num: parts_result},
-                    "session_name": account.session_name
+                    "session_name": first_used_session or ""
                 }
             else:
                 logger.error(f"[{task_id}] Upload incomplete. Uploaded {len(parts_result)} of {num_parts} parts.")
