@@ -41,7 +41,7 @@ EVENT_DEDUPLICATION_WINDOW = 10  # seconds
 # Track network/timeout failures for threshold-based rotation
 _network_failure_counts = {}  # account_name -> {event_type: count}
 _network_failure_timestamps = {}  # account_name -> {event_type: [timestamps]}
-NETWORK_FAILURE_THRESHOLD = 2  # Failures before rotation
+NETWORK_FAILURE_THRESHOLD = 3  # Failures before rotation
 NETWORK_FAILURE_WINDOW = 60   # seconds to track failures
 
 class RateLimitLogHandler(logging.Handler):

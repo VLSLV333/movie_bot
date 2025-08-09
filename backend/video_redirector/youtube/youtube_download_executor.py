@@ -9,7 +9,10 @@ from typing import Optional
 from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePart
 from backend.video_redirector.db.session import get_db
 from backend.video_redirector.db.crud_downloads import get_file_id
-from backend.video_redirector.utils.upload_video_to_tg import check_size_upload_large_file
+from backend.video_redirector.hdrezka.hdrezka_download_executor import (
+    process_parallel_uploads,
+    consolidate_upload_results,
+)
 from backend.video_redirector.utils.notify_admin import notify_admin
 from backend.video_redirector.utils.redis_client import RedisClient
 from backend.video_redirector.config import MAX_CONCURRENT_DOWNLOADS
@@ -916,7 +919,8 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         logger.debug(f"[{task_id}] 🔍 Progress watcher task created and started")
 
         # Download the video
-        output_path = os.path.join(get_task_download_dir(task_id), f"{task_id}.mp4")
+        # IMPORTANT: name the file with a _part0 suffix so upload pipeline can infer part numbering
+        output_path = os.path.join(get_task_download_dir(task_id), f"{task_id}_part0.mp4")
         
         if can_copy:
             # Fast path: copy streams (no re-encoding)
@@ -1212,112 +1216,92 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         # Continue with upload (this part stays in main process like HDRezka)
         await redis.set(f"download:{task_id}:status", "uploading", ex=3600)
         logger.debug(f"[{task_id}] ✅ Status set to 'uploading' at {datetime.now().isoformat()}")
-        
-        # Upload to Telegram with retry logic - keep downloaded file if upload fails
-        upload_result: Optional[dict] = None
-        upload_attempts = 3
-        upload_success = False
-        
-        for upload_attempt in range(upload_attempts):
-            try:
-                logger.debug(f"[{task_id}] 📤 Upload attempt {upload_attempt + 1}/{upload_attempts}")
-                
-                # Upload to Telegram using existing infrastructure
-                async for db in get_db():
-                    upload_result = await check_size_upload_large_file(output_path, task_id, db)
-                    break  # Only need one session
 
-                if not upload_result:
-                    raise Exception("Upload to Telegram failed across all delivery bots.")
+        # Upload using the shared HDRezka upload pipeline with delivery-bot rotation
+        try:
+            upload_results = await process_parallel_uploads([output_path], task_id)
+            consolidated = await consolidate_upload_results(upload_results, task_id)
+            if not consolidated:
+                raise Exception("Failed to consolidate upload results.")
 
-                tg_bot_token_file_owner = upload_result["bot_token"]
-                parts = upload_result["parts"]
-                session_name = upload_result["session_name"]
+            tg_bot_token_file_owner = consolidated["bot_token"]
+            parts = consolidated["parts"]
+            session_name = consolidated["session_name"]
 
-                # Save in DB using existing structure - handle duplicates gracefully
-                async for session in get_db():
-                    # Check if file already exists
-                    existing_file = await get_file_id(session, tmdb_id, lang, dub)
-                    
-                    if existing_file:
-                        # Update existing record with new file info
-                        logger.debug(f"[{task_id}] Updating existing YouTube file record (ID: {existing_file.id})")
-                        for attr, value in [
-                            ("quality", actual_quality or "unknown"),
-                            ("tg_bot_token_file_owner", tg_bot_token_file_owner),
-                            ("movie_title", video_title),
-                            ("movie_poster", video_poster),
-                            ("movie_url", video_url),
-                            ("session_name", session_name)
-                        ]:
-                            setattr(existing_file, attr, value)
-                        
-                        # Delete old parts and add new ones
-                        from sqlalchemy import delete
-                        delete_parts_stmt = delete(DownloadedFilePart).where(
-                            DownloadedFilePart.downloaded_file_id == existing_file.id
-                        )
-                        await session.execute(delete_parts_stmt)
-                        
-                        db_id_to_get_parts = existing_file.id
-                    else:
-                        # Create new record
-                        db_entry = DownloadedFile(
-                            tmdb_id=tmdb_id,
-                            lang=lang,
-                            dub=dub,
-                            quality=actual_quality or "unknown",
-                            tg_bot_token_file_owner=tg_bot_token_file_owner,
-                            created_at=datetime.now(timezone.utc),
-                            movie_title=video_title,
-                            movie_poster=video_poster,
-                            movie_url=video_url,
-                            session_name=session_name
-                        )
-                        session.add(db_entry)
-                        await session.flush()  # Get db_entry.id
-                        db_id_to_get_parts = db_entry.id
+            # Save in DB using existing structure - handle duplicates gracefully
+            async for session in get_db():
+                # Check if file already exists
+                existing_file = await get_file_id(session, tmdb_id, lang, dub)
 
-                    # Add parts (works for both new and updated records)
-                    if parts is None:
-                        raise Exception("Upload to Telegram failed: parts is None")
-                    else:
-                        for part in parts:
-                            session.add(DownloadedFilePart(
-                                downloaded_file_id=db_id_to_get_parts,
-                                part_number=part["part"],
-                                telegram_file_id=part["file_id"]
-                            ))
-                    
-                    await session.commit()
-                    break  # Only need one iteration
+                if existing_file:
+                    # Update existing record with new file info
+                    logger.debug(f"[{task_id}] Updating existing YouTube file record (ID: {existing_file.id})")
+                    for attr, value in [
+                        ("quality", actual_quality or "unknown"),
+                        ("tg_bot_token_file_owner", tg_bot_token_file_owner),
+                        ("movie_title", video_title),
+                        ("movie_poster", video_poster),
+                        ("movie_url", video_url),
+                        ("session_name", session_name)
+                    ]:
+                        setattr(existing_file, attr, value)
 
-                await redis.set(f"download:{task_id}:status", "done", ex=3600)
+                    # Delete old parts and add new ones
+                    from sqlalchemy import delete
+                    delete_parts_stmt = delete(DownloadedFilePart).where(
+                        DownloadedFilePart.downloaded_file_id == existing_file.id
+                    )
+                    await session.execute(delete_parts_stmt)
 
-                if len(parts) == 1:
-                    await redis.set(f"download:{task_id}:result", json.dumps({
-                        "tg_bot_token_file_owner": tg_bot_token_file_owner,
-                        "telegram_file_id": parts[0]["file_id"]
-                    }), ex=86400)
+                    db_id_to_get_parts = existing_file.id
                 else:
-                    await redis.set(f"download:{task_id}:result", json.dumps({
-                        "db_id_to_get_parts": db_id_to_get_parts,
-                    }), ex=86400)
-                    
-                logger.debug(f"[{task_id}] YouTube download completed successfully")
-                upload_success = True
-                break  # Success - exit upload retry loop
-                
-            except Exception as upload_error:
-                logger.error(f"[{task_id}] Upload attempt {upload_attempt + 1} failed: {upload_error}")
-                
-                if upload_attempt < upload_attempts - 1:
-                    logger.debug(f"[{task_id}] Retrying upload in 5 seconds... (attempt {upload_attempt + 1}/{upload_attempts})")
-                    await asyncio.sleep(5)  # Wait before retry
-                    continue
-                else:
-                    logger.error(f"[{task_id}] All upload attempts failed. Download was successful but upload failed.")
-                    raise Exception(f"Upload to Telegram failed after {upload_attempts} attempts: {upload_error}")
+                    # Create new record
+                    db_entry = DownloadedFile(
+                        tmdb_id=tmdb_id,
+                        lang=lang,
+                        dub=dub,
+                        quality=actual_quality or "unknown",
+                        tg_bot_token_file_owner=tg_bot_token_file_owner,
+                        created_at=datetime.now(timezone.utc),
+                        movie_title=video_title,
+                        movie_poster=video_poster,
+                        movie_url=video_url,
+                        session_name=session_name
+                    )
+                    session.add(db_entry)
+                    await session.flush()  # Get db_entry.id
+                    db_id_to_get_parts = db_entry.id
+
+                # Add parts (works for both new and updated records)
+                if not parts:
+                    raise Exception("Upload to Telegram failed: consolidated parts list is empty")
+                for part in parts:
+                    session.add(DownloadedFilePart(
+                        downloaded_file_id=db_id_to_get_parts,
+                        part_number=part["part"],
+                        telegram_file_id=part["file_id"]
+                    ))
+
+                await session.commit()
+                break  # Only need one iteration
+
+            await redis.set(f"download:{task_id}:status", "done", ex=3600)
+
+            if len(parts) == 1:
+                await redis.set(f"download:{task_id}:result", json.dumps({
+                    "tg_bot_token_file_owner": tg_bot_token_file_owner,
+                    "telegram_file_id": parts[0]["file_id"]
+                }), ex=86400)
+            else:
+                await redis.set(f"download:{task_id}:result", json.dumps({
+                    "db_id_to_get_parts": db_id_to_get_parts,
+                }), ex=86400)
+
+            logger.debug(f"[{task_id}] YouTube download completed successfully")
+
+        except Exception as upload_error:
+            logger.error(f"[{task_id}] Upload failed after successful download: {upload_error}")
+            raise
         
         # On completion, set progress to 100
         await redis.set(f"download:{task_id}:yt_download_progress", 100, ex=3600)
