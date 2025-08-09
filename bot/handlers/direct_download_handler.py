@@ -114,8 +114,8 @@ def generate_token(tmdb_id: int, lang: str, dub: str) -> str:
 
 async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_url: str, loading_msg: types.Message, bot):
     """Simplified polling function for YouTube downloads that doesn't require a query object"""
-    max_attempts = 120  # 60 minutes if 30s interval
-    interval = 30
+    max_attempts = 90  # 15 minutes if 10s interval
+    interval = 10
     last_status = None
     last_animation_msg = loading_msg
     last_text_msg = None
