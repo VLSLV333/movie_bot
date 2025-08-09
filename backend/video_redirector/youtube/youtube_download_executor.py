@@ -46,6 +46,7 @@ async def debug_available_formats(video_url: str, task_id: str, use_cookies: boo
             "--list-formats",
             "--no-playlist",
             "--no-warnings",
+            "--extractor-args", "youtube:player_client=tv",
         ]
         if use_cookies:
             cmd += ["--cookies", "cookies.txt"]
@@ -120,6 +121,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
             "--dump-json",
             "--no-playlist", 
             "--no-warnings",
+            "--extractor-args", "youtube:player_client=tv",
         ]
         if use_cookies:
             cmd += ["--cookies", "cookies.txt"]
@@ -179,6 +181,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
             "--list-formats",
             "--no-playlist",
             "--no-warnings",
+            "--extractor-args", "youtube:player_client=tv",
         ]
         if use_cookies:
             cmd += ["--cookies", "cookies.txt"]
@@ -242,6 +245,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                 "--no-download",
                 "--no-playlist",
                 "--quiet",
+                "--extractor-args", "youtube:player_client=tv",
             ]
             if use_cookies:
                 test_cmd += ["--cookies", "cookies.txt"]
@@ -936,6 +940,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             "--postprocessor-args", postprocessor_args,
             "--progress",  # Enable progress reporting
             "--newline",   # Output progress as new lines for easier parsing
+            "--extractor-args", "youtube:player_client=tv",
         ]
         if use_cookies:
             cmd += ["--cookies", "cookies.txt"]
