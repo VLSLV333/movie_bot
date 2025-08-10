@@ -15,7 +15,6 @@ from backend.video_redirector.hdrezka.hdrezka_download_executor import (
 )
 from backend.video_redirector.utils.notify_admin import notify_admin
 from backend.video_redirector.utils.redis_client import RedisClient
-from backend.video_redirector.config import MAX_CONCURRENT_DOWNLOADS
 import re
 
 logger = logging.getLogger(__name__)
@@ -26,19 +25,16 @@ logger = logging.getLogger(__name__)
 # 3) android: fallback when needed
 PREFERRED_YT_CLIENTS = ["tv", "web", "android"]
 
-# Base download directory - each task will get its own subdirectory
+# Base download directory - each task gets its own subdirectory to avoid collisions
 BASE_DOWNLOAD_DIR = "downloads"
 os.makedirs(BASE_DOWNLOAD_DIR, exist_ok=True)
 
 def get_task_download_dir(task_id: str) -> str:
     """
-    Create a unique download directory for this task based on MAX_CONCURRENT_DOWNLOADS
-    This ensures each download has its own isolated directory for progress tracking
+    Create a unique download directory for this task using the task_id directly
+    to avoid collisions and ensure accurate progress tracking.
     """
-    # Use hash of task_id to get consistent directory assignment
-    # Use abs() to ensure positive numbers and % to get range 0 to MAX_CONCURRENT_DOWNLOADS-1
-    task_hash = abs(hash(task_id)) % MAX_CONCURRENT_DOWNLOADS
-    task_dir = f"{BASE_DOWNLOAD_DIR}{task_hash}"
+    task_dir = os.path.join(BASE_DOWNLOAD_DIR, task_id)
     os.makedirs(task_dir, exist_ok=True)
     return task_dir
 
@@ -301,8 +297,27 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                     break
                 if test_result.returncode == 0:
                     logger.info(f"[{task_id}] Using fallback format: {format_selector} ({client_name})")
+                    # Better size estimation for fallback: try to probe
                     estimated_size = 700_000_000
-                    # Assume target height as estimate for ranking
+                    try:
+                        probe_cmd = [
+                            "yt-dlp", "--ignore-config",
+                            "-f", format_selector,
+                            "--no-download",
+                            "--print", "%(filesize_approx|filesize)s",
+                            "--extractor-args", f"youtube:player_client={client_name}",
+                            video_url
+                        ]
+                        probe_res = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=20)
+                        if probe_res.returncode == 0:
+                            size_str = (probe_res.stdout or "").strip().splitlines()[-1].strip()
+                            if size_str.isdigit():
+                                estimated_size = int(size_str)
+                                logger.info(f"[{task_id}] Fallback size probe: {estimated_size} bytes")
+                    except Exception as e:
+                        logger.debug(f"[{task_id}] Fallback size probe failed: {e}")
+
+                    # Assume target height as estimate for ranking; real height unknown here
                     candidates.append({
                         'fmt': format_selector,
                         'can_copy': can_copy,
@@ -420,7 +435,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         can_copy = (chosen['ext'] == 'mp4')
         estimated_size = chosen.get('filesize', 0)
         logger.info(f"[{task_id}] JSON combined chosen: id={chosen['id']} {chosen['width']}x{chosen['height']} ext={chosen['ext']} orig={chosen.get('is_original', False)} can_copy={can_copy} est_size={estimated_size}")
-        return (chosen['id'], can_copy, estimated_size)
+        return (chosen['id'], can_copy, estimated_size, {'height': chosen['height']})
     # Strategy 2: Merge video-only + original audio-only
     if video_only_formats and audio_only_formats:
         video_only_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
@@ -509,7 +524,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
             estimated_size = 100_000_000
         
         logger.info(f"[{task_id}] 🔍 FINAL RESULT (JSON merge): {merge_format}, size: {estimated_size} bytes ({estimated_size/1024/1024:.1f}MB)")
-        return (merge_format, can_copy, estimated_size)
+        return (merge_format, can_copy, estimated_size, {'height': best_video['height']})
     logger.info(f"[{task_id}] JSON analysis found no suitable formats, will try fallback methods")
     # Why rejected: log top 3 combined with reasons
     if combined_formats:
@@ -652,11 +667,16 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
                 break
         if not chosen:
             chosen = combined_formats[0]
-        can_copy = chosen['ext'] == 'mp4'
-        # Text path often lacks filesize; estimate conservatively
-        estimated_size = 1_000_000_000
-        logger.info(f"[{task_id}] TEXT combined chosen: id={chosen['id']} {chosen['width']}x{chosen['height']} ext={chosen['ext']} orig={chosen.get('is_original', False)} can_copy={can_copy} est_size={estimated_size}")
-        return (chosen['id'], can_copy, estimated_size)
+
+        # Prefer merge if combined is low but video-only has good height
+        max_vo_height = max([v['height'] for v in video_only_formats], default=0)
+        if chosen['height'] < 720 and max_vo_height >= target_height:
+            logger.info(f"[{task_id}] TEXT policy: combined too low ({chosen['height']}p) while video-only has {max_vo_height}p; will prefer merge")
+        else:
+            can_copy = chosen['ext'] == 'mp4'
+            estimated_size = 1_000_000_000
+            logger.info(f"[{task_id}] TEXT combined chosen: id={chosen['id']} {chosen['width']}x{chosen['height']} ext={chosen['ext']} orig={chosen.get('is_original', False)} can_copy={can_copy} est_size={estimated_size}")
+            return (chosen['id'], can_copy, estimated_size, {'height': chosen['height']})
     
     # Strategy 2: Merge best video-only + original audio-only for higher quality
     if video_only_formats and audio_only_formats:
@@ -711,7 +731,7 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
         if estimated_size == 0:
             estimated_size = 1_000_000_000
         logger.info(f"[{task_id}] TEXT merge chosen: v={best_video['id']}+a={best_audio['id']} can_copy={can_copy} est_size={estimated_size}")
-        return (merge_format, can_copy, estimated_size)
+        return (merge_format, can_copy, estimated_size, {'height': best_video['height']})
     
     # If we can't find good formats, return None to allow main function's Strategy 3
     logger.warning(f"[{task_id}] Text analysis found no suitable formats, will try fallback methods")
