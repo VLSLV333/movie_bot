@@ -49,6 +49,7 @@ async def debug_available_formats(video_url: str, task_id: str, use_cookies: boo
         
         cmd = [
             "yt-dlp",
+            "--ignore-config",
             "--list-formats",
             "--no-playlist",
             "--no-warnings",
@@ -58,7 +59,7 @@ async def debug_available_formats(video_url: str, task_id: str, use_cookies: boo
             cmd += ["--cookies", "cookies.txt"]
         cmd += [video_url]
         
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
 
         if result.returncode == 0:
             lines = result.stdout.strip().split('\n')
@@ -71,8 +72,14 @@ async def debug_available_formats(video_url: str, task_id: str, use_cookies: boo
             # Focus on audio-only formats specifically
             logger.debug(f"[{task_id}] 🔍 Debug: AUDIO-ONLY formats analysis:")
             audio_count = 0
+            combined_count = 0
+            video_only_count = 0
             for i, line in enumerate(lines):
                 line_lower = line.lower()
+                if 'video only' in line_lower:
+                    video_only_count += 1
+                if 'audio only' not in line_lower and 'x' in line_lower:
+                    combined_count += 1
                 if 'audio only' in line_lower or ('audio' in line_lower and ('only' in line_lower or 'm4a' in line_lower)):
                     audio_count += 1
                     # Check for original/default indicators
@@ -91,6 +98,7 @@ async def debug_available_formats(video_url: str, task_id: str, use_cookies: boo
             
             if audio_count == 0:
                 logger.warning(f"[{task_id}] 🔍 Debug: NO audio-only formats found in text output!")
+            logger.info(f"[{task_id}] 🔍 Debug summary: combined~{combined_count}, video_only~{video_only_count}, audio_only={audio_count}")
         else:
             logger.warning(f"[{task_id}] 🔍 Debug: Failed to get formats: {result.stderr}")
             
@@ -105,13 +113,14 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
     """
 
     # Debug what formats are available (can be disabled for less verbose logs)
-    # await debug_available_formats(video_url, task_id, use_cookies=use_cookies)
+    await debug_available_formats(video_url, task_id, use_cookies=use_cookies)
 
     sabr_markers = [
         "YouTube is forcing SABR streaming",
         "missing a url",
     ]
 
+    sabr_blocked_on_web = False
     for client_name in PREFERRED_YT_CLIENTS:
         logger.info(f"[{task_id}] Trying player_client={client_name}")
 
@@ -119,16 +128,20 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
         try:
             cmd = [
                 "yt-dlp",
+                "--ignore-config",
                 "--dump-json",
                 "--no-playlist",
                 "--no-warnings",
+                "--retries", "3",
+                "--retry-sleep", "2",
+                "--sleep-requests", "0.5",
                 "--extractor-args", f"youtube:player_client={client_name}",
             ]
             if use_cookies:
                 cmd += ["--cookies", "cookies.txt"]
             cmd += [video_url]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
 
             if "Failed to extract any player response" in result.stderr:
                 logger.error(f"[{task_id}] 🛑UPDATE YT-DLP EMMERGENCY🛑: {result.stderr}")
@@ -137,6 +150,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
 
             if client_name == "web" and any(m in result.stderr for m in sabr_markers):
                 logger.warning(f"[{task_id}] web client SABR detected, skipping to next client")
+                sabr_blocked_on_web = True
                 # Do not return; try next client
             elif result.returncode == 0:
                 try:
@@ -148,7 +162,20 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                         json_result = await _analyze_formats_from_json(formats, target_quality, task_id, video_duration)
                         if json_result:
                             fmt, can_copy, estimated_size = json_result
+                            logger.info(f"[{task_id}] ✅ Selection success via JSON | client={client_name} f='{fmt}' can_copy={can_copy} est_size={estimated_size}")
                             return (fmt, can_copy, estimated_size, client_name)
+                        else:
+                            # Dump quick table of a few formats for visibility
+                            try:
+                                preview = []
+                                for f in formats[:10]:
+                                    preview.append(
+                                        f"id={f.get('format_id')} ext={f.get('ext')} v={f.get('vcodec')} a={f.get('acodec')} "
+                                        f"res={f.get('width')}x{f.get('height')} tbr={f.get('tbr')} size={f.get('filesize') or f.get('filesize_approx')}"
+                                    )
+                                logger.info(f"[{task_id}] JSON preview (top 10): " + " | ".join(preview))
+                            except Exception:
+                                pass
                     else:
                         logger.warning(f"[{task_id}] No formats in JSON response ({client_name})")
                 except json.JSONDecodeError as e:
@@ -163,15 +190,19 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
             logger.info(f"[{task_id}] Text parsing method... ({client_name})")
             cmd = [
                 "yt-dlp",
+                "--ignore-config",
                 "--list-formats",
                 "--no-playlist",
                 "--no-warnings",
+                "--retries", "3",
+                "--retry-sleep", "2",
+                "--sleep-requests", "0.5",
                 "--extractor-args", f"youtube:player_client={client_name}",
             ]
             if use_cookies:
                 cmd += ["--cookies", "cookies.txt"]
             cmd += [video_url]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
 
             if "Failed to extract any player response" in result.stderr:
                 logger.error(f"[{task_id}] 🛑UPDATE YT-DLP EMMERGENCY🛑: {result.stderr}")
@@ -180,10 +211,12 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
 
             if client_name == "web" and any(m in result.stderr for m in sabr_markers):
                 logger.warning(f"[{task_id}] web client SABR detected (text), skipping to next client")
+                sabr_blocked_on_web = True
             elif result.returncode == 0:
                 text_result = await _analyze_formats_from_text(result.stdout, target_quality, task_id)
                 if text_result:
                     fmt, can_copy, estimated_size = text_result
+                    logger.info(f"[{task_id}] ✅ Selection success via TEXT | client={client_name} f='{fmt}' can_copy={can_copy} est_size={estimated_size}")
                     return (fmt, can_copy, estimated_size, client_name)
             else:
                 logger.warning(f"[{task_id}] Text method failed ({client_name}): {result.stderr}")
@@ -201,27 +234,36 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
             try:
                 test_cmd = [
                     "yt-dlp",
+                    "--ignore-config",
                     "-f", format_selector,
                     "--no-download",
                     "--no-playlist",
                     "--quiet",
+                    "--retries", "3",
+                    "--retry-sleep", "2",
+                    "--sleep-requests", "0.5",
                     "--extractor-args", f"youtube:player_client={client_name}",
                     video_url,
                 ]
-                test_result = subprocess.run(test_cmd, capture_output=True, text=True, timeout=30)
+                test_result = subprocess.run(test_cmd, capture_output=True, text=True, timeout=15)
                 if client_name == "web" and any(m in (test_result.stderr or "") for m in sabr_markers):
                     logger.warning(f"[{task_id}] web client SABR detected (probe), skipping to next client")
                     break
                 if test_result.returncode == 0:
                     logger.info(f"[{task_id}] Using fallback format: {format_selector} ({client_name})")
                     estimated_size = 700_000_000
+                    logger.info(f"[{task_id}] ✅ Selection success via FALLBACK | client={client_name} selector='{format_selector}' can_copy={can_copy} est_size={estimated_size}")
                     return (format_selector, can_copy, estimated_size, client_name)
             except Exception as e:
                 logger.debug(f"[{task_id}] Format {format_selector} test failed ({client_name}): {e}")
                 continue
 
-    logger.error(f"[{task_id}] All format detection methods failed across clients: {PREFERRED_YT_CLIENTS}")
-    return None
+    if sabr_blocked_on_web:
+        logger.error(f"[{task_id}] All format detection methods failed; SABR blocked on web client and no suitable formats via android/tv")
+        raise Exception("SABR blocked on all clients")
+    else:
+        logger.error(f"[{task_id}] All format detection methods failed across clients: {PREFERRED_YT_CLIENTS}")
+        return None
 
 async def _analyze_formats_from_json(formats: list, target_quality: str, task_id: str, video_duration: float = 0) -> Optional[tuple]:
     """Analyze formats from JSON data with original audio preference and return estimated size"""
@@ -286,14 +328,30 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
                 'is_original': is_original,
                 'filesize': filesize
             })
-    # Strategy 1: Try good quality combined formats with original audio first
+    # Visibility: counts
+    logger.info(f"[{task_id}] JSON formats parsed: video_only={len(video_only_formats)}, audio_only={len(audio_only_formats)}, combined={len(combined_formats)} | target={target_height}p")
+
+    # Strategy 1 (relaxed): Prefer combined MP4 near target, original if available but not required
     if combined_formats:
-        combined_formats.sort(key=lambda x: (not x.get('is_original', False), x['height'], x['ext'] == 'mp4'), reverse=True)
-        for fmt in combined_formats:
-            if fmt['height'] >= 1080 and fmt.get('is_original', False):
-                can_copy = fmt['ext'] == 'mp4'
-                estimated_size = fmt.get('filesize', 0)
-                return (fmt['id'], can_copy, estimated_size)
+        combined_formats.sort(key=lambda x: (
+            x.get('is_original', False),
+            x['ext'] == 'mp4',
+            x['height']
+        ), reverse=True)
+
+        # Choose best within tolerance or highest
+        chosen = None
+        for cf in combined_formats:
+            if cf['height'] <= int(target_quality.replace('p','')) * 1.2:
+                chosen = cf
+                break
+        if not chosen:
+            chosen = combined_formats[0]
+
+        can_copy = (chosen['ext'] == 'mp4')
+        estimated_size = chosen.get('filesize', 0)
+        logger.info(f"[{task_id}] JSON combined chosen: id={chosen['id']} {chosen['width']}x{chosen['height']} ext={chosen['ext']} orig={chosen.get('is_original', False)} can_copy={can_copy} est_size={estimated_size}")
+        return (chosen['id'], can_copy, estimated_size)
     # Strategy 2: Merge video-only + original audio-only
     if video_only_formats and audio_only_formats:
         video_only_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
@@ -381,9 +439,19 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
             logger.warning(f"[{task_id}] 🔍 Size {estimated_size/1024/1024:.1f}MB seems too small, using 100MB estimate")
             estimated_size = 100_000_000
         
-        logger.info(f"[{task_id}] 🔍 FINAL RESULT: {merge_format}, size: {estimated_size} bytes ({estimated_size/1024/1024:.1f}MB)")
+        logger.info(f"[{task_id}] 🔍 FINAL RESULT (JSON merge): {merge_format}, size: {estimated_size} bytes ({estimated_size/1024/1024:.1f}MB)")
         return (merge_format, can_copy, estimated_size)
     logger.info(f"[{task_id}] JSON analysis found no suitable formats, will try fallback methods")
+    # Why rejected: log top 3 combined with reasons
+    if combined_formats:
+        top = combined_formats[:3]
+        for i, cf in enumerate(top, start=1):
+            reason = []
+            if cf['height'] > target_height * 1.2:
+                reason.append('height>target')
+            if cf['ext'] != 'mp4':
+                reason.append('ext!=mp4')
+            logger.info(f"[{task_id}] ⛔ JSON reject combined#{i}: id={cf['id']} {cf['width']}x{cf['height']} {cf['ext']} orig={cf.get('is_original', False)} reasons={','.join(reason) or 'other'}")
     return None
 
 async def _analyze_formats_from_text(output: str, target_quality: str, task_id: str) -> Optional[tuple]:
@@ -439,7 +507,7 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
     # Parse format lines with more flexible approach
     for line in lines[table_start:]:
         line = line.strip()
-        if not line or line.startswith('---') or line.startswith('[') or 'only' not in line.lower():
+        if not line or line.startswith('---') or line.startswith('['):
             continue
         
         # Parse format line: ID EXT RESOLUTION FPS CH | FILESIZE TBR PROTO | VCODEC VBR ACODEC ABR ASR MORE INFO
@@ -498,18 +566,28 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
             except ValueError:
                 continue
     
-    # Strategy 1: Try good quality combined formats with original audio first
+    # Visibility
+    logger.info(f"[{task_id}] Text formats parsed: video_only={len(video_only_formats)}, audio_only={len(audio_only_formats)}, combined={len(combined_formats)}")
+
+    # Strategy 1 (relaxed): Prefer combined MP4 near target
     if combined_formats:
-        combined_formats.sort(key=lambda x: (not x.get('is_original', False), x['height'], x['ext'] == 'mp4'), reverse=True)
-        
-        # Find good quality combined format with original audio
+        combined_formats.sort(key=lambda x: (
+            x.get('is_original', False),
+            x['ext'] == 'mp4',
+            x['height']
+        ), reverse=True)
+        chosen = None
         for fmt in combined_formats:
-            if fmt['height'] >= 1080 and fmt.get('is_original', False):  # Accept 1080+ combined formats + only original audio
-                can_copy = fmt['ext'] == 'mp4'
-                is_original = fmt.get('is_original', False)
-                # If we can't get a real size, use 1GB as a fallback
-                estimated_size = 1_000_000_000
-                return (fmt['id'], can_copy, estimated_size)
+            if fmt['height'] <= target_height * 1.2:
+                chosen = fmt
+                break
+        if not chosen:
+            chosen = combined_formats[0]
+        can_copy = chosen['ext'] == 'mp4'
+        # Text path often lacks filesize; estimate conservatively
+        estimated_size = 1_000_000_000
+        logger.info(f"[{task_id}] TEXT combined chosen: id={chosen['id']} {chosen['width']}x{chosen['height']} ext={chosen['ext']} orig={chosen.get('is_original', False)} can_copy={can_copy} est_size={estimated_size}")
+        return (chosen['id'], can_copy, estimated_size)
     
     # Strategy 2: Merge best video-only + original audio-only for higher quality
     if video_only_formats and audio_only_formats:
@@ -543,8 +621,27 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
         
         merge_format = f"{best_video['id']}+{best_audio['id']}"
         is_original = best_audio.get('is_original', False)
-        # If we can't get a real size, use 1GB as a fallback
-        estimated_size = 1_000_000_000
+        # Estimate size from textual hints if available
+        estimated_size = 0
+        # Try parse bitrate from lines
+        try:
+            v_line = best_video.get('line', '')
+            a_line = best_audio.get('line', '')
+            v_match = re.search(r'(\d+\.?\d*)k', v_line)
+            a_match = re.search(r'(\d+\.?\d*)k', a_line)
+            # Assume typical duration 600s if unknown
+            duration_guess = 600
+            if v_match:
+                v_kbps = float(v_match.group(1))
+                estimated_size += int((v_kbps * 1000 / 8) * duration_guess)
+            if a_match:
+                a_kbps = float(a_match.group(1))
+                estimated_size += int((a_kbps * 1000 / 8) * duration_guess)
+        except Exception:
+            pass
+        if estimated_size == 0:
+            estimated_size = 1_000_000_000
+        logger.info(f"[{task_id}] TEXT merge chosen: v={best_video['id']}+a={best_audio['id']} can_copy={can_copy} est_size={estimated_size}")
         return (merge_format, can_copy, estimated_size)
     
     # If we can't find good formats, return None to allow main function's Strategy 3
@@ -562,7 +659,7 @@ async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
             video_path
         ]
         
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         
         if result.returncode != 0:
             logger.error(f"[{task_id}] Failed to get video info: {result.stderr}")
@@ -726,19 +823,32 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         if not format_result:
             raise Exception("No suitable format found for video")
         
+        # Unpack robustly and carry chosen_client once
+        chosen_client = "web"
+        estimated_size = 0
+        if isinstance(format_result, tuple):
+            if len(format_result) == 4:
+                format_selector, can_copy, estimated_size, chosen_client = format_result
+            elif len(format_result) == 3:
+                format_selector, can_copy, estimated_size = format_result
+            elif len(format_result) == 2:
+                format_selector, can_copy = format_result
+            else:
+                raise Exception(f"Unexpected format_result shape: {format_result!r}")
+        else:
+            raise Exception(f"Unexpected format_result type: {type(format_result)}")
+
         # After starting the yt-dlp process, add a background task to periodically check progress by file size
         progress_check_interval = 5  # seconds
         progress_stop_flag = {'stop': False}
-        estimated_size = 0
         last_progress = 0
+        progress_update_min_interval = 1.0
+        last_redis_update_ts = 0.0
         
-        if isinstance(format_result, tuple) and len(format_result) == 3:
-            format_selector, can_copy, estimated_size = format_result
-        else:
-            format_selector, can_copy = format_result
             
         async def progress_watcher():
             nonlocal last_progress
+            nonlocal last_redis_update_ts
             start_time = asyncio.get_event_loop().time()
             last_size = 0
             default_size_estimate = 700_000_000  # 700MB default estimate
@@ -799,9 +909,11 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                     
                     if estimated_size > 0:
                         percent = min(int((downloaded / estimated_size) * 100), 100)
-                        if percent != last_progress and percent > 0:
+                        now_ts = asyncio.get_event_loop().time()
+                        if percent != last_progress and percent > 0 and (now_ts - last_redis_update_ts >= progress_update_min_interval or percent >= 100):
                             await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
                             last_progress = percent
+                            last_redis_update_ts = now_ts
                             logger.info(f"[{task_id}] Progress: {percent}% ({downloaded}/{estimated_size} bytes)")
                         elif loop_count % 10 == 1:  # Debug every 10 loops
                             logger.info(f"[{task_id}] 🔍 Progress not updated: percent={percent}, last_progress={last_progress}, downloaded={downloaded}")
@@ -818,9 +930,11 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                         else:
                             percent = min(int((downloaded / default_size_estimate) * 100), 95)
                         
-                        if percent != last_progress and percent > 0:
+                        now_ts = asyncio.get_event_loop().time()
+                        if percent != last_progress and percent > 0 and (now_ts - last_redis_update_ts >= progress_update_min_interval):
                             await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
                             last_progress = percent
+                            last_redis_update_ts = now_ts
                             logger.info(f"[{task_id}] Progress (estimated): {percent}% ({downloaded} bytes downloaded)")
                         elif loop_count % 10 == 1:  # Debug every 10 loops
                             logger.info(f"[{task_id}] 🔍 Progress not updated (no estimate): percent={percent}, last_progress={last_progress}, downloaded={downloaded}")
@@ -839,9 +953,11 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                                 # First minute: slower progress to allow for actual progress to kick in
                                 time_progress = min(int((elapsed_time - 15) / 45 * 10), 10)  # 0% to 10% over 45 seconds
                             
-                            if time_progress != last_progress:
+                            now_ts = asyncio.get_event_loop().time()
+                            if time_progress != last_progress and (now_ts - last_redis_update_ts >= progress_update_min_interval):
                                 await redis.set(f"download:{task_id}:yt_download_progress", time_progress, ex=3600)
                                 last_progress = time_progress
+                                last_redis_update_ts = now_ts
                                 logger.info(f"[{task_id}] Progress (time-based fallback): {time_progress}% (no stdout progress detected, elapsed: {elapsed_time:.0f}s)")
                         
                         elif loop_count % 10 == 1:  # Debug when no download detected
@@ -863,21 +979,17 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         
         if can_copy:
             # Fast path: copy streams (no re-encoding)
-            postprocessor_args = "ffmpeg:-c:v copy -c:a copy -avoid_negative_ts make_zero -movflags +faststart"
+            postprocessor_args = "ffmpeg:-c:v copy -c:a copy -bsf:a aac_adtstoasc -avoid_negative_ts make_zero -movflags +faststart"
             logger.info(f"[{task_id}] Using FAST COPY mode")
         else:
             # Slow path: re-encode for compatibility
             postprocessor_args = "ffmpeg:-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -avoid_negative_ts make_zero -movflags +faststart"
-            logger.info(f"[{task_id}] Using RE-ENCODE mode")
-        
-        # Determine chosen client from format_result (4-tuple) or default to web
-        chosen_client = "web"
-        if isinstance(format_result, tuple) and len(format_result) == 4:
-            _, _, _, chosen_client = format_result
+            logger.warning(f"[{task_id}] Using RE-ENCODE mode (slower path)")
 
         # Build yt-dlp command with enhanced anti-detection
         cmd = [
             "yt-dlp",
+            "--ignore-config",
             "-f", format_selector,
             "-o", output_path,
             "--no-playlist",
@@ -885,6 +997,10 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             "--postprocessor-args", postprocessor_args,
             "--progress",  # Enable progress reporting
             "--newline",   # Output progress as new lines for easier parsing
+            "--concurrent-fragments", "4",
+            "--retries", "3",
+            "--retry-sleep", "2",
+            "--sleep-requests", "0.5",
             "--extractor-args", f"youtube:player_client={chosen_client}",
         ]
         if use_cookies:
@@ -895,6 +1011,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         ]
         
         logger.info(f"[{task_id}] Starting download with format: {format_selector}")
+        logger.info(f"[{task_id}] Selection summary | task={task_id} client={chosen_client} selector='{format_selector}' mode={'copy' if can_copy else 're-encode'} est_size={estimated_size}")
         if estimated_size > 0:
             logger.info(f"[{task_id}] Estimated size: {estimated_size} bytes ({estimated_size/1024/1024:.1f}MB)")
         else:
@@ -916,6 +1033,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         async def read_stdout():
             """Read stdout for progress information"""
             nonlocal last_progress
+            nonlocal last_redis_update_ts
             frag_tracking_enabled = False  # Flag to track if we're using fragment-based progress
             total_frags = 0  # Store total fragments for consistent tracking
             
@@ -1006,9 +1124,12 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                             
                             # Update progress if we found any
                             if percent is not None and percent != last_progress and percent > 0:
-                                await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
-                                last_progress = percent
-                                logger.debug(f"[{task_id}] ✅ yt-dlp Progress: {percent}% - {decoded}")
+                                now_ts = asyncio.get_event_loop().time()
+                                if now_ts - last_redis_update_ts >= progress_update_min_interval or percent >= 100:
+                                    await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
+                                    last_progress = percent
+                                    last_redis_update_ts = now_ts
+                                    logger.debug(f"[{task_id}] ✅ yt-dlp Progress: {percent}% - {decoded}")
                                 
                         except Exception as e:
                             logger.debug(f"[{task_id}] Error parsing progress from stdout: {e}")
@@ -1062,7 +1183,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                 logger.debug(f"[{task_id}] 🔍 stderr reader finished after processing {line_count} lines")
 
         # Set a reasonable timeout for the download (30 minutes max)
-        download_timeout = 1200  # 20 minutes
+        download_timeout = 900  # 20 minutes
         
         try:
             # Run both stdout and stderr readers concurrently with timeout
@@ -1075,7 +1196,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             )
             
             # Wait for process to complete
-            returncode = await asyncio.wait_for(process.wait(), timeout=60)
+            returncode = await asyncio.wait_for(process.wait(), timeout=15)
             
         except asyncio.TimeoutError:
             logger.error(f"[{task_id}] Download timed out after {download_timeout} seconds, terminating process")
@@ -1094,11 +1215,12 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         # Stop progress watcher
         progress_stop_flag['stop'] = True
         await asyncio.sleep(progress_check_interval)  # Let watcher finish last update
-        progress_task.cancel()
-        try:
-            await progress_task
-        except asyncio.CancelledError:
-            pass
+        if not progress_task.done():
+            progress_task.cancel()
+            try:
+                await progress_task
+            except asyncio.CancelledError:
+                pass
 
         # Combine stdout and stderr for error analysis
         stdout_text = '\n'.join(stdout_lines)
@@ -1126,6 +1248,8 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             elif "Requested format is not available" in combined_output:
                 logger.warning(f"[{task_id}] Requested format not available - trying different approach")
                 raise Exception(f"Format not available: {error_output}")
+            elif "YouTube is forcing SABR streaming" in combined_output or "missing a url" in combined_output:
+                raise Exception("SABR blocked on all clients")
             else:
                 raise Exception(error_msg)
         
@@ -1144,6 +1268,25 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         actual_quality = await verify_video_quality(output_path, task_id)
         if actual_quality:
             logger.info(f"[{task_id}] Actual downloaded quality: {actual_quality}")
+
+        # Structured per-task summary with actual size and duration
+        actual_duration_seconds = None
+        try:
+            probe_cmd = [
+                "ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", output_path
+            ]
+            probe_res = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=15)
+            if probe_res.returncode == 0:
+                fmt = json.loads(probe_res.stdout).get('format', {})
+                if 'duration' in fmt:
+                    actual_duration_seconds = float(fmt['duration'])
+        except Exception:
+            pass
+        logger.info(
+            f"[{task_id}] Selection summary (final) | task={task_id} client={chosen_client} selector='{format_selector}' "
+            f"mode={'copy' if can_copy else 're-encode'} est_size={estimated_size} actual_size={file_size} "
+            f"duration={actual_duration_seconds if actual_duration_seconds is not None else 'unknown'}s"
+        )
         
         # Continue with upload (this part stays in main process like HDRezka)
         await redis.set(f"download:{task_id}:status", "uploading", ex=3600)
