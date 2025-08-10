@@ -21,10 +21,10 @@ import re
 logger = logging.getLogger(__name__)
 
 # Preferred YouTube player clients in order
-# 1) web: prefer normal web when SABR is not enforced
-# 2) android: avoids PO tokens/SABR for many videos
-# 3) tv: last resort for cases allowed on TV client only
-PREFERRED_YT_CLIENTS = ["web", "android", "tv"]
+# 1) tv: often bypasses SABR/PO issues and exposes more formats
+# 2) web: use when not SABR-limited
+# 3) android: fallback when needed
+PREFERRED_YT_CLIENTS = ["tv", "web", "android"]
 
 # Base download directory - each task will get its own subdirectory
 BASE_DOWNLOAD_DIR = "downloads"
@@ -121,6 +121,9 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
     ]
 
     sabr_blocked_on_web = False
+    candidates = []  # each: {fmt, can_copy, est_size, client, height, source}
+    target_height = int(target_quality.replace('p', ''))
+
     for client_name in PREFERRED_YT_CLIENTS:
         logger.info(f"[{task_id}] Trying player_client={client_name}")
 
@@ -159,11 +162,46 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                     formats = video_info.get("formats", [])
                     if formats:
                         logger.info(f"[{task_id}] Found {len(formats)} formats via JSON method ({client_name})")
+                        # Heuristic: detect suspiciously low max height on web
+                        if client_name == "web":
+                            max_combined_height = 0
+                            try:
+                                for f in formats:
+                                    if f.get('vcodec') not in (None, 'none') and f.get('acodec') not in (None, 'none') and f.get('height'):
+                                        max_combined_height = max(max_combined_height, int(f.get('height') or 0))
+                            except Exception:
+                                pass
+                            if len(formats) < 10 or (max_combined_height and max_combined_height < max(720, int(target_height*0.8))):
+                                logger.info(f"[{task_id}] Heuristic: WEB looks SABR-limited (formats={len(formats)}, max_combined_height={max_combined_height})")
+                                sabr_blocked_on_web = True
+
                         json_result = await _analyze_formats_from_json(formats, target_quality, task_id, video_duration)
                         if json_result:
-                            fmt, can_copy, estimated_size = json_result
-                            logger.info(f"[{task_id}] ✅ Selection success via JSON | client={client_name} f='{fmt}' can_copy={can_copy} est_size={estimated_size}")
-                            return (fmt, can_copy, estimated_size, client_name)
+                            # Support optional meta in 4th element
+                            fmt = json_result[0]
+                            can_copy = json_result[1]
+                            estimated_size = json_result[2]
+                            height_meta = None
+                            if len(json_result) >= 4 and isinstance(json_result[3], dict):
+                                height_meta = int(json_result[3].get('height') or 0)
+                            # If height unknown, try find from formats
+                            if not height_meta:
+                                try:
+                                    for f in formats:
+                                        if f.get('format_id') == fmt and f.get('height'):
+                                            height_meta = int(f.get('height'))
+                                            break
+                                except Exception:
+                                    height_meta = 0
+                            candidates.append({
+                                'fmt': fmt,
+                                'can_copy': can_copy,
+                                'est_size': estimated_size,
+                                'client': client_name,
+                                'height': height_meta or 0,
+                                'source': 'JSON'
+                            })
+                            logger.info(f"[{task_id}] ✅ Candidate via JSON | client={client_name} f='{fmt}' can_copy={can_copy} est_size={estimated_size} height={height_meta}")
                         else:
                             # Dump quick table of a few formats for visibility
                             try:
@@ -215,9 +253,21 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
             elif result.returncode == 0:
                 text_result = await _analyze_formats_from_text(result.stdout, target_quality, task_id)
                 if text_result:
-                    fmt, can_copy, estimated_size = text_result
-                    logger.info(f"[{task_id}] ✅ Selection success via TEXT | client={client_name} f='{fmt}' can_copy={can_copy} est_size={estimated_size}")
-                    return (fmt, can_copy, estimated_size, client_name)
+                    fmt = text_result[0]
+                    can_copy = text_result[1]
+                    estimated_size = text_result[2]
+                    height_meta = 0
+                    if len(text_result) >= 4 and isinstance(text_result[3], dict):
+                        height_meta = int(text_result[3].get('height') or 0)
+                    candidates.append({
+                        'fmt': fmt,
+                        'can_copy': can_copy,
+                        'est_size': estimated_size,
+                        'client': client_name,
+                        'height': height_meta,
+                        'source': 'TEXT'
+                    })
+                    logger.info(f"[{task_id}] ✅ Candidate via TEXT | client={client_name} f='{fmt}' can_copy={can_copy} est_size={estimated_size} height={height_meta}")
             else:
                 logger.warning(f"[{task_id}] Text method failed ({client_name}): {result.stderr}")
         except Exception as e:
@@ -252,11 +302,30 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                 if test_result.returncode == 0:
                     logger.info(f"[{task_id}] Using fallback format: {format_selector} ({client_name})")
                     estimated_size = 700_000_000
-                    logger.info(f"[{task_id}] ✅ Selection success via FALLBACK | client={client_name} selector='{format_selector}' can_copy={can_copy} est_size={estimated_size}")
-                    return (format_selector, can_copy, estimated_size, client_name)
+                    # Assume target height as estimate for ranking
+                    candidates.append({
+                        'fmt': format_selector,
+                        'can_copy': can_copy,
+                        'est_size': estimated_size,
+                        'client': client_name,
+                        'height': target_height,
+                        'source': 'FALLBACK'
+                    })
+                    logger.info(f"[{task_id}] ✅ Candidate via FALLBACK | client={client_name} selector='{format_selector}' can_copy={can_copy} est_size={estimated_size}")
             except Exception as e:
                 logger.debug(f"[{task_id}] Format {format_selector} test failed ({client_name}): {e}")
                 continue
+
+    # Final cross-client selection: pick highest height, prefer JSON/TEXT over FALLBACK, prefer MP4 copyable
+    if candidates:
+        def rank(c):
+            source_rank = {'JSON': 2, 'TEXT': 1, 'FALLBACK': 0}.get(c['source'], 0)
+            can_copy_rank = 1 if c['can_copy'] else 0
+            return (c['height'], source_rank, can_copy_rank)
+
+        best = sorted(candidates, key=rank, reverse=True)[0]
+        logger.info(f"[{task_id}] 🏆 Cross-client best candidate | client={best['client']} src={best['source']} height={best['height']} f='{best['fmt']}' can_copy={best['can_copy']} est_size={best['est_size']}")
+        return (best['fmt'], best['can_copy'], best['est_size'], best['client'])
 
     if sabr_blocked_on_web:
         logger.error(f"[{task_id}] All format detection methods failed; SABR blocked on web client and no suitable formats via android/tv")
