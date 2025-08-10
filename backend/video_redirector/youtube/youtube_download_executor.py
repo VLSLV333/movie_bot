@@ -20,6 +20,12 @@ import re
 
 logger = logging.getLogger(__name__)
 
+# Preferred YouTube player clients in order
+# 1) web: prefer normal web when SABR is not enforced
+# 2) android: avoids PO tokens/SABR for many videos
+# 3) tv: last resort for cases allowed on TV client only
+PREFERRED_YT_CLIENTS = ["web", "android", "tv"]
+
 # Base download directory - each task will get its own subdirectory
 BASE_DOWNLOAD_DIR = "downloads"
 os.makedirs(BASE_DOWNLOAD_DIR, exist_ok=True)
@@ -50,22 +56,7 @@ async def debug_available_formats(video_url: str, task_id: str, use_cookies: boo
         ]
         if use_cookies:
             cmd += ["--cookies", "cookies.txt"]
-        cmd += [
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
-            "--add-header", "Accept-Encoding:gzip, deflate, br",
-            "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-            "--add-header", "Accept-Charset:utf-8, iso-8859-1;q=0.5, *;q=0.1",
-            "--add-header", "Connection:keep-alive",
-            "--add-header", "Upgrade-Insecure-Requests:1",
-            "--add-header", "Sec-Fetch-Dest:document",
-            "--add-header", "Sec-Fetch-Mode:navigate",
-            "--add-header", "Sec-Fetch-Site:none",
-            "--add-header", "Sec-Fetch-User:?1",
-            "--add-header", "Cache-Control:max-age=0",
-            "--add-header", "DNT:1",
-            video_url
-        ]
+        cmd += [video_url]
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
@@ -107,180 +98,129 @@ async def debug_available_formats(video_url: str, task_id: str, use_cookies: boo
         logger.warning(f"[{task_id}] 🔍 Debug: Error getting formats: {e}")
 
 async def get_best_format_id(video_url: str, target_quality: str, task_id: str, use_cookies: bool = False) -> Optional[tuple]:
-    """Get the best format ID that has both video and audio, or merge video+audio IDs - ROBUST VERSION"""
+    """Get best format selection and chosen player client.
+
+    Returns tuple: (format_selector, can_copy, estimated_size, chosen_client)
+    or None if nothing works across all clients.
+    """
 
     # Debug what formats are available (can be disabled for less verbose logs)
     # await debug_available_formats(video_url, task_id, use_cookies=use_cookies)
 
-    # Strategy 1: Try JSON-based format detection (most reliable)
-    try:
-        #logger.debug(f"[{task_id}] Getting video formats using JSON method...")
-        
-        cmd = [
-            "yt-dlp",
-            "--dump-json",
-            "--no-playlist", 
-            "--no-warnings",
-            "--extractor-args", "youtube:player_client=tv",
-        ]
-        if use_cookies:
-            cmd += ["--cookies", "cookies.txt"]
-        cmd += [
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
-            "--add-header", "Accept-Encoding:gzip, deflate, br",
-            "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-            "--add-header", "Accept-Charset:utf-8, iso-8859-1;q=0.5, *;q=0.1",
-            "--add-header", "Connection:keep-alive",
-            "--add-header", "Upgrade-Insecure-Requests:1",
-            "--add-header", "Sec-Fetch-Dest:document",
-            "--add-header", "Sec-Fetch-Mode:navigate",
-            "--add-header", "Sec-Fetch-Site:none",
-            "--add-header", "Sec-Fetch-User:?1",
-            "--add-header", "Cache-Control:max-age=0",
-            "--add-header", "DNT:1",
-            # "--sleep-interval", "2",  # Sleep 2 seconds between requests
-            # "--max-sleep-interval", "5",  # Max 5 seconds sleep
-            video_url
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-
-        if "Failed to extract any player response" in result.stderr:
-            logger.error(f"[{task_id}] 🛑UPDATE YT-DLP EMMERGENCY🛑: {result.stderr}")
-            await notify_admin(f"🛑UPDATE YT-DLP EMMERGENCY🛑\nTask: {task_id}\n{result.stderr}")
-            raise Exception("do not retry")
-        
-        if result.returncode == 0:
-            try:
-                video_info = json.loads(result.stdout)
-                video_duration = video_info.get('duration', 0)
-                formats = video_info.get('formats', [])
-
-                if formats:
-                    logger.info(f"[{task_id}] Found {len(formats)} formats via JSON method")
-                    json_result = await _analyze_formats_from_json(formats, target_quality, task_id, video_duration)
-                    if json_result:  # Only return if we found a good format
-                        return json_result
-                else:
-                    logger.warning(f"[{task_id}] No formats in JSON response")
-            except json.JSONDecodeError as e:
-                logger.warning(f"[{task_id}] Failed to parse JSON: {e}")
-        else:
-            logger.warning(f"[{task_id}] JSON method failed: {result.stderr}")
-    
-    except Exception as e:
-        logger.warning(f"[{task_id}] JSON format detection failed: {e}")
-    
-    # Strategy 2: Try text parsing method (backup)
-    try:
-        logger.info(f"[{task_id}] Fallback to text parsing method...")
-        
-        cmd = [
-            "yt-dlp", 
-            "--list-formats",
-            "--no-playlist",
-            "--no-warnings",
-            "--extractor-args", "youtube:player_client=tv",
-        ]
-        if use_cookies:
-            cmd += ["--cookies", "cookies.txt"]
-        cmd += [
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
-            "--add-header", "Accept-Encoding:gzip, deflate, br",
-            "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-            "--add-header", "Accept-Charset:utf-8, iso-8859-1;q=0.5, *;q=0.1",
-            "--add-header", "Connection:keep-alive",
-            "--add-header", "Upgrade-Insecure-Requests:1",
-            "--add-header", "Sec-Fetch-Dest:document",
-            "--add-header", "Sec-Fetch-Mode:navigate",
-            "--add-header", "Sec-Fetch-Site:none",
-            "--add-header", "Sec-Fetch-User:?1",
-            "--add-header", "Cache-Control:max-age=0",
-            "--add-header", "DNT:1",
-            # "--sleep-interval", "2",  # Sleep 2 seconds between requests
-            # "--max-sleep-interval", "5",  # Max 5 seconds sleep
-            video_url
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-
-        if "Failed to extract any player response" in result.stderr:
-            logger.error(f"[{task_id}] 🛑UPDATE YT-DLP EMMERGENCY🛑: {result.stderr}")
-            await notify_admin(f"🛑UPDATE YT-DLP EMMERGENCY🛑\nTask: {task_id}\n{result.stderr}")
-            raise Exception("do not retry")
-        
-        if result.returncode == 0:
-            # Log the actual output for debugging
-            #logger.debug(f"[{task_id}] yt-dlp output preview: {result.stdout[:500]}...")
-            
-            # Try to parse text output with more flexible patterns
-            text_result = await _analyze_formats_from_text(result.stdout, target_quality, task_id)
-            if text_result:  # Only return if we found a good format
-                return text_result
-        else:
-            logger.warning(f"[{task_id}] Text method failed: {result.stderr}")
-    
-    except Exception as e:
-        logger.warning(f"[{task_id}] Text format detection failed: {e}")
-    
-    # Strategy 3: Simple format selectors (most compatible)
-    logger.warning(f"[{task_id}] Using simple format selectors as final fallback")
-    
-    # Try different format selectors in order of preference
-    fallback_formats = [
-        ("best[height<=1080][ext=mp4]", True),  # Best 1080p MP4
-        ("best[ext=mp4]", True),                # Best MP4
-        ("best[height<=1080]", False),           # Best 1080p (any format)
-        ("best", False)                         # Absolute fallback
+    sabr_markers = [
+        "YouTube is forcing SABR streaming",
+        "missing a url",
     ]
-    
-    for format_selector, can_copy in fallback_formats:
+
+    for client_name in PREFERRED_YT_CLIENTS:
+        logger.info(f"[{task_id}] Trying player_client={client_name}")
+
+        # Strategy 1: JSON dump
         try:
-            # Test if this format selector works
-            test_cmd = [
+            cmd = [
                 "yt-dlp",
-                "-f", format_selector,
-                "--no-download",
+                "--dump-json",
                 "--no-playlist",
-                "--quiet",
-                "--extractor-args", "youtube:player_client=tv",
+                "--no-warnings",
+                "--extractor-args", f"youtube:player_client={client_name}",
             ]
             if use_cookies:
-                test_cmd += ["--cookies", "cookies.txt"]
-            test_cmd += [
-                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
-                "--add-header", "Accept-Encoding:gzip, deflate, br",
-                "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-                "--add-header", "Accept-Charset:utf-8, iso-8859-1;q=0.5, *;q=0.1",
-                "--add-header", "Connection:keep-alive",
-                "--add-header", "Upgrade-Insecure-Requests:1",
-                "--add-header", "Sec-Fetch-Dest:document",
-                "--add-header", "Sec-Fetch-Mode:navigate",
-                "--add-header", "Sec-Fetch-Site:none",
-                "--add-header", "Sec-Fetch-User:?1",
-                "--add-header", "Cache-Control:max-age=0",
-                "--add-header", "DNT:1",
-                # "--sleep-interval", "2",  # Sleep 2 seconds between requests
-                # "--max-sleep-interval", "5",  # Max 5 seconds sleep
-                video_url
-            ]
-            
-            test_result = subprocess.run(test_cmd, capture_output=True, timeout=30)
-            
-            if test_result.returncode == 0:
-                logger.info(f"[{task_id}] Using fallback format: {format_selector}")
-                estimated_size = 700_000_000  # 700MB default estimate
-                return (format_selector, can_copy, estimated_size)
-        
-        except Exception as e:
-            logger.debug(f"[{task_id}] Format {format_selector} test failed: {e}")
-            continue
+                cmd += ["--cookies", "cookies.txt"]
+            cmd += [video_url]
 
-    # If all else fails
-    logger.error(f"[{task_id}] All format detection methods failed")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+            if "Failed to extract any player response" in result.stderr:
+                logger.error(f"[{task_id}] 🛑UPDATE YT-DLP EMMERGENCY🛑: {result.stderr}")
+                await notify_admin(f"🛑UPDATE YT-DLP EMMERGENCY🛑\nTask: {task_id}\n{result.stderr}")
+                raise Exception("do not retry")
+
+            if client_name == "web" and any(m in result.stderr for m in sabr_markers):
+                logger.warning(f"[{task_id}] web client SABR detected, skipping to next client")
+                # Do not return; try next client
+            elif result.returncode == 0:
+                try:
+                    video_info = json.loads(result.stdout)
+                    video_duration = video_info.get("duration", 0)
+                    formats = video_info.get("formats", [])
+                    if formats:
+                        logger.info(f"[{task_id}] Found {len(formats)} formats via JSON method ({client_name})")
+                        json_result = await _analyze_formats_from_json(formats, target_quality, task_id, video_duration)
+                        if json_result:
+                            fmt, can_copy, estimated_size = json_result
+                            return (fmt, can_copy, estimated_size, client_name)
+                    else:
+                        logger.warning(f"[{task_id}] No formats in JSON response ({client_name})")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"[{task_id}] Failed to parse JSON ({client_name}): {e}")
+            else:
+                logger.warning(f"[{task_id}] JSON method failed ({client_name}): {result.stderr}")
+        except Exception as e:
+            logger.warning(f"[{task_id}] JSON format detection failed ({client_name}): {e}")
+
+        # Strategy 2: list-formats parsing
+        try:
+            logger.info(f"[{task_id}] Text parsing method... ({client_name})")
+            cmd = [
+                "yt-dlp",
+                "--list-formats",
+                "--no-playlist",
+                "--no-warnings",
+                "--extractor-args", f"youtube:player_client={client_name}",
+            ]
+            if use_cookies:
+                cmd += ["--cookies", "cookies.txt"]
+            cmd += [video_url]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+            if "Failed to extract any player response" in result.stderr:
+                logger.error(f"[{task_id}] 🛑UPDATE YT-DLP EMMERGENCY🛑: {result.stderr}")
+                await notify_admin(f"🛑UPDATE YT-DLP EMMERGENCY🛑\nTask: {task_id}\n{result.stderr}")
+                raise Exception("do not retry")
+
+            if client_name == "web" and any(m in result.stderr for m in sabr_markers):
+                logger.warning(f"[{task_id}] web client SABR detected (text), skipping to next client")
+            elif result.returncode == 0:
+                text_result = await _analyze_formats_from_text(result.stdout, target_quality, task_id)
+                if text_result:
+                    fmt, can_copy, estimated_size = text_result
+                    return (fmt, can_copy, estimated_size, client_name)
+            else:
+                logger.warning(f"[{task_id}] Text method failed ({client_name}): {result.stderr}")
+        except Exception as e:
+            logger.warning(f"[{task_id}] Text format detection failed ({client_name}): {e}")
+
+        # Strategy 3: Selector-based fallback (avoid -f best)
+        logger.warning(f"[{task_id}] Using format selectors as fallback ({client_name})")
+        fallback_formats = [
+            ("bestvideo*[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]", True),
+            ("bestvideo*[height<=1080]+bestaudio/best[height<=1080]", False),
+        ]
+
+        for format_selector, can_copy in fallback_formats:
+            try:
+                test_cmd = [
+                    "yt-dlp",
+                    "-f", format_selector,
+                    "--no-download",
+                    "--no-playlist",
+                    "--quiet",
+                    "--extractor-args", f"youtube:player_client={client_name}",
+                    video_url,
+                ]
+                test_result = subprocess.run(test_cmd, capture_output=True, text=True, timeout=30)
+                if client_name == "web" and any(m in (test_result.stderr or "") for m in sabr_markers):
+                    logger.warning(f"[{task_id}] web client SABR detected (probe), skipping to next client")
+                    break
+                if test_result.returncode == 0:
+                    logger.info(f"[{task_id}] Using fallback format: {format_selector} ({client_name})")
+                    estimated_size = 700_000_000
+                    return (format_selector, can_copy, estimated_size, client_name)
+            except Exception as e:
+                logger.debug(f"[{task_id}] Format {format_selector} test failed ({client_name}): {e}")
+                continue
+
+    logger.error(f"[{task_id}] All format detection methods failed across clients: {PREFERRED_YT_CLIENTS}")
     return None
 
 async def _analyze_formats_from_json(formats: list, target_quality: str, task_id: str, video_duration: float = 0) -> Optional[tuple]:
@@ -930,6 +870,11 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             postprocessor_args = "ffmpeg:-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -avoid_negative_ts make_zero -movflags +faststart"
             logger.info(f"[{task_id}] Using RE-ENCODE mode")
         
+        # Determine chosen client from format_result (4-tuple) or default to web
+        chosen_client = "web"
+        if isinstance(format_result, tuple) and len(format_result) == 4:
+            _, _, _, chosen_client = format_result
+
         # Build yt-dlp command with enhanced anti-detection
         cmd = [
             "yt-dlp",
@@ -940,24 +885,11 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             "--postprocessor-args", postprocessor_args,
             "--progress",  # Enable progress reporting
             "--newline",   # Output progress as new lines for easier parsing
-            "--extractor-args", "youtube:player_client=tv",
+            "--extractor-args", f"youtube:player_client={chosen_client}",
         ]
         if use_cookies:
             cmd += ["--cookies", "cookies.txt"]
         cmd += [
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "--add-header", "Accept-Language:en-US,en;q=0.9,en;q=0.8",
-            "--add-header", "Accept-Encoding:gzip, deflate, br",
-            "--add-header", "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-            "--add-header", "Accept-Charset:utf-8, iso-8859-1;q=0.5, *;q=0.1",
-            "--add-header", "Connection:keep-alive",
-            "--add-header", "Upgrade-Insecure-Requests:1",
-            "--add-header", "Sec-Fetch-Dest:document",
-            "--add-header", "Sec-Fetch-Mode:navigate",
-            "--add-header", "Sec-Fetch-Site:none",
-            "--add-header", "Sec-Fetch-User:?1",
-            "--add-header", "Cache-Control:max-age=0",
-            "--add-header", "DNT:1",
             "--paths", f"temp:{get_task_download_dir(task_id)}",  # Set temp directory to downloads folder
             video_url
         ]
