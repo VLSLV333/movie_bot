@@ -59,6 +59,25 @@ _upload_stats = {
     }
 }
 
+# Progress logging throttle state
+_progress_last_log_ts: dict[str, float] = {}
+
+def _upload_progress_logger(current: int, total: int, task_id: str, part_num: int, file_size: int):
+    """Synchronous progress callback for Pyrogram send_video.
+    Throttled to log about once per second.
+    """
+    try:
+        now = time.time()
+        key = f"{task_id}:{part_num}"
+        last = _progress_last_log_ts.get(key, 0.0)
+        if now - last >= 1.0 or current == total:
+            percent = int((current / total) * 100) if total else 0
+            logger.info(f"[{task_id}] [Part {part_num}] Upload progress: {percent}% ({current}/{total} bytes)")
+            _progress_last_log_ts[key] = now
+    except Exception:
+        # Never let progress logging break upload
+        pass
+
 # Create necessary directories
 os.makedirs(PARTS_DIR, exist_ok=True)
 
@@ -370,7 +389,9 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                         "video": file_path,
                         "caption": "video",
                         "disable_notification": True,
-                        "supports_streaming": True
+                        "supports_streaming": True,
+                        "progress": _upload_progress_logger,
+                        "progress_args": (task_id, part_num, file_size)
                     }
                     
                     # Add metadata if available
