@@ -20,10 +20,8 @@ import re
 logger = logging.getLogger(__name__)
 
 # Preferred YouTube player clients in order
-# 1) tv: often bypasses SABR/PO issues and exposes more formats
-# 2) web: use when not SABR-limited
-# 3) android: fallback when needed
-PREFERRED_YT_CLIENTS = ["tv", "web", "android"]
+# Prioritize clients that often expose full DASH without SABR/PO token issues
+PREFERRED_YT_CLIENTS = ["ios", "tv", "mweb", "web", "android"]
 
 # Base download directory - each task gets its own subdirectory to avoid collisions
 BASE_DOWNLOAD_DIR = "downloads"
@@ -38,10 +36,13 @@ def get_task_download_dir(task_id: str) -> str:
     os.makedirs(task_dir, exist_ok=True)
     return task_dir
 
-async def debug_available_formats(video_url: str, task_id: str, use_cookies: bool = False):
-    """Debug function to log all available formats for troubleshooting"""
+async def debug_available_formats(video_url: str, task_id: str, client_name: str, use_cookies: bool = False):
+    """Run a formats debug for a specific client and log top video-only heights.
+
+    This logs a compact per-client summary to help see where HQ is available.
+    """
     try:
-        logger.debug(f"[{task_id}] 🔍 Debug: Getting all available formats...")
+        logger.debug(f"[{task_id}] 🔍 Debug: Getting all available formats for client={client_name}...")
         
         cmd = [
             "yt-dlp",
@@ -49,7 +50,7 @@ async def debug_available_formats(video_url: str, task_id: str, use_cookies: boo
             "--list-formats",
             "--no-playlist",
             "--no-warnings",
-            "--extractor-args", "youtube:player_client=tv",
+            "--extractor-args", f"youtube:player_client={client_name}",
         ]
         if use_cookies:
             cmd += ["--cookies", "cookies.txt"]
@@ -60,41 +61,43 @@ async def debug_available_formats(video_url: str, task_id: str, use_cookies: boo
         if result.returncode == 0:
             lines = result.stdout.strip().split('\n')
             
-            # Log full format table for debugging
-            logger.debug(f"[{task_id}] 🔍 Debug: FULL format list ({len(lines)} lines):")
-            for i, line in enumerate(lines):
-                logger.debug(f"[{task_id}] 🔍 {i+1:3d}: {line}")
+            # Log full format table for debugging (at debug level to avoid spam)
+            logger.debug(f"[{task_id}] 🔍 Debug: FULL format list ({len(lines)} lines) for {client_name}:")
+            for i, line in enumerate(lines[:150]):
+                logger.debug(f"[{task_id}] 🔍 {client_name} {i+1:3d}: {line}")
             
-            # Focus on audio-only formats specifically
-            logger.debug(f"[{task_id}] 🔍 Debug: AUDIO-ONLY formats analysis:")
+            # Parse and summarize heights
+            video_only_heights = []
+            combined_heights = []
             audio_count = 0
-            combined_count = 0
-            video_only_count = 0
-            for i, line in enumerate(lines):
-                line_lower = line.lower()
-                if 'video only' in line_lower:
-                    video_only_count += 1
-                if 'audio only' not in line_lower and 'x' in line_lower:
-                    combined_count += 1
-                if 'audio only' in line_lower or ('audio' in line_lower and ('only' in line_lower or 'm4a' in line_lower)):
+            for line in lines:
+                ll = line.lower()
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                resolution = parts[2]
+                if 'audio only' in ll or resolution == 'audio':
                     audio_count += 1
-                    # Check for original/default indicators
-                    original_indicators = []
-                    if 'original' in line_lower:
-                        original_indicators.append('ORIGINAL')
-                    if 'default' in line_lower:
-                        original_indicators.append('DEFAULT')
-                    if 'primary' in line_lower:
-                        original_indicators.append('PRIMARY')
-                    if not any(lang in line_lower for lang in ['-auto', 'dubbed']):
-                        original_indicators.append('NO_DUB_MARKER')
-                    
-                    indicator_str = f" [{', '.join(original_indicators)}]" if original_indicators else " [NO_INDICATORS]"
-                    logger.info(f"[{task_id}] 🔍 AUDIO #{audio_count:2d}: {line}{indicator_str}")
-            
-            if audio_count == 0:
-                logger.warning(f"[{task_id}] 🔍 Debug: NO audio-only formats found in text output!")
-            logger.info(f"[{task_id}] 🔍 Debug summary: combined~{combined_count}, video_only~{video_only_count}, audio_only={audio_count}")
+                    continue
+                if 'x' in resolution:
+                    try:
+                        width, height = resolution.split('x')
+                        height_val = int(height)
+                        if 'video only' in ll:
+                            video_only_heights.append(height_val)
+                        else:
+                            combined_heights.append(height_val)
+                    except Exception:
+                        continue
+
+            video_only_heights.sort(reverse=True)
+            combined_heights.sort(reverse=True)
+            top_vo = video_only_heights[:5]
+            top_co = combined_heights[:5]
+            logger.info(
+                f"[{task_id}] 🔍 {client_name} summary: VO_max={top_vo[0] if top_vo else 0} CO_max={top_co[0] if top_co else 0} "
+                f"VO_top={top_vo} CO_top={top_co} audio_only_count={audio_count}"
+            )
         else:
             logger.warning(f"[{task_id}] 🔍 Debug: Failed to get formats: {result.stderr}")
             
@@ -108,8 +111,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
     or None if nothing works across all clients.
     """
 
-    # Debug what formats are available (can be disabled for less verbose logs)
-    await debug_available_formats(video_url, task_id, use_cookies=use_cookies)
+    # Per-client diagnostics will run inside the loop
 
     sabr_markers = [
         "YouTube is forcing SABR streaming",
@@ -122,6 +124,12 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
 
     for client_name in PREFERRED_YT_CLIENTS:
         logger.info(f"[{task_id}] Trying player_client={client_name}")
+
+        # Per-client diagnostics: list formats and log top heights
+        try:
+            await debug_available_formats(video_url, task_id, client_name, use_cookies=use_cookies)
+        except Exception:
+            pass
 
         # Strategy 1: JSON dump
         try:
@@ -317,16 +325,40 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                     except Exception as e:
                         logger.debug(f"[{task_id}] Fallback size probe failed: {e}")
 
-                    # Assume target height as estimate for ranking; real height unknown here
+                    # Probe height for ranking (avoid assuming target height)
+                    height_probe = 0
+                    try:
+                        height_cmd = [
+                            "yt-dlp", "--ignore-config",
+                            "-f", format_selector,
+                            "--no-download",
+                            "--print", "%(height|resolution)s",
+                            "--extractor-args", f"youtube:player_client={client_name}",
+                            video_url
+                        ]
+                        height_res = subprocess.run(height_cmd, capture_output=True, text=True, timeout=20)
+                        if height_res.returncode == 0:
+                            raw_val = (height_res.stdout or "").strip().splitlines()[-1].strip()
+                            # raw_val can be "1080" or "1920x1080"; parse safely
+                            if "x" in raw_val:
+                                try:
+                                    height_probe = int(raw_val.split("x")[-1])
+                                except Exception:
+                                    height_probe = 0
+                            elif raw_val.isdigit():
+                                height_probe = int(raw_val)
+                    except Exception as e:
+                        logger.debug(f"[{task_id}] Fallback height probe failed: {e}")
+
                     candidates.append({
                         'fmt': format_selector,
                         'can_copy': can_copy,
                         'est_size': estimated_size,
                         'client': client_name,
-                        'height': target_height,
+                        'height': height_probe or max(0, int(target_height // 3)),
                         'source': 'FALLBACK'
                     })
-                    logger.info(f"[{task_id}] ✅ Candidate via FALLBACK | client={client_name} selector='{format_selector}' can_copy={can_copy} est_size={estimated_size}")
+                    logger.info(f"[{task_id}] ✅ Candidate via FALLBACK | client={client_name} selector='{format_selector}' can_copy={can_copy} est_size={estimated_size} height={height_probe or 'unknown'}")
             except Exception as e:
                 logger.debug(f"[{task_id}] Format {format_selector} test failed ({client_name}): {e}")
                 continue
