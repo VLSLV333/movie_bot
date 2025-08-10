@@ -463,7 +463,7 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
             display_dub = translate_dub_by_language(dub, user_lang)
             kb.append([
                 types.InlineKeyboardButton(
-                    text=f"{emoji} {display_dub} dub",
+                    text=f"{emoji} {display_dub}",
                     callback_data=f"watch_downloaded:{token}"
                 )
             ])

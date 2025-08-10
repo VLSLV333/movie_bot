@@ -355,241 +355,240 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                 await log_upload_metrics(task_id, file_size, False, retry_count)
                 raise Exception(f"❌{error_msg}")
             
-            async with account.lock:
-                try:
-                    # Use new proxy-aware client creation
-                    client = await account.ensure_client_ready_with_retry()
-                    
-                    # Add null check for client
-                    if client is None:
-                        error_msg = f"Client initialization failed for account {account.session_name}"
-                        logger.error(f"❌ [{task_id}] {error_msg}")
-                        logger.error(f"   Account state - Last used: {account.last_used}")
-                        logger.error(f"   Client state - Client: {account.client}, Last creation: {account.last_client_creation}")
-                        
-                        await notify_admin(f"🔐 [{task_id}] {error_msg}")
-                        await update_last_error(db, account.session_name, "Client initialization failed")
-                        await log_upload_metrics(task_id, file_size, False, retry_count)
-                        
-                        # Log failed upload
-                        total_duration = time.time() - upload_start_time
-                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-                        
-                        raise Exception(f"❌{error_msg}")
-                    
-                    logger.info(f"✅ [{task_id}] Client ready for {account.session_name}")
-                    
-                    # Upload with timeout
-                    start_time = datetime.datetime.now()
-                    logger.info(f"[{task_id}] [Part {part_num}] Starting upload at {start_time:%Y-%m-%d %H:%M:%S}")
-                    
-                    # Prepare send_video parameters
-                    send_video_params = {
-                        "chat_id": str(bot_username),
-                        "video": file_path,
-                        "caption": "video",
-                        "disable_notification": True,
-                        "supports_streaming": True,
-                        "progress": _upload_progress_logger,
-                        "progress_args": (task_id, part_num, file_size)
-                    }
-                    
-                    # Add metadata if available
-                    if upload_metadata:
-                        send_video_params["width"] = upload_metadata["width"]
-                        send_video_params["height"] = upload_metadata["height"]
-                        if upload_metadata["duration"]:
-                            send_video_params["duration"] = upload_metadata["duration"]
-                    else:
-                        logger.warning(f"⚠️ [{task_id}] Sending without metadata - Telegram will auto-detect dimensions")
-                    
-                    async with asyncio.timeout(UPLOAD_TIMEOUT):
-                        msg = await client.send_video(**send_video_params)
-                        
-                    end_time = datetime.datetime.now()
-                    elapsed = (end_time - start_time).total_seconds()
-                    logger.info(f"[{task_id}] [Part {part_num}] Finished upload at {end_time:%Y-%m-%d %H:%M:%S}, elapsed: {elapsed:.2f} seconds")
+            try:
+                # Use new proxy-aware client creation
+                client = await account.ensure_client_ready_with_retry()
 
-                    if msg and msg.video:
-                        file_id = msg.video.file_id
-                        logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
-                        
-                        # Mark proxy success for consecutive failure tracking
-                        account.mark_proxy_success(account.current_proxy_index)
-                        
-                        # Reset network failure counts after successful upload
-                        reset_network_failures_for_account(account.session_name)
-                        
-                        await log_upload_metrics(task_id, file_size, True, retry_count)
-                        await increment_daily_stat(db, account.session_name)
-                        
-                        # Log performance statistics
-                        total_duration = time.time() - upload_start_time
-                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, True)
-                        await get_upload_performance_summary()
-                        return file_id, account.session_name
-                    else:
-                        logger.error(f"[{task_id}] Upload succeeded but no video data returned")
-                        await log_upload_metrics(task_id, file_size, False, retry_count)
-                        
-                        # Log failed upload
-                        total_duration = time.time() - upload_start_time
-                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-                        
-                        return None, account.session_name
+                # Add null check for client
+                if client is None:
+                    error_msg = f"Client initialization failed for account {account.session_name}"
+                    logger.error(f"❌ [{task_id}] {error_msg}")
+                    logger.error(f"   Account state - Last used: {account.last_used}")
+                    logger.error(f"   Client state - Client: {account.client}, Last creation: {account.last_client_creation}")
 
-                except FloodWait as e:
-                    # Pyrogram already handled the rate limit internally, so this is a failure case
-                    flood_wait_count += 1
-                    wait_time = int(str(e.value))
-                    
-                    logger.warning(f"[{task_id}] FloodWait exception after Pyrogram's internal retries for part {part_num}: {wait_time}s")
-                    await notify_admin(f"🚫 [{task_id}] FloodWait exception (account: {account.session_name}): {wait_time}s after internal retries")
-                    
-                    # Mark proxy failure for consecutive failure tracking (this is a significant failure)
-                    account.mark_proxy_failure(account.current_proxy_index, f"FloodWait exception: {wait_time}s", is_significant_event=True)
+                    await notify_admin(f"🔐 [{task_id}] {error_msg}")
+                    await update_last_error(db, account.session_name, "Client initialization failed")
+                    await log_upload_metrics(task_id, file_size, False, retry_count)
+
+                    # Log failed upload
+                    total_duration = time.time() - upload_start_time
+                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+
+                    raise Exception(f"❌{error_msg}")
+
+                logger.info(f"✅ [{task_id}] Client ready for {account.session_name}")
+
+                # Upload with timeout
+                start_time = datetime.datetime.now()
+                logger.info(f"[{task_id}] [Part {part_num}] Starting upload at {start_time:%Y-%m-%d %H:%M:%S}")
+
+                # Prepare send_video parameters
+                send_video_params = {
+                    "chat_id": str(bot_username),
+                    "video": file_path,
+                    "caption": "video",
+                    "disable_notification": True,
+                    "supports_streaming": True,
+                    "progress": _upload_progress_logger,
+                    "progress_args": (task_id, part_num, file_size)
+                }
+
+                # Add metadata if available
+                if upload_metadata:
+                    send_video_params["width"] = upload_metadata["width"]
+                    send_video_params["height"] = upload_metadata["height"]
+                    if upload_metadata["duration"]:
+                        send_video_params["duration"] = upload_metadata["duration"]
+                else:
+                    logger.warning(f"⚠️ [{task_id}] Sending without metadata - Telegram will auto-detect dimensions")
+
+                async with asyncio.timeout(UPLOAD_TIMEOUT):
+                    msg = await client.send_video(**send_video_params)
+
+                end_time = datetime.datetime.now()
+                elapsed = (end_time - start_time).total_seconds()
+                logger.info(f"[{task_id}] [Part {part_num}] Finished upload at {end_time:%Y-%m-%d %H:%M:%S}, elapsed: {elapsed:.2f} seconds")
+
+                if msg and msg.video:
+                    file_id = msg.video.file_id
+                    logger.info(f"✅ [{task_id}] Uploaded part {part_num} successfully. file_id: {file_id}")
+
+                    # Mark proxy success for consecutive failure tracking
+                    account.mark_proxy_success(account.current_proxy_index)
+
+                    # Reset network failure counts after successful upload
+                    reset_network_failures_for_account(account.session_name)
+
+                    await log_upload_metrics(task_id, file_size, True, retry_count)
+                    await increment_daily_stat(db, account.session_name)
+
+                    # Log performance statistics
+                    total_duration = time.time() - upload_start_time
+                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, True)
+                    await get_upload_performance_summary()
+                    return file_id, account.session_name
+                else:
+                    logger.error(f"[{task_id}] Upload succeeded but no video data returned")
+                    await log_upload_metrics(task_id, file_size, False, retry_count)
+
+                    # Log failed upload
+                    total_duration = time.time() - upload_start_time
+                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+
+                    return None, account.session_name
+
+            except FloodWait as e:
+                # Pyrogram already handled the rate limit internally, so this is a failure case
+                flood_wait_count += 1
+                wait_time = int(str(e.value))
+                
+                logger.warning(f"[{task_id}] FloodWait exception after Pyrogram's internal retries for part {part_num}: {wait_time}s")
+                await notify_admin(f"🚫 [{task_id}] FloodWait exception (account: {account.session_name}): {wait_time}s after internal retries")
+                
+                # Mark proxy failure for consecutive failure tracking (this is a significant failure)
+                account.mark_proxy_failure(account.current_proxy_index, f"FloodWait exception: {wait_time}s", is_significant_event=True)
+                
+                # Track the error in database
+                await update_last_error(db, account.session_name, f"FloodWait exception: {wait_time}s after retries")
+                
+                # Stop the client to prevent further rate limiting
+                await account.stop_client()
+
+                # If we've hit too many FloodWait exceptions (not just events), stop retrying
+                if flood_wait_count >= MAX_FLOOD_WAIT_RETRIES:
+                    error_msg = f"Too many FloodWait exceptions ({flood_wait_count}) for part {part_num}, stopping retries"
+                    logger.error(f"[{task_id}] {error_msg}")
+                    await notify_admin(f"🚫 [{task_id}] {error_msg} (account: {account.session_name})")
                     
                     # Track the error in database
-                    await update_last_error(db, account.session_name, f"FloodWait exception: {wait_time}s after retries")
+                    await update_last_error(db, account.session_name, f"Too many FloodWait exceptions: {flood_wait_count} retries exceeded")
                     
-                    # Stop the client to prevent further rate limiting
-                    await account.stop_client()
+                    await log_upload_metrics(task_id, file_size, False, retry_count)
+                    
+                    # Log failed upload
+                    total_duration = time.time() - upload_start_time
+                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+                    
+                    raise Exception(f"❌{error_msg}")
+                
+                if flood_wait_count >= 3:  # Lower threshold since this is after Pyrogram's retries
+                    logger.info(f"[{task_id}] Multiple FloodWait exceptions detected, attempting account rotation")
+                    new_account = await rotate_account_on_failure(task_id, db, account)
+                    if new_account.session_name != account.session_name:
+                        account = new_account
+                        logger.info(f"[{task_id}] Switched to account: {account.session_name}")
+                        # Reset flood wait count for the new account
+                        flood_wait_count = 0
+                
+                continue
 
-                    # If we've hit too many FloodWait exceptions (not just events), stop retrying
-                    if flood_wait_count >= MAX_FLOOD_WAIT_RETRIES:
-                        error_msg = f"Too many FloodWait exceptions ({flood_wait_count}) for part {part_num}, stopping retries"
-                        logger.error(f"[{task_id}] {error_msg}")
-                        await notify_admin(f"🚫 [{task_id}] {error_msg} (account: {account.session_name})")
-                        
-                        # Track the error in database
-                        await update_last_error(db, account.session_name, f"Too many FloodWait exceptions: {flood_wait_count} retries exceeded")
-                        
-                        await log_upload_metrics(task_id, file_size, False, retry_count)
-                        
-                        # Log failed upload
-                        total_duration = time.time() - upload_start_time
-                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-                        
-                        raise Exception(f"❌{error_msg}")
+            except asyncio.TimeoutError:
+                retry_count += 1
+                logger.error(f"[{task_id}] Upload timeout for part {part_num} (attempt {attempt + 1})")
+                
+                # Mark proxy failure for consecutive failure tracking (timeout is significant)
+                account.mark_proxy_failure(account.current_proxy_index, "Upload timeout", is_significant_event=True)
+                
+                if attempt == MAX_RETRIES - 1:
+                    error_msg = f"Upload timeout for part {part_num} after {MAX_RETRIES} attempts"
+                    await notify_admin(f"⏰ [{task_id}] {error_msg}")
                     
-                    if flood_wait_count >= 3:  # Lower threshold since this is after Pyrogram's retries
-                        logger.info(f"[{task_id}] Multiple FloodWait exceptions detected, attempting account rotation")
-                        new_account = await rotate_account_on_failure(task_id, db, account)
-                        if new_account.session_name != account.session_name:
-                            account = new_account
-                            logger.info(f"[{task_id}] Switched to account: {account.session_name}")
-                            # Reset flood wait count for the new account
-                            flood_wait_count = 0
+                    # Track the error in database
+                    await update_last_error(db, account.session_name, f"Upload timeout after {MAX_RETRIES} attempts")
                     
-                    continue
+                    await log_upload_metrics(task_id, file_size, False, retry_count)
+                    
+                    # Log failed upload
+                    total_duration = time.time() - upload_start_time
+                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+                    
+                    raise Exception(f"❌{error_msg}")
+                
+                # Wait before retry
+                await asyncio.sleep(RETRY_DELAY)
+                continue
 
-                except asyncio.TimeoutError:
-                    retry_count += 1
-                    logger.error(f"[{task_id}] Upload timeout for part {part_num} (attempt {attempt + 1})")
-                    
-                    # Mark proxy failure for consecutive failure tracking (timeout is significant)
-                    account.mark_proxy_failure(account.current_proxy_index, "Upload timeout", is_significant_event=True)
-                    
-                    if attempt == MAX_RETRIES - 1:
-                        error_msg = f"Upload timeout for part {part_num} after {MAX_RETRIES} attempts"
-                        await notify_admin(f"⏰ [{task_id}] {error_msg}")
-                        
-                        # Track the error in database
-                        await update_last_error(db, account.session_name, f"Upload timeout after {MAX_RETRIES} attempts")
-                        
-                        await log_upload_metrics(task_id, file_size, False, retry_count)
-                        
-                        # Log failed upload
-                        total_duration = time.time() - upload_start_time
-                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-                        
-                        raise Exception(f"❌{error_msg}")
-                    
-                    # Wait before retry
-                    await asyncio.sleep(RETRY_DELAY)
-                    continue
+            except AllProxiesExhaustedError as e:
+                error_msg = f"All proxies exhausted for account {account.session_name}: {e}"
+                logger.error(f"❌ [{task_id}] {error_msg}")
+                
+                # Try to switch to next account instead of failing immediately
+                new_account = await rotate_account_on_proxy_exhaustion(task_id, db, account)
+                if new_account:
+                    account = new_account
+                    logger.info(f"🔄 [{task_id}] Switched to account: {account.session_name}")
 
-                except AllProxiesExhaustedError as e:
-                    error_msg = f"All proxies exhausted for account {account.session_name}: {e}"
+                    # Update rate limit monitor context
+                    set_current_uploading_account(task_id, account.session_name)
+
+                    # Reset retry counters for new account
+                    retry_count = 0
+                    flood_wait_count = 0
+                    continue  # Retry with new account
+                else:
+                    # No alternative accounts available
+                    await notify_admin(f"🔴 [{task_id}] {error_msg}")
+                    
+                    # Track the error in database
+                    await update_last_error(db, account.session_name, "All proxies exhausted")
+                    
+                    await log_upload_metrics(task_id, file_size, False, retry_count)
+                    
+                    # Log failed upload
+                    total_duration = time.time() - upload_start_time
+                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
+                    
+                    raise Exception(f"❌{error_msg}")
+
+            except Exception as e:
+                retry_count += 1
+                error_str = str(e).lower()
+                logger.error(f"[{task_id}] Upload error for part {part_num} (attempt {attempt + 1}): {e}")
+                
+                # Mark proxy failure for consecutive failure tracking
+                account.mark_proxy_failure(account.current_proxy_index, f"Upload error: {type(e).__name__}", is_significant_event=False)
+                
+                # If proxies are no longer available (exhausted or all in cooldown/blacklist), escalate to switch accounts
+                try:
+                    if not account.has_available_proxies():
+                        raise AllProxiesExhaustedError(f"Account {account.session_name}: No available proxies after error")
+                except AllProxiesExhaustedError as exhausted_err:
+                    error_msg = f"All proxies exhausted for account {account.session_name}: {exhausted_err}"
                     logger.error(f"❌ [{task_id}] {error_msg}")
-                    
-                    # Try to switch to next account instead of failing immediately
                     new_account = await rotate_account_on_proxy_exhaustion(task_id, db, account)
                     if new_account:
                         account = new_account
                         logger.info(f"🔄 [{task_id}] Switched to account: {account.session_name}")
-
-                        # Update rate limit monitor context
                         set_current_uploading_account(task_id, account.session_name)
-
-                        # Reset retry counters for new account
                         retry_count = 0
                         flood_wait_count = 0
-                        continue  # Retry with new account
+                        continue
                     else:
-                        # No alternative accounts available
                         await notify_admin(f"🔴 [{task_id}] {error_msg}")
-                        
-                        # Track the error in database
                         await update_last_error(db, account.session_name, "All proxies exhausted")
-                        
                         await log_upload_metrics(task_id, file_size, False, retry_count)
-                        
-                        # Log failed upload
                         total_duration = time.time() - upload_start_time
                         await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-                        
                         raise Exception(f"❌{error_msg}")
 
-                except Exception as e:
-                    retry_count += 1
-                    error_str = str(e).lower()
-                    logger.error(f"[{task_id}] Upload error for part {part_num} (attempt {attempt + 1}): {e}")
+                # Track the error in database
+                await update_last_error(db, account.session_name, f"Upload error: {type(e).__name__}")
+                
+                if attempt == MAX_RETRIES - 1:
+                    error_msg = f"Upload failed for part {part_num} after {MAX_RETRIES} attempts: {e}"
+                    await notify_admin(f"❌ [{task_id}] {error_msg}")
                     
-                    # Mark proxy failure for consecutive failure tracking
-                    account.mark_proxy_failure(account.current_proxy_index, f"Upload error: {type(e).__name__}", is_significant_event=False)
+                    await log_upload_metrics(task_id, file_size, False, retry_count)
                     
-                    # If proxies are no longer available (exhausted or all in cooldown/blacklist), escalate to switch accounts
-                    try:
-                        if not account.has_available_proxies():
-                            raise AllProxiesExhaustedError(f"Account {account.session_name}: No available proxies after error")
-                    except AllProxiesExhaustedError as exhausted_err:
-                        error_msg = f"All proxies exhausted for account {account.session_name}: {exhausted_err}"
-                        logger.error(f"❌ [{task_id}] {error_msg}")
-                        new_account = await rotate_account_on_proxy_exhaustion(task_id, db, account)
-                        if new_account:
-                            account = new_account
-                            logger.info(f"🔄 [{task_id}] Switched to account: {account.session_name}")
-                            set_current_uploading_account(task_id, account.session_name)
-                            retry_count = 0
-                            flood_wait_count = 0
-                            continue
-                        else:
-                            await notify_admin(f"🔴 [{task_id}] {error_msg}")
-                            await update_last_error(db, account.session_name, "All proxies exhausted")
-                            await log_upload_metrics(task_id, file_size, False, retry_count)
-                            total_duration = time.time() - upload_start_time
-                            await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-                            raise Exception(f"❌{error_msg}")
-
-                    # Track the error in database
-                    await update_last_error(db, account.session_name, f"Upload error: {type(e).__name__}")
+                    # Log failed upload
+                    total_duration = time.time() - upload_start_time
+                    await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
                     
-                    if attempt == MAX_RETRIES - 1:
-                        error_msg = f"Upload failed for part {part_num} after {MAX_RETRIES} attempts: {e}"
-                        await notify_admin(f"❌ [{task_id}] {error_msg}")
-                        
-                        await log_upload_metrics(task_id, file_size, False, retry_count)
-                        
-                        # Log failed upload
-                        total_duration = time.time() - upload_start_time
-                        await log_upload_performance(task_id, file_size_mb, total_duration, flood_wait_count, account.session_name, False)
-                        
-                        raise Exception(f"❌{error_msg}")
-                    
-                    # Wait before retry
-                    await asyncio.sleep(RETRY_DELAY)
-                    continue
+                    raise Exception(f"❌{error_msg}")
+                
+                # Wait before retry
+                await asyncio.sleep(RETRY_DELAY)
+                continue
 
     except Exception as e:
         logger.error(f"❌ [{task_id}] Fatal error in upload_part_to_tg_with_retry: {e}")
@@ -603,8 +602,14 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
         await register_upload_end(task_id)
 
 async def upload_part_to_tg(file_path: str, task_id: str, part_num: int, db, account, bot_username: str):
-    """Simple wrapper for upload_part_to_tg_with_retry returning (file_id, used_session_name)"""
-    return await upload_part_to_tg_with_retry(file_path, task_id, part_num, db, account, bot_username)
+    """
+    Simple wrapper that guarantees a 2-tuple return shape: (file_id_or_None, used_session_name)
+    """
+    result = await upload_part_to_tg_with_retry(file_path, task_id, part_num, db, account, bot_username)
+    if isinstance(result, tuple) and len(result) == 2:
+        return result
+    # Backward-compat: some paths might return only file_id; normalize using provided account
+    return result, getattr(account, "session_name", "")
 
 async def split_video_by_duration(file_path: str, task_id: str, num_parts: int, part_duration: float) -> list[str] | None:
     """

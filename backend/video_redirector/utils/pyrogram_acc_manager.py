@@ -453,7 +453,13 @@ Action: Consider adding more proxies or investigating issues
                     else:
                         return None
 
-                    await self.client.start()
+                    # Prevent indefinite hang on bad proxies during client start
+                    try:
+                        await asyncio.wait_for(self.client.start(), timeout=30)
+                    except asyncio.TimeoutError:
+                        self.client = None
+                        logger.error(f"❌ [{self.session_name}] Client.start() timed out")
+                        return None
                     logger.info(f"✅ [{self.session_name}] Client started successfully")
 
                     self.last_client_creation = current_time
