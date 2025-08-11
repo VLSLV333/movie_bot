@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.video_redirector.db.session import get_db
+from backend.video_redirector.db.session import get_db_dep
 from backend.video_redirector.db.crud_downloads import get_file_id, get_parts_for_downloaded_file, get_files_by_tmdb_and_lang, cleanup_expired_file
 from backend.video_redirector.utils.validate_tg_file_ids import validate_all_file_ids, validate_file_by_id
 from pydantic import BaseModel
@@ -31,7 +31,7 @@ async def get_all_movie_parts(
     tmdb_id: int = Query(...),
     lang: str = Query(...),
     dub: str = Query(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_dep),
 ):
     try:
         file_entry = await get_file_id(db, tmdb_id, lang, dub)
@@ -62,7 +62,7 @@ async def get_all_movie_parts(
 @router.get("/all_movie_parts_by_id")
 async def get_all_movie_parts_by_id(
     db_id: int = Query(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_dep),
 ):
     try:
         parts = await get_parts_for_downloaded_file(db, db_id)
@@ -87,7 +87,7 @@ async def get_all_movie_parts_by_id(
 async def get_all_dubs_in_db_for_selected_movie_route(
     tmdb_id: int = Query(...),
     lang: str = Query(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_dep),
 ):
     try:
         entries = await get_files_by_tmdb_and_lang(db, tmdb_id, lang)
@@ -112,7 +112,7 @@ async def get_all_dubs_in_db_for_selected_movie_route(
 @router.post("/cleanup-expired-file")
 async def cleanup_expired_file_route(
     payload: CleanupExpiredFileRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db_dep),
 ):
     """
     Clean up expired Telegram file ID and all related database records.

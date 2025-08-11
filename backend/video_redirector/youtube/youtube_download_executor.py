@@ -1284,7 +1284,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                 logger.debug(f"[{task_id}] 🔍 stderr reader finished after processing {line_count} lines")
 
         # Set a reasonable timeout for the download (30 minutes max)
-        download_timeout = 900  # 20 minutes
+        download_timeout = 1800  # 30 minutes
         
         try:
             # Run both stdout and stderr readers concurrently with timeout

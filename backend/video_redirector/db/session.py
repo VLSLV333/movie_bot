@@ -116,3 +116,14 @@ async def get_db() -> AsyncIterator[AsyncSession]:
             raise
         finally:
             logger.info(f"🔗 Database session {session_id} closed")
+
+
+# Dependency wrapper for FastAPI Depends
+# FastAPI cannot use the asynccontextmanager object directly; this yields a real session
+async def get_db_dep() -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency that yields an `AsyncSession` using `get_db()` context manager.
+
+    Use this in route signatures: `db: AsyncSession = Depends(get_db_dep)`.
+    """
+    async with get_db() as session:
+        yield session

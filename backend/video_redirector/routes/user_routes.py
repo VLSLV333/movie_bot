@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.video_redirector.db.session import get_db
+from backend.video_redirector.db.session import get_db_dep
 from backend.video_redirector.db.crud_users import (
     get_user_by_telegram_id,
     create_user,
@@ -110,7 +110,7 @@ class UserBotLanguageRequest(BaseModel):
         return v
 
 @router.get("/users/{telegram_id}")
-async def get_user(telegram_id: int, db: AsyncSession = Depends(get_db)):
+async def get_user(telegram_id: int, db: AsyncSession = Depends(get_db_dep)):
     """Get user by Telegram ID"""
     try:
         user = await get_user_by_telegram_id(db, telegram_id)
@@ -138,7 +138,7 @@ async def get_user(telegram_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to get user: {str(e)}")
 
 @router.post("/users")
-async def create_new_user(req: UserCreateRequest, db: AsyncSession = Depends(get_db)):
+async def create_new_user(req: UserCreateRequest, db: AsyncSession = Depends(get_db_dep)):
     """Create a new user"""
     try:
         user = await create_user(
@@ -172,7 +172,7 @@ async def create_new_user(req: UserCreateRequest, db: AsyncSession = Depends(get
         raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
 
 @router.post("/users/onboarding")
-async def complete_onboarding(req: UserOnboardingRequest, db: AsyncSession = Depends(get_db)):
+async def complete_onboarding(req: UserOnboardingRequest, db: AsyncSession = Depends(get_db_dep)):
     """Complete user onboarding"""
     try:
         user = await update_user_onboarding(
@@ -207,7 +207,7 @@ async def complete_onboarding(req: UserOnboardingRequest, db: AsyncSession = Dep
         raise HTTPException(status_code=500, detail=f"Failed to complete onboarding: {str(e)}")
 
 @router.put("/users/movies-language")
-async def update_movies_language(req: UserMoviesLanguageRequest, db: AsyncSession = Depends(get_db)):
+async def update_movies_language(req: UserMoviesLanguageRequest, db: AsyncSession = Depends(get_db_dep)):
     """Update user's preferred language for movie content"""
     try:
         user = await update_user_movies_lang(
@@ -232,7 +232,7 @@ async def update_movies_language(req: UserMoviesLanguageRequest, db: AsyncSessio
         raise HTTPException(status_code=500, detail=f"Failed to update movies language: {str(e)}")
 
 @router.put("/users/bot-language")
-async def update_bot_language(req: UserBotLanguageRequest, db: AsyncSession = Depends(get_db)):
+async def update_bot_language(req: UserBotLanguageRequest, db: AsyncSession = Depends(get_db_dep)):
     """Update user's preferred language for bot interface"""
     try:
         user = await update_user_bot_lang(
@@ -257,7 +257,7 @@ async def update_bot_language(req: UserBotLanguageRequest, db: AsyncSession = De
         raise HTTPException(status_code=500, detail=f"Failed to update bot language: {str(e)}")
 
 @router.post("/users/get-or-create")
-async def get_or_create_new_user(req: UserCreateRequest, db: AsyncSession = Depends(get_db)):
+async def get_or_create_new_user(req: UserCreateRequest, db: AsyncSession = Depends(get_db_dep)):
     """Get existing user or create new one"""
     try:
         user = await get_or_create_user(
