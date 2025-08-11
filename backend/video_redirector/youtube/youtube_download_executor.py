@@ -61,9 +61,9 @@ async def debug_available_formats(video_url: str, task_id: str, client_name: str
         if result.returncode == 0:
             lines = result.stdout.strip().split('\n')
             
-            # Log full format table for debugging (at debug level to avoid spam)
+            # Log full format table for debugging (full dump for auditing)
             logger.debug(f"[{task_id}] 🔍 Debug: FULL format list ({len(lines)} lines) for {client_name}:")
-            for i, line in enumerate(lines[:150]):
+            for i, line in enumerate(lines):
                 logger.debug(f"[{task_id}] 🔍 {client_name} {i+1:3d}: {line}")
             
             # Parse and summarize heights
@@ -164,6 +164,11 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                     video_info = json.loads(result.stdout)
                     video_duration = video_info.get("duration", 0)
                     formats = video_info.get("formats", [])
+                    # Dump raw JSON for auditing
+                    try:
+                        logger.info(f"[{task_id}] 🔍 {client_name} JSON RAW: {result.stdout[:5000]}...")
+                    except Exception:
+                        pass
                     if formats:
                         logger.info(f"[{task_id}] Found {len(formats)} formats via JSON method ({client_name})")
                         # Heuristic: detect suspiciously low max height on web
@@ -255,14 +260,15 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                 logger.warning(f"[{task_id}] web client SABR detected (text), skipping to next client")
                 sabr_blocked_on_web = True
             elif result.returncode == 0:
-                text_result = await _analyze_formats_from_text(result.stdout, target_quality, task_id)
+                text_result = await _analyze_formats_from_text(result.stdout, target_quality, task_id, known_duration=locals().get('video_duration', 0) or 0)
                 if text_result:
                     fmt = text_result[0]
                     can_copy = text_result[1]
                     estimated_size = text_result[2]
                     height_meta = 0
-                    if len(text_result) >= 4 and isinstance(text_result[3], dict):
-                        height_meta = int(text_result[3].get('height') or 0)
+                    meta = text_result[3] if len(text_result) >= 4 and isinstance(text_result[3], dict) else {}
+                    if meta:
+                        height_meta = int(meta.get('height') or 0)
                     candidates.append({
                         'fmt': fmt,
                         'can_copy': can_copy,
@@ -271,6 +277,51 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                         'height': height_meta,
                         'source': 'TEXT'
                     })
+                    # If text_result did not contain a solid size, try probing sizes quickly
+                    if (not estimated_size) and isinstance(meta, dict):
+                        v_id = meta.get('video_id')
+                        a_id = meta.get('audio_id')
+                        probed_total = 0
+                        try:
+                            if v_id:
+                                v_probe = subprocess.run([
+                                    "yt-dlp","--ignore-config","-f", str(v_id),"--no-download","--print","%(filesize|filesize_approx)s",
+                                    "--extractor-args", f"youtube:player_client={client_name}", video_url
+                                ], capture_output=True, text=True, timeout=7)
+                                if v_probe.returncode == 0:
+                                    v_sz = (v_probe.stdout or '').strip().splitlines()[-1].strip()
+                                    if v_sz.isdigit():
+                                        probed_total += int(v_sz)
+                            if a_id:
+                                a_probe = subprocess.run([
+                                    "yt-dlp","--ignore-config","-f", str(a_id),"--no-download","--print","%(filesize|filesize_approx)s",
+                                    "--extractor-args", f"youtube:player_client={client_name}", video_url
+                                ], capture_output=True, text=True, timeout=7)
+                                if a_probe.returncode == 0:
+                                    a_sz = (a_probe.stdout or '').strip().splitlines()[-1].strip()
+                                    if a_sz.isdigit():
+                                        probed_total += int(a_sz)
+                        except Exception as e:
+                            logger.debug(f"[{task_id}] Size probe failed: {e}")
+                        if probed_total > 0:
+                            estimated_size = probed_total
+                            candidates[-1]['est_size'] = estimated_size
+                            logger.info(f"[{task_id}] 🔍 Probed TEXT merge size: {estimated_size} bytes")
+                        else:
+                            # As last resort, probe duration and estimate via tbr/abr already parsed inside analyzer
+                            try:
+                                dur_probe = subprocess.run([
+                                    "yt-dlp","--ignore-config","--no-download","--print","%(duration)s",
+                                    "--extractor-args", f"youtube:player_client={client_name}", video_url
+                                ], capture_output=True, text=True, timeout=5)
+                                if dur_probe.returncode == 0:
+                                    dur_str = (dur_probe.stdout or '').strip().splitlines()[-1].strip()
+                                    if dur_str and dur_str.replace('.', '', 1).isdigit():
+                                        # If we have duration but no sizes, fallback to 1GB placeholder to keep progress watcher conservative
+                                        estimated_size = max(estimated_size, 1_000_000_000)
+                                        candidates[-1]['est_size'] = estimated_size
+                            except Exception:
+                                pass
                     logger.info(f"[{task_id}] ✅ Candidate via TEXT | client={client_name} f='{fmt}' can_copy={can_copy} est_size={estimated_size} height={height_meta}")
             else:
                 logger.warning(f"[{task_id}] Text method failed ({client_name}): {result.stderr}")
@@ -399,7 +450,13 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         filesize = fmt.get('filesize') or fmt.get('filesize_approx') or 0
         if not format_id:
             continue
-        if vcodec == 'none' and acodec != 'none':
+        # Audio-only: be more tolerant detecting audio tracks
+        if vcodec == 'none' and (
+            acodec not in (None, 'none') or
+            ext in ['m4a', 'mp4'] or
+            fmt.get('abr') is not None or
+            str(format_id) in {'139', '140', '141'}
+        ):
             is_original = (
                 language_preference == 10 or
                 language in ['original', 'default', 'primary'] or
@@ -570,7 +627,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
             logger.info(f"[{task_id}] ⛔ JSON reject combined#{i}: id={cf['id']} {cf['width']}x{cf['height']} {cf['ext']} orig={cf.get('is_original', False)} reasons={','.join(reason) or 'other'}")
     return None
 
-async def _analyze_formats_from_text(output: str, target_quality: str, task_id: str) -> Optional[tuple]:
+async def _analyze_formats_from_text(output: str, target_quality: str, task_id: str, known_duration: float = 0) -> Optional[tuple]:
     """Analyze formats from text output with original audio preference and return estimated size (not always possible)"""
     
     lines = output.strip().split('\n')
@@ -742,7 +799,7 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
         
         merge_format = f"{best_video['id']}+{best_audio['id']}"
         is_original = best_audio.get('is_original', False)
-        # Estimate size from textual hints if available
+        # Estimate size — prefer probing exact sizes, fall back to bitrate*duration
         estimated_size = 0
         # Try parse bitrate from lines
         try:
@@ -750,20 +807,23 @@ async def _analyze_formats_from_text(output: str, target_quality: str, task_id: 
             a_line = best_audio.get('line', '')
             v_match = re.search(r'(\d+\.?\d*)k', v_line)
             a_match = re.search(r'(\d+\.?\d*)k', a_line)
-            # Assume typical duration 600s if unknown
-            duration_guess = 600
+            # If we have a known duration (from JSON earlier), use it; else we'll probe later
+            duration_guess = int(known_duration) if known_duration and known_duration > 0 else 0
             if v_match:
                 v_kbps = float(v_match.group(1))
-                estimated_size += int((v_kbps * 1000 / 8) * duration_guess)
+                if duration_guess > 0:
+                    estimated_size += int((v_kbps * 1000 / 8) * duration_guess)
             if a_match:
                 a_kbps = float(a_match.group(1))
-                estimated_size += int((a_kbps * 1000 / 8) * duration_guess)
+                if duration_guess > 0:
+                    estimated_size += int((a_kbps * 1000 / 8) * duration_guess)
         except Exception:
             pass
+        # Let caller refine via dedicated probes; keep placeholder if still zero
         if estimated_size == 0:
-            estimated_size = 1_000_000_000
+            estimated_size = 0
         logger.info(f"[{task_id}] TEXT merge chosen: v={best_video['id']}+a={best_audio['id']} can_copy={can_copy} est_size={estimated_size}")
-        return (merge_format, can_copy, estimated_size, {'height': best_video['height']})
+        return (merge_format, can_copy, estimated_size, {'height': best_video['height'], 'video_id': best_video['id'], 'audio_id': best_audio['id']})
     
     # If we can't find good formats, return None to allow main function's Strategy 3
     logger.warning(f"[{task_id}] Text analysis found no suitable formats, will try fallback methods")
