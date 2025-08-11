@@ -122,6 +122,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
     candidates = []  # each: {fmt, can_copy, est_size, client, height, source}
     target_height = int(target_quality.replace('p', ''))
 
+    best_overall = None  # track best candidate so far
     for client_name in PREFERRED_YT_CLIENTS:
         logger.info(f"[{task_id}] Trying player_client={client_name}")
 
@@ -190,9 +191,8 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                             fmt = json_result[0]
                             can_copy = json_result[1]
                             estimated_size = json_result[2]
-                            height_meta = None
-                            if len(json_result) >= 4 and isinstance(json_result[3], dict):
-                                height_meta = int(json_result[3].get('height') or 0)
+                            meta = json_result[3] if len(json_result) >= 4 and isinstance(json_result[3], dict) else {}
+                            height_meta = int(meta.get('height') or 0) if meta else 0
                             # If height unknown, try find from formats
                             if not height_meta:
                                 try:
@@ -202,6 +202,34 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                                             break
                                 except Exception:
                                     height_meta = 0
+                            # If JSON gave us ids, probe sizes quickly to improve estimate
+                            if meta:
+                                try:
+                                    probed_total = 0
+                                    v_id = meta.get('video_id')
+                                    a_id = meta.get('audio_id')
+                                    if v_id and "+" not in str(v_id):
+                                        v_probe = subprocess.run([
+                                            "yt-dlp","--ignore-config","-f", str(v_id),"--no-download","--print","%(filesize|filesize_approx)s",
+                                            "--extractor-args", f"youtube:player_client={client_name}", video_url
+                                        ], capture_output=True, text=True, timeout=7)
+                                        if v_probe.returncode == 0:
+                                            v_sz = (v_probe.stdout or '').strip().splitlines()[-1].strip()
+                                            if v_sz.isdigit():
+                                                probed_total += int(v_sz)
+                                    if a_id:
+                                        a_probe = subprocess.run([
+                                            "yt-dlp","--ignore-config","-f", str(a_id),"--no-download","--print","%(filesize|filesize_approx)s",
+                                            "--extractor-args", f"youtube:player_client={client_name}", video_url
+                                        ], capture_output=True, text=True, timeout=7)
+                                        if a_probe.returncode == 0:
+                                            a_sz = (a_probe.stdout or '').strip().splitlines()[-1].strip()
+                                            if a_sz.isdigit():
+                                                probed_total += int(a_sz)
+                                    if probed_total > 0:
+                                        estimated_size = probed_total
+                                except Exception as e:
+                                    logger.debug(f"[{task_id}] JSON size probe failed: {e}")
                             candidates.append({
                                 'fmt': fmt,
                                 'can_copy': can_copy,
@@ -211,6 +239,11 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                                 'source': 'JSON'
                             })
                             logger.info(f"[{task_id}] ✅ Candidate via JSON | client={client_name} f='{fmt}' can_copy={can_copy} est_size={estimated_size} height={height_meta}")
+                            # Early exit: if good enough (copy and height >= target), stop searching
+                            if can_copy and height_meta and height_meta >= target_height:
+                                best = {'fmt': fmt, 'can_copy': can_copy, 'est_size': estimated_size, 'client': client_name, 'height': height_meta, 'source': 'JSON'}
+                                logger.info(f"[{task_id}] 🛑 Early exit on client={client_name} with good candidate: {best}")
+                                return (fmt, can_copy, estimated_size, client_name)
                         else:
                             # Dump quick table of a few formats for visibility
                             try:
@@ -260,25 +293,39 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                 logger.warning(f"[{task_id}] web client SABR detected (text), skipping to next client")
                 sabr_blocked_on_web = True
             elif result.returncode == 0:
-                text_result = await _analyze_formats_from_text(result.stdout, target_quality, task_id, known_duration=locals().get('video_duration', 0) or 0)
-                if text_result:
-                    fmt = text_result[0]
-                    can_copy = text_result[1]
-                    estimated_size = text_result[2]
-                    height_meta = 0
-                    meta = text_result[3] if len(text_result) >= 4 and isinstance(text_result[3], dict) else {}
-                    if meta:
-                        height_meta = int(meta.get('height') or 0)
-                    candidates.append({
-                        'fmt': fmt,
-                        'can_copy': can_copy,
-                        'est_size': estimated_size,
-                        'client': client_name,
-                        'height': height_meta,
-                        'source': 'TEXT'
-                    })
+                # Skip TEXT if JSON already yielded good enough candidate in this client
+                skip_text = False
+                if candidates:
+                    last = candidates[-1]
+                    if last['client'] == client_name and last['source'] == 'JSON' and last['can_copy'] and last['height'] and last['height'] >= target_height:
+                        skip_text = True
+                if skip_text:
+                    logger.info(f"[{task_id}] Skipping TEXT parsing for {client_name} due to solid JSON result")
+                else:
+                    text_result = await _analyze_formats_from_text(result.stdout, target_quality, task_id, known_duration=locals().get('video_duration', 0) or 0)
+                    if text_result:
+                        fmt = text_result[0]
+                        can_copy = text_result[1]
+                        estimated_size = text_result[2]
+                        height_meta = 0
+                        meta = text_result[3] if len(text_result) >= 4 and isinstance(text_result[3], dict) else {}
+                        if meta:
+                            height_meta = int(meta.get('height') or 0)
+                        candidates.append({
+                            'fmt': fmt,
+                            'can_copy': can_copy,
+                            'est_size': estimated_size,
+                            'client': client_name,
+                            'height': height_meta,
+                            'source': 'TEXT'
+                        })
+                        # Early exit on good TEXT result
+                        if can_copy and height_meta and height_meta >= target_height:
+                            logger.info(f"[{task_id}] 🛑 Early exit on TEXT client={client_name} with good candidate height={height_meta}")
+                            return (fmt, can_copy, estimated_size, client_name)
+                        logger.info(f"[{task_id}] ✅ Candidate via TEXT | client={client_name} f='{fmt}' can_copy={can_copy} est_size={estimated_size} height={height_meta}")
                     # If text_result did not contain a solid size, try probing sizes quickly
-                    if (not estimated_size) and isinstance(meta, dict):
+                    if (meta and not estimated_size):
                         v_id = meta.get('video_id')
                         a_id = meta.get('audio_id')
                         probed_total = 0
@@ -322,13 +369,17 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                                         candidates[-1]['est_size'] = estimated_size
                             except Exception:
                                 pass
-                    logger.info(f"[{task_id}] ✅ Candidate via TEXT | client={client_name} f='{fmt}' can_copy={can_copy} est_size={estimated_size} height={height_meta}")
             else:
                 logger.warning(f"[{task_id}] Text method failed ({client_name}): {result.stderr}")
         except Exception as e:
             logger.warning(f"[{task_id}] Text format detection failed ({client_name}): {e}")
 
         # Strategy 3: Selector-based fallback (avoid -f best)
+        # Skip fallbacks if we already have a good candidate (copy and height>=target)
+        have_good = any(c['can_copy'] and c['height'] and c['height'] >= target_height for c in candidates if c['client'] == client_name)
+        if have_good:
+            logger.info(f"[{task_id}] Skipping FALLBACK for {client_name} due to existing good candidate")
+            continue
         logger.warning(f"[{task_id}] Using format selectors as fallback ({client_name})")
         fallback_formats = [
             ("bestvideo*[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]", True),
@@ -524,7 +575,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
         can_copy = (chosen['ext'] == 'mp4')
         estimated_size = chosen.get('filesize', 0)
         logger.info(f"[{task_id}] JSON combined chosen: id={chosen['id']} {chosen['width']}x{chosen['height']} ext={chosen['ext']} orig={chosen.get('is_original', False)} can_copy={can_copy} est_size={estimated_size}")
-        return (chosen['id'], can_copy, estimated_size, {'height': chosen['height']})
+        return (chosen['id'], can_copy, estimated_size, {'height': chosen['height'], 'video_id': chosen['id']})
     # Strategy 2: Merge video-only + original audio-only
     if video_only_formats and audio_only_formats:
         video_only_formats.sort(key=lambda x: (x['height'], x['ext'] == 'mp4'), reverse=True)
@@ -613,7 +664,7 @@ async def _analyze_formats_from_json(formats: list, target_quality: str, task_id
             estimated_size = 100_000_000
         
         logger.info(f"[{task_id}] 🔍 FINAL RESULT (JSON merge): {merge_format}, size: {estimated_size} bytes ({estimated_size/1024/1024:.1f}MB)")
-        return (merge_format, can_copy, estimated_size, {'height': best_video['height']})
+        return (merge_format, can_copy, estimated_size, {'height': best_video['height'], 'video_id': best_video['id'], 'audio_id': best_audio['id']})
     logger.info(f"[{task_id}] JSON analysis found no suitable formats, will try fallback methods")
     # Why rejected: log top 3 combined with reasons
     if combined_formats:

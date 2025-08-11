@@ -2,6 +2,8 @@
 *upload_test.py
 *web_speedtest.py
 *delivery_bots.json
+*upload_test.bin
+*.bin
 
 # Python cache files
 __pycache__/
