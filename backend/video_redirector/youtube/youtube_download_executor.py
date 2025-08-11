@@ -125,12 +125,21 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
     best_overall = None  # track best candidate so far
     for client_name in PREFERRED_YT_CLIENTS:
         logger.info(f"[{task_id}] Trying player_client={client_name}")
+        # If previous clients already yielded a good candidate, stop entirely
+        if candidates:
+            best_so_far = max(
+                [c for c in candidates],
+                key=lambda c: (c['height'], 1 if c['can_copy'] else 0, 1 if c['source'] == 'JSON' else 0),
+            )
+            if best_so_far['can_copy'] and best_so_far['height'] >= target_height:
+                logger.info(f"[{task_id}] 🛑 Early exit before {client_name}: good candidate already found on {best_so_far['client']}")
+                return (best_so_far['fmt'], best_so_far['can_copy'], best_so_far['est_size'], best_so_far['client'])
 
         # Per-client diagnostics: list formats and log top heights
-        try:
-            await debug_available_formats(video_url, task_id, client_name, use_cookies=use_cookies)
-        except Exception:
-            pass
+        # try:
+        #     await debug_available_formats(video_url, task_id, client_name, use_cookies=use_cookies)
+        # except Exception:
+        #     pass
 
         # Strategy 1: JSON dump
         try:
@@ -1536,7 +1545,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             session_name = consolidated["session_name"]
 
             # Save in DB using existing structure - handle duplicates gracefully
-            async for session in get_db():
+            async with get_db() as session:
                 # Check if file already exists
                 existing_file = await get_file_id(session, tmdb_id, lang, dub)
 
@@ -1590,7 +1599,6 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                     ))
 
                 await session.commit()
-                break  # Only need one iteration
 
             await redis.set(f"download:{task_id}:status", "done", ex=3600)
 

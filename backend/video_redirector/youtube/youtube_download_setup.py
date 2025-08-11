@@ -32,7 +32,7 @@ async def youtube_download_setup(data: str, sig: str):
     redis = RedisClient.get_client()
 
     # --- Check if video already exists in database (FAST RETURN) ---
-    async for session in get_db():
+    async with get_db() as session:
         existing_file = await get_youtube_file_id(session, tmdb_id, video_url)
         if existing_file:
             logger.info(f"[YouTube Setup] 🚀 FAST RETURN: Video already exists in DB: tmdb_id={tmdb_id}, video_url={video_url}, quality={existing_file.quality}")
@@ -61,7 +61,7 @@ async def youtube_download_setup(data: str, sig: str):
                     "quality": existing_file.quality,
                     "movie_title": existing_file.movie_title or video_title
                 })
-        break  # Only need one session
+        # session context ends here
 
     # --- Check for duplicate downloads ---
     is_duplicate = await check_duplicate_download(tg_user_id, tmdb_id, lang, dub)

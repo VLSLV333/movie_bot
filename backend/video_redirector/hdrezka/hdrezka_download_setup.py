@@ -13,13 +13,12 @@ logger = logging.getLogger(__name__)
 
 async def get_user_download_limit(tg_user_id):
     # Check if user is premium in DB
-    async for session in get_db():
+    async with get_db() as session:
         user = await get_user_by_telegram_id(session, tg_user_id)
         if user and getattr(user, 'is_premium', False):
             return PREMIUM_USER_DOWNLOAD_LIMIT
         else:
             return DEFAULT_USER_DOWNLOAD_LIMIT
-    return DEFAULT_USER_DOWNLOAD_LIMIT
 
 async def check_duplicate_download(tg_user_id: str, tmdb_id: int, lang: str, dub: str) -> bool:
     """

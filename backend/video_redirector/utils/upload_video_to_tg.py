@@ -769,6 +769,7 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
     
     parts_result = []
     selected_account = None  # Track the selected account for permission management (single-part path)
+    created_part_paths: list[str] = []  # Track generated split parts for cleanup on failure
 
     try:
         part_num = re.search(r'_part(\d+)\.mp4$', file_path)
@@ -789,6 +790,23 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
                 logger.info(f"[{task_id}] File is {round(file_size_mb)} MB — uploading as one part")
                 file_id, used_session = await upload_part_to_tg(file_path, task_id, 1, db, account, bot_username)
                 logger.info(f"✅ [{task_id}] Single-part upload complete. file_id: {file_id}")
+
+                # Success cleanup: remove the uploaded file and per-task folder if applicable
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        logger.debug(f"[{task_id}] Cleaned uploaded file: {file_path}")
+                    parent_dir = os.path.dirname(file_path)
+                    # If YouTube used a per-task folder downloads/<task_id>, try to remove when empty
+                    if os.path.basename(parent_dir) == task_id and os.path.basename(os.path.dirname(parent_dir)) == 'downloads':
+                        try:
+                            if not os.listdir(parent_dir):
+                                os.rmdir(parent_dir)
+                                logger.debug(f"[{task_id}] Removed empty task directory: {parent_dir}")
+                        except Exception as _e:
+                            logger.debug(f"[{task_id}] Task folder cleanup skipped: {_e}")
+                except Exception as _e:
+                    logger.warning(f"[{task_id}] Single-part cleanup warning: {_e}")
 
                 return {
                     "bot_token": bot_token,
@@ -843,6 +861,7 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
             if not part_paths:
                 await notify_admin(f"❌ [Task {task_id}] Failed to split movie during ffmpeg slicing.")
                 raise Exception(f"❌ [Task {task_id}] Failed to split movie during ffmpeg slicing.")
+            created_part_paths = part_paths[:]
 
             #TODO: AS I understand if video is splited into 3 parts and parts are bigger then 1900MB we split each of 3 video parts
             # by 2 (so 6 parts total) (we can split more than by 2 if video parts are really big total video 21 GB, 3 parts 7 gb, each part splits into 4 pieces)
@@ -853,22 +872,19 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
             used_sessions = set()
 
             async def upload_one(idx: int, part_path: str):
-                local_db = None
                 reserved_account = None
                 try:
                     # Create an isolated DB session for this task
-                    async for db_task in get_db():
-                        local_db = db_task
-                        break
+                    async with get_db() as local_db:
 
-                    # Reserve a separate account for this part
-                    _, reserved_account = await select_upload_account(local_db)
-                    used_sessions.add(reserved_account.session_name)
+                        # Reserve a separate account for this part
+                        _, reserved_account = await select_upload_account(local_db)
+                        used_sessions.add(reserved_account.session_name)
 
-                    file_id, used_session = await upload_part_to_tg(
-                        part_path, task_id, idx + 1, local_db, reserved_account, bot_username
-                    )
-                    return {"part": idx, "file_id": file_id, "used_session": used_session, "success": True}
+                        file_id, used_session = await upload_part_to_tg(
+                            part_path, task_id, idx + 1, local_db, reserved_account, bot_username
+                        )
+                        return {"part": idx, "file_id": file_id, "used_session": used_session, "success": True}
                 except Exception as e:
                     logger.exception(f"[{task_id}] Error uploading part {idx + 1}")
                     return {"part": idx, "error": str(e), "success": False}
@@ -896,10 +912,18 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
             ]
 
             if len(parts_result) == num_parts:
+                # Success cleanup: original big file and generated split parts
                 try:
-                    os.remove(file_path)
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
                 except Exception as errr:
                     logger.warning(f"[{task_id}] Couldn't clean up original movie file: {errr}")
+                for p in part_paths:
+                    try:
+                        if os.path.exists(p):
+                            os.remove(p)
+                    except Exception as _e:
+                        logger.warning(f"[{task_id}] Couldn't clean up split part {p}: {_e}")
                 logger.info(f"[{task_id}] Upload successful with bot: {bot_username}")
                 logger.info(f"✅ [{task_id}] Multipart upload complete. {len(parts_result)} parts uploaded.")
                 # Use the first used session for reporting; actual parts may span multiple sessions
@@ -934,6 +958,36 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
     except Exception as e:
         logger.exception(f"[{task_id}] Critical error during upload")
         await notify_admin(f"🧨 Critical failure while handling {task_id}:\n{e}")
+        # Failure cleanup: remove original file, split parts, and per-task dir if applicable
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception as _e:
+            logger.debug(f"[{task_id}] Failure cleanup (file): {_e}")
+        for p in created_part_paths:
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception as _e:
+                logger.debug(f"[{task_id}] Failure cleanup (part): {p} {_e}")
+        try:
+            parent_dir = os.path.dirname(file_path)
+            if os.path.basename(parent_dir) == task_id and os.path.basename(os.path.dirname(parent_dir)) == 'downloads':
+                # Best-effort remove leftover files then dir if empty
+                try:
+                    for fname in os.listdir(parent_dir):
+                        fpath = os.path.join(parent_dir, fname)
+                        if os.path.isfile(fpath):
+                            try:
+                                os.remove(fpath)
+                            except Exception:
+                                pass
+                    if not os.listdir(parent_dir):
+                        os.rmdir(parent_dir)
+                except Exception:
+                    pass
+        except Exception:
+            pass
         raise Exception(f"🧨 Critical failure while handling {task_id}:\n{e}")
 
 async def get_upload_stats() -> Dict[str, Any]:

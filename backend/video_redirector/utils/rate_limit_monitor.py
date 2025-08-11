@@ -38,6 +38,10 @@ _account_rotation_requests = {}  # task_id -> {"old_account": str, "reason": str
 _recent_events = {}  # account_name -> {event_type: timestamp}
 EVENT_DEDUPLICATION_WINDOW = 10  # seconds
 
+# Suppression of repeated rotations after one fires
+_rotation_suppression_until = {}  # account_name -> timestamp
+ROTATION_SUPPRESSION_WINDOW = 20  # seconds to suppress repeated actions after rotation trigger
+
 # Track network/timeout failures for threshold-based rotation
 _network_failure_counts = {}  # account_name -> {event_type: count}
 _network_failure_timestamps = {}  # account_name -> {event_type: [timestamps]}
@@ -116,17 +120,23 @@ class RateLimitLogHandler(logging.Handler):
                     self._mark_event_handled(account_session_name, "rate_limit")
                     continue
 
-                if should_rotate:
+                # Suppress repeated actions if we've just rotated recently
+                suppress_until = _rotation_suppression_until.get(account_session_name, 0)
+                now_ts = time.time()
+
+                if should_rotate and now_ts >= suppress_until:
                     logger.warning(f"🚨 [{account_session_name}] Rate limit threshold exceeded — cooldown current proxy and stopping client")
                     try:
                         # Mark as non-significant to avoid immediate blacklist for plain rate-limits
                         account.mark_proxy_failure(account.current_proxy_index, f"Rate limit: {wait_seconds}s wait", is_significant_event=True)
                         await account.stop_client()
+                        # Set suppression window to avoid thrashing
+                        _rotation_suppression_until[account_session_name] = now_ts + ROTATION_SUPPRESSION_WINDOW
                     except Exception as e:
                         logger.debug(f"Error applying cooldown/stop on rate limit: {e}")
                 else:
                     # Only log events that meet or exceed the significant threshold; ignore sub-threshold logs
-                    if wait_seconds >= significant_threshold:
+                    if wait_seconds >= significant_threshold and now_ts >= suppress_until:
                         logger.info(f"⏰ [{account_session_name}] Rate limit event: {wait_seconds}s wait")
 
                 self._mark_event_handled(account_session_name, "rate_limit")

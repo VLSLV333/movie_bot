@@ -90,7 +90,7 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
         session_name = consolidated_result["session_name"]
 
         # Save in DB
-        async for session in get_db():
+        async with get_db() as session:
             db_entry = DownloadedFile(
                 tmdb_id=tmdb_id,
                 lang=lang,
@@ -115,9 +115,36 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
                     telegram_file_id=part["file_id"]
                 ))
             await session.commit()
-            break  # Only need one iteration
 
         await redis.set(f"download:{task_id}:status", "done", ex=3600)
+
+        # Success cleanup: remove all merged MP4 output files and the downloads/<task_id> parts folder if any
+        try:
+            for path in output_files or []:
+                try:
+                    if path and os.path.exists(path):
+                        os.remove(path)
+                        logger.debug(f"[{task_id}] Cleaned merged output: {path}")
+                except Exception as _e:
+                    logger.warning(f"[{task_id}] Couldn't remove merged output {path}: {_e}")
+            # Best-effort cleanup of downloads/parts for this task if present
+            try:
+                parts_dir = os.path.join(os.path.dirname(__file__), "..", "utils", "downloads", "parts")
+                parts_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "downloads", "parts"))
+                # Remove any files for this task_id
+                if os.path.exists(parts_dir):
+                    for fname in os.listdir(parts_dir):
+                        if task_id in fname:
+                            fpath = os.path.join(parts_dir, fname)
+                            if os.path.isfile(fpath):
+                                try:
+                                    os.remove(fpath)
+                                except Exception:
+                                    pass
+            except Exception:
+                pass
+        except Exception:
+            pass
 
         if len(parts) == 1:
             await redis.set(f"download:{task_id}:result", json.dumps({
@@ -140,6 +167,18 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
             tg_user_id = await redis.get(f"download:{task_id}:user_id")
         if tg_user_id:
             await redis.srem(f"active_downloads:{tg_user_id}", task_id)  # type: ignore
+
+        # Failure cleanup (if we raised earlier): ensure output_files are deleted
+        try:
+            if 'output_files' in locals() and output_files:
+                for path in output_files:
+                    try:
+                        if path and os.path.exists(path):
+                            os.remove(path)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
 async def process_parallel_uploads(output_files: list, task_id: str) -> list:
     """
@@ -176,9 +215,8 @@ async def process_parallel_uploads(output_files: list, task_id: str) -> list:
                 async def upload_single_file(file_path, file_task_id, file_index, bot_info):
                     try:
                         # Each task gets its own database session
-                        async for db in get_db():
+                        async with get_db() as db:
                             result = await check_size_upload_large_file(file_path, file_task_id, db, bot_info)
-                            break  # Only need one session
                         
                         return {
                             "file_index": file_index,

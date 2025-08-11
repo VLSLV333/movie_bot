@@ -464,6 +464,13 @@ Action: Consider adding more proxies or investigating issues
 
                     self.last_client_creation = current_time
 
+                # Reset rate-limit tracking when (re)starting a client with a freshly
+                # selected proxy so previous proxy's events don't spill over
+                try:
+                    reset_rate_limit_events_for_account(self.session_name)
+                except Exception as _e:
+                    logger.debug(f"Failed to reset rate-limit events for {self.session_name}: {_e}")
+
                 except sqlite3.OperationalError as e:
                     # Session SQLite contention — quarantine account, do not penalize proxy
                     if "locked" in str(e).lower():

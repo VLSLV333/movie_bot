@@ -132,7 +132,7 @@ class FileIDValidator:
         
         logger.debug(f"📋 Using delivery bot for validation to admin chat: {ADMIN_CHAT_ID}")
         
-        async for db in get_db():
+        async with get_db() as db:
             # Get total count first
             count_stmt = select(func.count(DownloadedFile.id))
             result = await db.execute(count_stmt)
@@ -181,7 +181,7 @@ class FileIDValidator:
                     logger.debug(f"⏳ Waiting {BATCH_DELAY} seconds before next batch...")
                     await asyncio.sleep(BATCH_DELAY)
             
-            break  # Only need one database session
+            # session context ends here
         
         # Send final summary
         await self.send_validation_summary()
@@ -199,7 +199,7 @@ class FileIDValidator:
             await notify_admin(error_msg)
             return {"validated_files": 0, "expired_files": 0, "errors": 1}
         
-        async for db in get_db():
+        async with get_db() as db:
             # Get the specific file
             stmt = select(DownloadedFile).where(DownloadedFile.id == downloaded_file_id)
             result = await db.execute(stmt)
@@ -218,7 +218,7 @@ class FileIDValidator:
             self.stats["expired_files"] += stats["expired_files"]
             self.stats["errors"] += stats["errors"]
             
-            break
+            # session context ends here
         
         await self.send_validation_summary()
         return stats

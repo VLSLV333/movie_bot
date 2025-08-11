@@ -23,7 +23,7 @@ async def create_indexes():
     """Create database indexes for performance optimization"""
     print("🔧 Creating database indexes...")
     
-    async for db in get_db():
+    async with get_db() as db:
         try:
             # Indexes for downloaded_files table
             await db.execute(text("""
@@ -59,8 +59,6 @@ async def create_indexes():
             logger.error(f"❌ Error creating indexes: {e}")
             await db.rollback()
             raise
-        finally:
-            await db.close()
 
 def create_tables_and_indexes():
     """Create tables and indexes in one go"""

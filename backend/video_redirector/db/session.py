@@ -2,7 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 import os
 import time
 from dotenv import load_dotenv
-from typing import AsyncGenerator
+from typing import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -78,39 +79,40 @@ async def log_database_pool_status():
     except Exception as e:
         logger.error(f"❌ Error logging database pool status: {e}")
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    global _db_operation_count
-    
+@asynccontextmanager
+async def get_db() -> AsyncIterator[AsyncSession]:
+    """Yield an AsyncSession with safe lifecycle management.
+
+    Uses 'async with' internally; no manual close outside this scope.
+    """
+    global _db_operation_count, _db_error_count, _db_lock_count
+
     _db_operation_count += 1
-    
+
     # Log pool status periodically
     await log_database_pool_status()
-    
-    try:
-        async with AsyncSessionLocal() as session:
-            # Add session ID for debugging
-            session_id = id(session)
-            logger.info(f"🔗 Database session {session_id} created")
+
+    async with AsyncSessionLocal() as session:
+        session_id = id(session)
+        logger.info(f"🔗 Database session {session_id} created")
+        try:
             yield session
+        except Exception as e:
+            _db_error_count += 1
+            error_str = str(e).lower()
+
+            if ("database is locked" in error_str or 
+                "operationalerror" in str(type(e).__name__).lower() or
+                "illegalstatechangeerror" in error_str):
+                _db_lock_count += 1
+                logger.error(f"🔒 Database session state error in get_db: {type(e).__name__}: {e}")
+                try:
+                    pool = engine.pool
+                    logger.error(f"   Pool status - Checked out: {pool.checkedout()}, Size: {pool.size()}")
+                except Exception as pool_error:
+                    logger.error(f"   Could not get pool status: {pool_error}")
+            else:
+                logger.error(f"❌ Database error in get_db: {type(e).__name__}: {e}")
+            raise
+        finally:
             logger.info(f"🔗 Database session {session_id} closed")
-    except Exception as e:
-        global _db_error_count, _db_lock_count
-        
-        _db_error_count += 1
-        error_str = str(e).lower()
-        
-        # Categorize errors
-        if ("database is locked" in error_str or 
-            "operationalerror" in str(type(e).__name__).lower() or
-            "illegalstatechangeerror" in error_str):
-            _db_lock_count += 1
-            logger.error(f"🔒 Database session state error in get_db: {type(e).__name__}: {e}")
-            try:
-                pool = engine.pool
-                logger.error(f"   Pool status - Checked out: {pool.checkedout()}, Size: {pool.size()}")
-            except Exception as pool_error:
-                logger.error(f"   Could not get pool status: {pool_error}")
-        else:
-            logger.error(f"❌ Database error in get_db: {type(e).__name__}: {e}")
-        
-        raise

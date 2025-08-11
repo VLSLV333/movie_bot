@@ -19,7 +19,7 @@ async def initialize_accounts_in_database():
     logger.debug("🔧 Initializing upload accounts in database...")
     
     try:
-        async for db in get_db():
+        async with get_db() as db:
             # First diagnose current state
             diagnosis = await diagnose_account_distribution(db)
             
@@ -29,7 +29,7 @@ async def initialize_accounts_in_database():
                 logger.info(f"✅ Successfully initialized {initialized_count} accounts in database")
             else:
                 logger.info("✅ All accounts already properly initialized in database")
-            break  # Only need one database session
+            # session context ends here
     except Exception as e:
         logger.error(f"❌ Error initializing accounts in database: {e}")
         # Don't fail startup, just log the error
