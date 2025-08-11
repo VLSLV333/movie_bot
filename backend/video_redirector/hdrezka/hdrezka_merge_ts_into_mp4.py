@@ -10,6 +10,7 @@ import ssl
 
 from backend.video_redirector.config import MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4
 from backend.video_redirector.utils.notify_admin import notify_admin
+from urllib.parse import urlparse, quote
 
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -225,9 +226,6 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             if line.strip().endswith(".ts"):
                 segment_urls.append(line.strip())
         
-        # Convert relative URLs to absolute URLs
-        from urllib.parse import urljoin, urlparse
-        
         # Extract base URL from the original m3u8_url
         parsed_url = urlparse(m3u8_url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path.rsplit('/', 1)[0]}/"
@@ -248,6 +246,29 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                 # Relative URL without './' prefix
                 absolute_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path.rsplit('/', 1)[0]}/{segment_url}"
                 absolute_segment_urls.append(absolute_url)
+
+        # Build FFmpeg URL option suffix to inject headers per request for each segment URL
+        # This is required because the input is a local m3u8 file, so protocol-level CLI options like
+        # -headers/-user_agent/-referer may not be supported by the ffmpeg build or not applied to local file inputs.
+        ffmpeg_url_opts_suffix = ""
+        try:
+            if headers:
+                #TODO: remove this after testing
+                for header in headers:
+                    logger.info(f"Header: {header}")
+
+                header_lines = [f"{k}: {v}" for k, v in headers.items()]
+                if header_lines:
+                    # CRLF-separated with a trailing CRLF as expected by FFmpeg
+                    hdr_str = "\r\n".join(header_lines) + "\r\n"
+                    # Encode for URL option context; keep common header punctuation unescaped
+                    encoded = quote(hdr_str, safe=":/;?&=,.-_")
+                    ffmpeg_url_opts_suffix = f"|headers={encoded}"
+                    logger.info(f"🔄 [{task_id}] FFmpeg URL options suffix: {ffmpeg_url_opts_suffix}")
+        except Exception as _e:
+            logger.error(f"❌ [{task_id}] Failed to build FFmpeg URL options suffix: {_e}")
+            # If anything goes wrong building header suffix, continue without headers
+            ffmpeg_url_opts_suffix = ""
         
 
         if segment_count == 0:
@@ -288,7 +309,8 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                 f.write("#EXT-X-MEDIA-SEQUENCE:0\n")
                 for i in range(start_idx, end_idx):
                     f.write(f"#EXTINF:10.0,\n")
-                    f.write(f"{absolute_segment_urls[i]}\n")
+                    # Inject per-request headers into each segment URL using FFmpeg URL options
+                    f.write(f"{absolute_segment_urls[i]}{ffmpeg_url_opts_suffix}\n")
                 f.write("#EXT-X-ENDLIST\n")
             
             # Log chunk creation details

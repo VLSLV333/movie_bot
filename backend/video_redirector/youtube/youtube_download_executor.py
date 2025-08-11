@@ -122,7 +122,6 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
     candidates = []  # each: {fmt, can_copy, est_size, client, height, source}
     target_height = int(target_quality.replace('p', ''))
 
-    best_overall = None  # track best candidate so far
     for client_name in PREFERRED_YT_CLIENTS:
         logger.info(f"[{task_id}] Trying player_client={client_name}")
         # If previous clients already yielded a good candidate, stop entirely
@@ -373,7 +372,7 @@ async def get_best_format_id(video_url: str, target_quality: str, task_id: str, 
                                 if dur_probe.returncode == 0:
                                     dur_str = (dur_probe.stdout or '').strip().splitlines()[-1].strip()
                                     if dur_str and dur_str.replace('.', '', 1).isdigit():
-                                        # If we have duration but no sizes, fallback to 1GB placeholder to keep progress watcher conservative
+                                        # If we have duration but no sizes, fallback to 1GB placeholder to keep the fallback conservative
                                         estimated_size = max(estimated_size, 1_000_000_000)
                                         candidates[-1]['est_size'] = estimated_size
                             except Exception:
@@ -944,65 +943,6 @@ async def verify_video_quality(video_path: str, task_id: str) -> Optional[str]:
         logger.error(f"[{task_id}] Error verifying video quality: {e}")
         return None
 
-def get_downloaded_bytes(task_id, download_dir):
-    """
-    Simple function to sum all file sizes in the task-specific download directory.
-    Since each task has its own directory, we can safely count all files.
-    """
-    total = 0
-    files_found = []
-    
-    try:
-        if not os.path.exists(download_dir):
-            return 0
-            
-        all_files = os.listdir(download_dir)
-        
-        # Sum all files in the directory - they all belong to this task
-        for fname in all_files:
-            fpath = os.path.join(download_dir, fname)
-            if os.path.isfile(fpath):
-                file_size = os.path.getsize(fpath)
-                total += file_size
-                files_found.append(f"{fname}:{file_size}")
-        
-        # Log progress periodically for debugging
-        call_key = f"_call_count_{task_id}"
-        if hasattr(get_downloaded_bytes, call_key):
-            count = getattr(get_downloaded_bytes, call_key) + 1
-            setattr(get_downloaded_bytes, call_key, count)
-        else:
-            count = 1
-            setattr(get_downloaded_bytes, call_key, count)
-            
-        # Enhanced debugging - log more frequently when we have files
-        should_log = (count == 1 or count % 12 == 0 or len(files_found) > 0)
-        
-        if should_log:
-            logger.debug(f"[{task_id}] 🔍 Downloads scan #{count}: total={total} bytes from {len(files_found)} files in {download_dir}")
-            if len(files_found) <= 20:  # Show files if not too many
-                logger.debug(f"[{task_id}] 🔍 Files: {files_found}")
-            
-            # Also check what's in parent directories for debugging
-            if count <= 3:  # Only for first few checks to avoid spam
-                try:
-                    parent_dir = os.path.dirname(download_dir)
-                    if os.path.exists(parent_dir):
-                        parent_files = []
-                        for fname in os.listdir(parent_dir):
-                            fpath = os.path.join(parent_dir, fname)
-                            if os.path.isfile(fpath):
-                                file_size = os.path.getsize(fpath)
-                                parent_files.append(f"{fname}:{file_size}")
-                        logger.debug(f"[{task_id}] 🔍 Parent dir ({parent_dir}) files: {parent_files[:10]}")  # Show max 10
-                except Exception as e:
-                    logger.debug(f"[{task_id}] Could not check parent directory: {e}")
-            
-    except Exception as e:
-        logger.error(f"[{task_id}] Error in get_downloaded_bytes: {e}")
-        
-    return total
-
 async def handle_youtube_download_task_with_retries(task_id: str, video_url: str, tmdb_id: int, lang: str, dub: str, video_title: str, video_poster: str):
     """Handle YouTube video download task with simple retry strategy and IP rotation - retries on any error until max attempts"""
     
@@ -1079,140 +1019,58 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
         else:
             raise Exception(f"Unexpected format_result type: {type(format_result)}")
 
-        # After starting the yt-dlp process, add a background task to periodically check progress by file size
+        # After starting the yt-dlp process, add a background task to provide time-based fallback progress
         progress_check_interval = 5  # seconds
         progress_stop_flag = {'stop': False}
         last_progress = 0
         progress_update_min_interval = 1.0
         last_redis_update_ts = 0.0
-        
-            
-        async def progress_watcher():
+        last_stdout_progress_ts = asyncio.get_event_loop().time()  # updated whenever we parse stdout progress
+
+        async def time_progress_fallback():
             nonlocal last_progress
             nonlocal last_redis_update_ts
-            start_time = asyncio.get_event_loop().time()
-            last_size = 0
-            default_size_estimate = 700_000_000  # 700MB default estimate
-            loop_count = 0
-            
-            logger.info(f"[{task_id}] 🔍 Progress watcher started with estimated_size={estimated_size}")
-            
+            nonlocal last_stdout_progress_ts
+
+            loop = asyncio.get_event_loop()
+            start_time = loop.time()
+            silent_threshold = 21.0  # start fallback after 21s of no stdout-derived progress
+            total_assumed = 300.0    # assume download completes in 5 minutes
+
+            # Baseline captured when fallback activates to continue from last_progress
+            fallback_active = False
+            fallback_start_ts = 0.0
+            baseline_progress = 0
+
             try:
                 while not progress_stop_flag['stop']:
-                    loop_count += 1
-                    downloaded = get_downloaded_bytes(task_id, get_task_download_dir(task_id))
-                    
-                    # Also check the output file directly (might be growing without temp files)
-                    output_file_size = 0
-                    if os.path.exists(output_path):
-                        output_file_size = os.path.getsize(output_path)
-                        if output_file_size > downloaded:
-                            downloaded = output_file_size
-                            if loop_count % 10 == 1:  # Debug every 10 loops
-                                logger.info(f"[{task_id}] 🔍 Using output file size: {output_file_size} bytes ({output_file_size/1024/1024:.1f}MB)")
-                    
-                    # Enhanced debugging - check multiple locations where yt-dlp might create files
-                    if loop_count % 10 == 1:  # First loop and every 10th
-                        logger.info(f"[{task_id}] 🔍 Progress debug: loop={loop_count}, downloaded={downloaded}, estimated_size={estimated_size}, last_progress={last_progress}")
-                        logger.info(f"[{task_id}] 🔍 Output file exists: {os.path.exists(output_path)}, size: {output_file_size}")
-                        
-                        # Check for any files matching our task_id pattern in various locations
-                        task_pattern_files = []
-                        locations_to_check = [
-                            get_task_download_dir(task_id),  # Our task directory
-                            BASE_DOWNLOAD_DIR,               # Base downloads directory
-                            "/tmp",                          # System temp (Linux)
-                            "/var/tmp",                      # Alternative temp
-                            ".",                             # Current working directory
-                        ]
-                        
-                        for location in locations_to_check:
-                            if os.path.exists(location):
-                                try:
-                                    for fname in os.listdir(location):
-                                        if task_id in fname or any(pattern in fname.lower() for pattern in ['.part', '.tmp', '.ytdl', f'{task_id[:8]}']):
-                                            fpath = os.path.join(location, fname)
-                                            if os.path.isfile(fpath):
-                                                file_size = os.path.getsize(fpath)
-                                                task_pattern_files.append(f"{location}/{fname}:{file_size}")
-                                except Exception as e:
-                                    logger.error(f"[{task_id}] Could not check {location}: {e}")
-                        
-                        if task_pattern_files:
-                            logger.info(f"[{task_id}] 🔍 Found task-related files: {task_pattern_files}")
-                            # Use the largest file we found as progress
-                            largest_size = max(int(f.split(':')[-1]) for f in task_pattern_files)
-                            if largest_size > downloaded:
-                                downloaded = largest_size
-                                logger.info(f"[{task_id}] 🔍 Updated downloaded from task files: {downloaded} bytes")
-                        else:
-                            logger.info(f"[{task_id}] 🔍 No task-related files found in any location")
-                    
-                    if estimated_size > 0:
-                        percent = min(int((downloaded / estimated_size) * 100), 100)
-                        now_ts = asyncio.get_event_loop().time()
-                        if percent != last_progress and percent > 0 and (now_ts - last_redis_update_ts >= progress_update_min_interval or percent >= 100):
+                    now = loop.time()
+
+                    # Activate fallback after prolonged stdout silence
+                    if (not fallback_active) and (last_progress < 100) and ((now - last_stdout_progress_ts) >= silent_threshold):
+                        fallback_active = True
+                        fallback_start_ts = now
+                        baseline_progress = last_progress
+                        logger.debug(f"[{task_id}] 🔍 Fallback activated at {baseline_progress}% after {silent_threshold}s of stdout silence")
+
+                    if fallback_active and last_progress < 100:
+                        elapsed_since_fallback = now - fallback_start_ts
+                        # Grow linearly from baseline to 95% over total_assumed seconds
+                        span = max(1.0, total_assumed)
+                        target = baseline_progress + int(((elapsed_since_fallback / span) * max(0, 95 - baseline_progress)))
+                        percent = max(baseline_progress, min(target, 95))
+
+                        if percent > last_progress and (now - last_redis_update_ts) >= progress_update_min_interval:
                             await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
                             last_progress = percent
-                            last_redis_update_ts = now_ts
-                            logger.info(f"[{task_id}] Progress: {percent}% ({downloaded}/{estimated_size} bytes)")
-                        elif loop_count % 10 == 1:  # Debug every 10 loops
-                            logger.info(f"[{task_id}] 🔍 Progress not updated: percent={percent}, last_progress={last_progress}, downloaded={downloaded}")
-                                                        
-                    elif downloaded > 0:
-                        elapsed_time = asyncio.get_event_loop().time() - start_time
-                        size_growth = downloaded - last_size
-                        last_size = downloaded
-                        
-                        if elapsed_time > 30 and size_growth > 0:
-                            estimated_rate = downloaded / elapsed_time
-                            estimated_total_time = max(300, min(900, downloaded / estimated_rate * 3))
-                            percent = min(int((elapsed_time / estimated_total_time) * 100), 95)
-                        else:
-                            percent = min(int((downloaded / default_size_estimate) * 100), 95)
-                        
-                        now_ts = asyncio.get_event_loop().time()
-                        if percent != last_progress and percent > 0 and (now_ts - last_redis_update_ts >= progress_update_min_interval):
-                            await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
-                            last_progress = percent
-                            last_redis_update_ts = now_ts
-                            logger.info(f"[{task_id}] Progress (estimated): {percent}% ({downloaded} bytes downloaded)")
-                        elif loop_count % 10 == 1:  # Debug every 10 loops
-                            logger.info(f"[{task_id}] 🔍 Progress not updated (no estimate): percent={percent}, last_progress={last_progress}, downloaded={downloaded}")
-                    
-                    else:
-                        # No files detected yet - provide time-based progress estimate
-                        elapsed_time = asyncio.get_event_loop().time() - start_time
-                        
-                        # Adaptive time estimate based on what we know
-                        if elapsed_time > 15:  # Start after 15 seconds instead of 30
-                            # For very fast downloads (small files), be more aggressive
-                            if elapsed_time > 60:
-                                # After 1 minute with no progress, something might be wrong OR it's a very slow download
-                                time_progress = min(int(10 + (elapsed_time - 60) / 420 * 80), 95)  # 10% to 95% over 7 minutes
-                            else:
-                                # First minute: slower progress to allow for actual progress to kick in
-                                time_progress = min(int((elapsed_time - 15) / 45 * 10), 10)  # 0% to 10% over 45 seconds
-                            
-                            now_ts = asyncio.get_event_loop().time()
-                            if time_progress != last_progress and (now_ts - last_redis_update_ts >= progress_update_min_interval):
-                                await redis.set(f"download:{task_id}:yt_download_progress", time_progress, ex=3600)
-                                last_progress = time_progress
-                                last_redis_update_ts = now_ts
-                                logger.info(f"[{task_id}] Progress (time-based fallback): {time_progress}% (no stdout progress detected, elapsed: {elapsed_time:.0f}s)")
-                        
-                        elif loop_count % 10 == 1:  # Debug when no download detected
-                            logger.info(f"[{task_id}] 🔍 No download detected: downloaded={downloaded}, estimated_size={estimated_size}, elapsed={elapsed_time:.0f}s")
-                    
-                    await asyncio.sleep(progress_check_interval)
-                    
+                            last_redis_update_ts = now
+
+                    await asyncio.sleep(1.0)
             except Exception as e:
-                logger.error(f"[{task_id}] ❌ Progress watcher error: {e}", exc_info=True)
-            finally:
-                logger.info(f"[{task_id}] 🔍 Progress watcher stopped after {loop_count} loops")
-                
-        progress_task = asyncio.create_task(progress_watcher())
-        logger.info(f"[{task_id}] 🔍 Progress watcher task created and started")
+                logger.error(f"[{task_id}] ❌ Time-based fallback error: {e}", exc_info=True)
+
+        fallback_task = asyncio.create_task(time_progress_fallback())
+        logger.info(f"[{task_id}] 🔍 Time-based fallback task created and started")
 
         # Download the video
         # IMPORTANT: name the file with a _part0 suffix so upload pipeline can infer part numbering
@@ -1238,7 +1096,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             "--postprocessor-args", postprocessor_args,
             "--progress",  # Enable progress reporting
             "--newline",   # Output progress as new lines for easier parsing
-            "--concurrent-fragments", "4",
+            "--concurrent-fragments", "8",
             "--retries", "3",
             "--retry-sleep", "2",
             "--sleep-requests", "0.5",
@@ -1289,8 +1147,8 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                     decoded = line.decode(errors="ignore").strip()
                     stdout_lines.append(decoded)
                     
-                    # Log all stdout output for debugging when few lines
-                    if line_count <= 100:  # Log first 100 lines for debugging
+                    # Keep stdout logging minimal to reduce noise
+                    if line_count <= 3:
                         logger.debug(f"[{task_id}] yt-dlp stdout #{line_count}: {decoded}")
                     
                     # Parse yt-dlp progress output from stdout - PRIORITIZE FRAGMENT TRACKING
@@ -1370,6 +1228,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                                     await redis.set(f"download:{task_id}:yt_download_progress", percent, ex=3600)
                                     last_progress = percent
                                     last_redis_update_ts = now_ts
+                                    last_stdout_progress_ts = now_ts
                                     logger.debug(f"[{task_id}] ✅ yt-dlp Progress: {percent}% - {decoded}")
                                 
                         except Exception as e:
@@ -1382,6 +1241,7 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
                         if last_progress < 100:
                             await redis.set(f"download:{task_id}:yt_download_progress", 100, ex=3600)
                             last_progress = 100
+                            last_stdout_progress_ts = asyncio.get_event_loop().time()
                             logger.debug(f"[{task_id}] ✅ Download complete, post-processing started")
                     
                     # Pattern 5: File already exists/cached
@@ -1453,13 +1313,13 @@ async def handle_youtube_download_task(task_id: str, video_url: str, tmdb_id: in
             
             raise Exception(f"Download timed out after {download_timeout/60:.1f} minutes")
         
-        # Stop progress watcher
+        # Stop time-based fallback
         progress_stop_flag['stop'] = True
-        await asyncio.sleep(progress_check_interval)  # Let watcher finish last update
-        if not progress_task.done():
-            progress_task.cancel()
+        await asyncio.sleep(progress_check_interval)  # let it finish last update
+        if not fallback_task.done():
+            fallback_task.cancel()
             try:
-                await progress_task
+                await fallback_task
             except asyncio.CancelledError:
                 pass
 
