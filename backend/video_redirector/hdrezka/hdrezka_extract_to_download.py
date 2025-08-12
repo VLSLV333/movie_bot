@@ -63,6 +63,9 @@ async def extract_to_download_from_hdrezka(url: str, selected_dub: str, lang: st
 
         if not li_items:
             await extract_best_quality_variant(page, extracted)
+            # Early return as soon as we have a playable master, to start merge sooner
+            if extracted["all_m3u8"]:
+                return extracted["all_m3u8"][0]
 
         normalized_selected = normalize(selected_dub)
         normalized_li_texts = [(li, normalize(await li.text_content() or "")) for li in li_items]
@@ -101,6 +104,9 @@ async def extract_to_download_from_hdrezka(url: str, selected_dub: str, lang: st
             await asyncio.sleep(1)
 
         await extract_best_quality_variant(page, extracted)
+        # Early return if we have already captured a master m3u8
+        if extracted["all_m3u8"]:
+            return extracted["all_m3u8"][0]
 
         if not extracted["all_m3u8"]:
             return {}  # Return empty dict instead of None
