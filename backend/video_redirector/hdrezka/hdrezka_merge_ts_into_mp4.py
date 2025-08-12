@@ -413,7 +413,16 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
         # Count segments in this chunk for progress tracking
         with open(m3u8_file, 'r') as f:
             chunk_content = f.read()
-        chunk_segments = sum(1 for line in chunk_content.splitlines() if line.strip().endswith(".ts"))
+        # Lines now have optional FFmpeg URL options suffix after '|', so count by base URL part
+        chunk_lines = [ln.strip() for ln in chunk_content.splitlines()]
+        chunk_segments = sum(
+            1
+            for ln in chunk_lines
+            if ln and not ln.startswith('#') and '.ts' in ln.split('|', 1)[0]
+        )
+        # Fallback: if somehow zero, count non-comment URL lines
+        if chunk_segments == 0:
+            chunk_segments = sum(1 for ln in chunk_lines if ln and not ln.startswith('#'))
         
         logger.info(f"▶️ [{task_id}] Starting chunk merge: {chunk_segments} segments → {output_file}")
 
