@@ -17,7 +17,16 @@ def normalize(text: str) -> str:
 async def extract_to_download_from_hdrezka(url: str, selected_dub: str, lang: str) -> dict:
     async with AsyncCamoufox(window=(1280, 720), humanize=True, headless=True) as browser:
         page = await browser.new_page()
+        # Navigation logging for visibility
+        page.on("framenavigated", lambda frame: logger.info(f"Frame navigated: {frame.url}"))
+
         await page.goto(url, wait_until="domcontentloaded")
+        # Slightly longer waits to ensure DOM readiness for translators/controls
+        try:
+            await page.wait_for_selector("#translators-list", timeout=3000)  # type: ignore
+        except Exception:
+            # Not fatal; continue with a small delay
+            pass
         await asyncio.sleep(1)
 
         extracted = {"all_m3u8": []}
@@ -71,9 +80,24 @@ async def extract_to_download_from_hdrezka(url: str, selected_dub: str, lang: st
                     break
 
         if selected_element:
-            await page.evaluate("""
+            try:
+                await page.evaluate(
+                    """
                             (element) => element.click()
-                        """, arg=selected_element)
+                        """,
+                    arg=selected_element,
+                )
+            except Exception as e:
+                # Safe single retry if navigation destroyed context
+                if "Execution context was destroyed" in str(e):
+                    await page.wait_for_load_state("domcontentloaded")
+                    await asyncio.sleep(0.3)
+                    await page.evaluate(
+                        """
+                            (element) => element.click()
+                        """,
+                        arg=selected_element,
+                    )
             await asyncio.sleep(1)
 
         await extract_best_quality_variant(page, extracted)
@@ -110,54 +134,148 @@ async def try_click_and_capture_m3u8(page, extracted, f2id, quality_label, attem
     options_btn = '//*[@id="oframecdnplayer"]/pjsdiv[15]/pjsdiv[3]'
     quality_selector_button = '//*[@id="cdnplayer_settings"]/pjsdiv/pjsdiv[1]'
 
-    await page.evaluate("""
-        (xpath) => {
-            const el = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-            if (el) el.click();
-        }
-    """, arg=options_btn)
-    await asyncio.sleep(0.3)
-
-    await page.evaluate("""
-        (xpath) => {
-            const el = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-            if (el) el.click();
-        }
-    """, arg=quality_selector_button)
-    await asyncio.sleep(0.3)
-
-    el = await page.query_selector(f'[f2id="{f2id}"]')
-    if not el:
-        return False
-
-    await page.evaluate("""
-        (f2id) => {
-            const el = document.querySelector(`[f2id="${f2id}"]`);
-            if (el) el.click();
-        }
-    """, arg=f2id)
-    await asyncio.sleep(0.3)
-
-    async def handle_response(response):
-        if response.status == 200 and ".m3u8" in response.url and "manifest" in response.url:
-            headers = dict(response.request.headers)
-            extracted["all_m3u8"].append({
-                "quality": quality_label,
-                "url": response.url,
-                "headers": headers
-            })
-            logger.info(f"✅ Found {quality_label}: {response.url}")
-            quality_event.set()
-
-    if f2id == '4' or attempts >= 5:
-        page.on("response", handle_response)
-
     try:
-        await asyncio.wait_for(quality_event.wait(), timeout=6)
-        if f2id == '4' or attempts >= 5:
-            page.remove_listener("response", handle_response)
-        return True
+        # Click options with one safe retry on navigation
+        for _ in range(2):
+            try:
+                await page.evaluate(
+                    """
+                        (xpath) => {
+                            const el = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                            if (el) el.click();
+                        }
+                    """,
+                    arg=options_btn,
+                )
+                break
+            except Exception as e:
+                if "Execution context was destroyed" in str(e):
+                    logger.info("🔁 Options click retried after navigation")
+                    await page.wait_for_load_state("domcontentloaded")
+                    await asyncio.sleep(0.3)
+                    continue
+                raise
+        await asyncio.sleep(0.3)
+
+        # Click quality selector with one safe retry
+        for _ in range(2):
+            try:
+                await page.evaluate(
+                    """
+                        (xpath) => {
+                            const el = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                            if (el) el.click();
+                        }
+                    """,
+                    arg=quality_selector_button,
+                )
+                break
+            except Exception as e:
+                if "Execution context was destroyed" in str(e):
+                    logger.info("🔁 Quality selector click retried after navigation")
+                    await page.wait_for_load_state("domcontentloaded")
+                    await asyncio.sleep(0.3)
+                    continue
+                raise
+        await asyncio.sleep(0.3)
+
+        # Wait a bit longer for quality items to render
+        try:
+            await page.wait_for_selector('[f2id]', timeout=3000)  # type: ignore
+        except Exception:
+            pass
+
+        el = await page.query_selector(f'[f2id="{f2id}"]')
+        if not el:
+            return False
+
+        # Click specific quality with one safe retry
+        for _ in range(2):
+            try:
+                await page.evaluate(
+                    """
+                        (f2id) => {
+                            const el = document.querySelector(`[f2id="${f2id}"]`);
+                            if (el) el.click();
+                        }
+                    """,
+                    arg=f2id,
+                )
+                break
+            except Exception as e:
+                if "Execution context was destroyed" in str(e):
+                    logger.info("🔁 Quality item click retried after navigation")
+                    await page.wait_for_load_state("domcontentloaded")
+                    await asyncio.sleep(0.3)
+                    continue
+                raise
+
+        await asyncio.sleep(0.3)
+
+        # Define and attach response listener AFTER clicks (original behavior),
+        # with a single safe retry if attachment races with navigation.
+        async def handle_response(response):
+            try:
+                if response.status == 200 and ".m3u8" in response.url and "manifest" in response.url:
+                    headers = dict(response.request.headers)
+                    extracted["all_m3u8"].append({
+                        "quality": quality_label,
+                        "url": response.url,
+                        "headers": headers,
+                    })
+                    logger.info(f"✅ Found {quality_label}: {response.url}")
+                    quality_event.set()
+            except Exception:
+                # Be tolerant to transient issues during navigation
+                pass
+
+        listener_attached = False
+        try:
+            if f2id == '4' or attempts >= 5:
+                try:
+                    page.on("response", handle_response)
+                    listener_attached = True
+                except Exception as e:
+                    if "Execution context was destroyed" in str(e) or "closed" in str(e).lower():
+                        await page.wait_for_load_state("domcontentloaded")
+                        await asyncio.sleep(0.2)
+                        page.on("response", handle_response)
+                        listener_attached = True
+                    else:
+                        raise
+
+            await asyncio.wait_for(quality_event.wait(), timeout=8)
+            return True
+        finally:
+            if listener_attached:
+                try:
+                    page.remove_listener("response", handle_response)
+                except Exception:
+                    pass
     except asyncio.TimeoutError:
-        if f2id == '4' or attempts >= 5:
-            page.remove_listener("response", handle_response)
+        logger.info(f"⚠️ Timeout waiting for .m3u8 after clicking {quality_label}")
         return False
+    
+
+
+async def extract_to_download_with_recovery(url: str, selected_dub: str, lang: str) -> dict:
+    """Run extraction with recovery for transient navigation/context errors."""
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        try:
+            logger.info(f"Starting download extraction attempt {attempt + 1}/{max_attempts}")
+            return await extract_to_download_from_hdrezka(url, selected_dub, lang)
+        except Exception as e:
+            message = str(e)
+            if (
+                "Execution context was destroyed" in message
+                or "Page closed" in message
+                or "Page was closed" in message
+            ):
+                logger.info(f"Transient error: {message}. Waiting 2s before retry...")
+                await asyncio.sleep(2)
+                continue
+            # Non-transient or last attempt
+            raise
+    # Should not reach here
+    raise Exception("All extraction attempts failed")

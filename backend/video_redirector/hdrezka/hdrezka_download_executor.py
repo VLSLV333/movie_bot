@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timezone
 from backend.video_redirector.db.models import DownloadedFile, DownloadedFilePart
 from backend.video_redirector.db.session import get_db
-from backend.video_redirector.hdrezka.hdrezka_extract_to_download import extract_to_download_from_hdrezka
+from backend.video_redirector.hdrezka.hdrezka_extract_to_download import extract_to_download_with_recovery
 from backend.video_redirector.hdrezka.hdrezka_merge_ts_into_mp4 import merge_ts_to_mp4
 from backend.video_redirector.utils.upload_video_to_tg import check_size_upload_large_file
 from backend.video_redirector.utils.notify_admin import notify_admin
@@ -58,7 +58,7 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
     # Remove from user's active downloads set when done (success or error)
     tg_user_id = None
     try:
-        result = await extract_to_download_from_hdrezka(url=movie_url, selected_dub=dub, lang=lang)
+        result = await extract_to_download_with_recovery(url=movie_url, selected_dub=dub, lang=lang)
         if not result:
             raise Exception("No playable stream found for selected dub. Or probably something went wrong")
 
