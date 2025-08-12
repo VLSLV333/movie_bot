@@ -125,15 +125,38 @@ class RateLimitLogHandler(logging.Handler):
                 now_ts = time.time()
 
                 if should_rotate and now_ts >= suppress_until:
-                    logger.warning(f"🚨 [{account_session_name}] Rate limit threshold exceeded — cooldown current proxy and stopping client")
                     try:
-                        # Mark as non-significant to avoid immediate blacklist for plain rate-limits
-                        account.mark_proxy_failure(account.current_proxy_index, f"Rate limit: {wait_seconds}s wait", is_significant_event=True)
-                        await account.stop_client()
-                        # Set suppression window to avoid thrashing
-                        _rotation_suppression_until[account_session_name] = now_ts + ROTATION_SUPPRESSION_WINDOW
+                        current_proxy_idx = getattr(account, "current_proxy_index", None)
+                        if current_proxy_idx is not None:
+                            # Avoid double-counting within the same upload: only increment strikes the first time we flag
+                            if getattr(account, "pending_post_upload_cooldown_proxy_index", None) != current_proxy_idx:
+                                account.pending_post_upload_cooldown_proxy_index = current_proxy_idx
+                                logger.warning(
+                                    f"🚨 [{account_session_name}] Rate limit threshold exceeded — scheduling post-upload cooldown for proxy index {current_proxy_idx}"
+                                )
+                                # Increment per-proxy threshold strike counter (per upload)
+                                try:
+                                    account.proxy_threshold_strikes[current_proxy_idx] = account.proxy_threshold_strikes.get(current_proxy_idx, 0) + 1
+                                    logger.info(
+                                        f"📈 [{account_session_name}] Proxy index {current_proxy_idx} threshold strikes: "
+                                        f"{account.proxy_threshold_strikes[current_proxy_idx]}"
+                                    )
+                                except Exception:
+                                    if not hasattr(account, "proxy_threshold_strikes"):
+                                        account.proxy_threshold_strikes = {current_proxy_idx: 1}
+                                    else:
+                                        account.proxy_threshold_strikes[current_proxy_idx] = 1
+                            else:
+                                logger.info(
+                                    f"[{account_session_name}] Threshold already scheduled for proxy index {current_proxy_idx} in this upload; not incrementing strikes"
+                                )
+
+                            # Suppress repeated actions for a short window
+                            _rotation_suppression_until[account_session_name] = now_ts + ROTATION_SUPPRESSION_WINDOW
+                        else:
+                            logger.info(f"[{account_session_name}] No current proxy index set while handling rate-limit threshold")
                     except Exception as e:
-                        logger.debug(f"Error applying cooldown/stop on rate limit: {e}")
+                        logger.error(f"Error scheduling post-upload cooldown on rate limit: {e}")
                 else:
                     # Only log events that meet or exceed the significant threshold; ignore sub-threshold logs
                     if wait_seconds >= significant_threshold and now_ts >= suppress_until:

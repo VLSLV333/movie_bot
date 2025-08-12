@@ -16,6 +16,7 @@ from backend.video_redirector.db.crud_upload_accounts import (
 import logging
 from backend.video_redirector.config import PROXY_CONFIG
 from backend.video_redirector.utils.notify_admin import notify_admin
+from backend.video_redirector.config import PROXY_CONFIG
 
 async def notify_admin_async(message: str):
     """Non-blocking notification with error handling"""
@@ -106,6 +107,13 @@ class UploadAccount:
         self.blacklisted_proxies = set()  # Permanent blacklist
         self.current_proxy_index = 0
         self.connection_attempts = 0  # Track connection attempts for current proxy
+
+        # Track rate-limit threshold strikes per proxy across completed uploads
+        self.proxy_threshold_strikes = {i: 0 for i in range(len(self.proxy_pool))}
+
+        # When rate-limit threshold is reached mid-upload, we flag the currently used proxy
+        # to be cooled down AFTER the upload completes (avoid interrupting in-flight upload)
+        self.pending_post_upload_cooldown_proxy_index: int | None = None
         
         # Configurable settings
         proxy_settings = config.get("proxy_settings", {})
@@ -426,10 +434,10 @@ Action: Consider adding more proxies or investigating issues
                     return None
 
                 # Configure proxy
-                proxy_config = None
+                proxy_connection_config = None
                 if self.proxy_pool:
                     proxy_info = self.proxy_pool[self.current_proxy_index]
-                    proxy_config = {
+                    proxy_connection_config = {
                         "scheme": proxy_info.get("type", "socks5"),
                         "hostname": proxy_info["ip"],
                         "port": proxy_info["port"],
@@ -443,12 +451,12 @@ Action: Consider adding more proxies or investigating issues
                 try:
                     logger.info(f"🔧 [{self.session_name}] Creating Pyrogram client...")
 
-                    if proxy_config:
+                    if proxy_connection_config:
                         self.client = Client(
                             session_path,
                             api_id=self.api_id,
                             api_hash=self.api_hash,
-                            proxy=proxy_config
+                            proxy=proxy_connection_config
                         )
                     else:
                         return None
@@ -549,6 +557,20 @@ if not UPLOAD_ACCOUNT_POOL:
     raise RuntimeError("No upload accounts available - cannot start application")
 
 logger.info(f"✅ Initialized {len(UPLOAD_ACCOUNT_POOL)} upload accounts: {[acc.session_name for acc in UPLOAD_ACCOUNT_POOL]}")
+
+# Log proxy-related configuration at startup to verify runtime thresholds
+try:
+    logger.info(
+        "🔧 PROXY_CONFIG in use: "
+        f"enabled={PROXY_CONFIG.get('enabled')} "
+        f"smart_rotation_enabled={PROXY_CONFIG.get('smart_rotation_enabled')} "
+        f"rate_limit_wait_threshold={PROXY_CONFIG.get('rate_limit_wait_threshold')}s "
+        f"rate_limit_detection_window={PROXY_CONFIG.get('rate_limit_detection_window')}m "
+        f"max_rate_limit_events={PROXY_CONFIG.get('max_rate_limit_events')}"
+    )
+except Exception:
+    # Best-effort logging only
+    pass
 
 # --- Global upload management functions ---
 
@@ -840,7 +862,7 @@ def track_rate_limit_event_per_account(account_session_name: str, wait_seconds: 
     })
     
     # Keep only events within detection window
-    cutoff_time = current_time - (PROXY_CONFIG.get("rate_limit_detection_window", 10) * 60)
+    cutoff_time = current_time - (PROXY_CONFIG.get("rate_limit_detection_window") * 60)
     _account_rate_limit_events[account_session_name] = [
         event for event in _account_rate_limit_events[account_session_name] 
         if event["timestamp"] > cutoff_time
@@ -849,10 +871,10 @@ def track_rate_limit_event_per_account(account_session_name: str, wait_seconds: 
     # Check if we should trigger rotation for this specific account
     significant_events = [
         event for event in _account_rate_limit_events[account_session_name]
-        if event["wait_seconds"] >= PROXY_CONFIG.get("rate_limit_wait_threshold", 7)
+        if event["wait_seconds"] >= PROXY_CONFIG.get("rate_limit_wait_threshold")
     ]
     
-    if len(significant_events) >= PROXY_CONFIG.get("max_rate_limit_events", 3):
+    if len(significant_events) >= PROXY_CONFIG.get("max_rate_limit_events"):
         logger.warning(f"🚨 [{account_session_name}] Smart rotation triggered: {len(significant_events)} significant events")
         return True
     
@@ -872,7 +894,7 @@ def get_rate_limit_stats_per_account(account_session_name: str):
     events = _account_rate_limit_events[account_session_name]
     significant_events = [
         event for event in events 
-        if event["wait_seconds"] >= PROXY_CONFIG.get("rate_limit_wait_threshold", 7)
+        if event["wait_seconds"] >= PROXY_CONFIG.get("rate_limit_wait_threshold")
     ]
     wait_times = [event["wait_seconds"] for event in events]
     

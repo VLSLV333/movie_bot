@@ -416,6 +416,45 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                     # Mark proxy success for consecutive failure tracking
                     account.mark_proxy_success(account.current_proxy_index)
 
+                    # If a rate-limit threshold was reached during this upload, apply the scheduled action now
+                    try:
+                        pending_idx = getattr(account, "pending_post_upload_cooldown_proxy_index", None)
+                        if pending_idx is not None:
+                            strikes = 0
+                            try:
+                                strikes = account.proxy_threshold_strikes.get(pending_idx, 0)
+                            except Exception:
+                                strikes = 0
+
+                            # If the proxy has hit threshold across 3 uploads in a row, blacklist and notify
+                            if strikes >= 3:
+                                reason = "Repeated rate-limit thresholds across uploads"
+                                logger.warning(
+                                    f"🚫 [{account.session_name}] Blacklisting proxy index {pending_idx}: {reason} (strikes={strikes})"
+                                )
+                                account._blacklist_proxy(pending_idx, reason)
+                                # Reset state after blacklisting
+                                account.proxy_threshold_strikes[pending_idx] = 0
+                                account.pending_post_upload_cooldown_proxy_index = None
+                            else:
+                                # Put the proxy into cooldown now; this will influence next selection
+                                reason = "Post-upload cooldown due to rate-limit threshold"
+                                account._put_proxy_in_cooldown(pending_idx, reason, "rate_limit_threshold")
+                                logger.info(
+                                    f"🧊 [{account.session_name}] Proxy index {pending_idx} cooled down post-upload (strikes={strikes})"
+                                )
+                                # Do NOT reset strikes here; allow escalation to 3 across consecutive uploads
+                                account.pending_post_upload_cooldown_proxy_index = None
+                        else:
+                            # No threshold triggered during this upload; reset strikes for current proxy
+                            try:
+                                if account.current_proxy_index is not None:
+                                    account.proxy_threshold_strikes[account.current_proxy_index] = 0
+                            except Exception:
+                                pass
+                    except Exception as post_cooldown_err:
+                        logger.debug(f"[{task_id}] Error handling post-upload cooldown/strikes: {post_cooldown_err}")
+
                     # Reset network failure counts after successful upload
                     reset_network_failures_for_account(account.session_name)
 
