@@ -7,12 +7,9 @@ from typing import Dict, Optional
 import certifi
 import aiohttp
 import ssl
-import re
-from collections import deque
 
 from backend.video_redirector.config import MAX_CONCURRENT_MERGES_OF_TS_INTO_MP4
 from backend.video_redirector.utils.notify_admin import notify_admin
-from urllib.parse import urlparse, quote
 
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -61,12 +58,6 @@ async def monitor_parallel_merge_resources(task_id: str, merge_tasks: list, temp
     initial_disk_writes = initial_metrics.get('disk_write_bytes', 0)
     initial_disk_reads = initial_metrics.get('disk_read_bytes', 0)
     monitoring_samples = 0
-    # Plateau detection
-    last_total_size_bytes = 0
-    last_progress_time = start_time
-    plateau_threshold_bytes = 5 * 1024 * 1024  # 5 MB
-    plateau_window_seconds = 60
-    previous_file_sizes: Dict[str, int] = {fp: 0 for fp in temp_mp4_files}
 
     logger.info(f"🔍 [{task_id}] Starting parallel merge resource monitoring")
     logger.info(f"   Initial - CPU: {initial_metrics.get('cpu_percent', 'N/A')}%, "
@@ -136,22 +127,7 @@ async def monitor_parallel_merge_resources(task_id: str, merge_tasks: list, temp
                     if os.path.exists(file_path):
                         current_size = current_file_sizes[file_path]
                         size_mb = current_size / (1024 * 1024)
-                        delta_mb = (current_size - previous_file_sizes.get(file_path, 0)) / (1024 * 1024)
-                        logger.info(f"   Part {i}: {size_mb:.1f}MB (+{delta_mb:.1f}MB)")
-                previous_file_sizes = current_file_sizes
-
-            # Plateau detection
-            if current_total_size - last_total_size_bytes < plateau_threshold_bytes:
-                if time.time() - last_progress_time >= plateau_window_seconds:
-                    logger.warning(
-                        f"⏸️ [{task_id}] Plateau detected: total written unchanged (<5MB) for "
-                        f"{int(time.time() - last_progress_time)}s. Current total: {total_written_mb:.1f}MB"
-                    )
-                    # Reset timer to avoid spamming
-                    last_progress_time = time.time()
-            else:
-                last_total_size_bytes = current_total_size
-                last_progress_time = time.time()
+                        logger.info(f"   Part {i}: {size_mb:.1f}MB")
             
             # Log warnings for high resource usage
             if cpu > 80 or memory > 80:
@@ -249,6 +225,9 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             if line.strip().endswith(".ts"):
                 segment_urls.append(line.strip())
         
+        # Convert relative URLs to absolute URLs
+        from urllib.parse import urljoin, urlparse
+        
         # Extract base URL from the original m3u8_url
         parsed_url = urlparse(m3u8_url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path.rsplit('/', 1)[0]}/"
@@ -269,29 +248,6 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                 # Relative URL without './' prefix
                 absolute_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path.rsplit('/', 1)[0]}/{segment_url}"
                 absolute_segment_urls.append(absolute_url)
-
-        # Build FFmpeg URL option suffix to inject headers per request for each segment URL
-        # This is required because the input is a local m3u8 file, so protocol-level CLI options like
-        # -headers/-user_agent/-referer may not be supported by the ffmpeg build or not applied to local file inputs.
-        ffmpeg_url_opts_suffix = ""
-        try:
-            if headers:
-                #TODO: remove this after testing
-                for header in headers:
-                    logger.info(f"Header: {header}")
-
-                header_lines = [f"{k}: {v}" for k, v in headers.items()]
-                if header_lines:
-                    # CRLF-separated with a trailing CRLF as expected by FFmpeg
-                    hdr_str = "\r\n".join(header_lines) + "\r\n"
-                    # Encode for URL option context; keep common header punctuation unescaped
-                    encoded = quote(hdr_str, safe=":/;?&=,.-_")
-                    ffmpeg_url_opts_suffix = f"|headers={encoded}"
-                    logger.info(f"🔄 [{task_id}] FFmpeg URL options suffix: {ffmpeg_url_opts_suffix}")
-        except Exception as _e:
-            logger.error(f"❌ [{task_id}] Failed to build FFmpeg URL options suffix: {_e}")
-            # If anything goes wrong building header suffix, continue without headers
-            ffmpeg_url_opts_suffix = ""
         
 
         if segment_count == 0:
@@ -332,8 +288,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                 f.write("#EXT-X-MEDIA-SEQUENCE:0\n")
                 for i in range(start_idx, end_idx):
                     f.write(f"#EXTINF:10.0,\n")
-                    # Inject per-request headers into each segment URL using FFmpeg URL options
-                    f.write(f"{absolute_segment_urls[i]}{ffmpeg_url_opts_suffix}\n")
+                    f.write(f"{absolute_segment_urls[i]}\n")
                 f.write("#EXT-X-ENDLIST\n")
             
             # Log chunk creation details
@@ -436,16 +391,7 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
         # Count segments in this chunk for progress tracking
         with open(m3u8_file, 'r') as f:
             chunk_content = f.read()
-        # Lines now have optional FFmpeg URL options suffix after '|', so count by base URL part
-        chunk_lines = [ln.strip() for ln in chunk_content.splitlines()]
-        chunk_segments = sum(
-            1
-            for ln in chunk_lines
-            if ln and not ln.startswith('#') and '.ts' in ln.split('|', 1)[0]
-        )
-        # Fallback: if somehow zero, count non-comment URL lines
-        if chunk_segments == 0:
-            chunk_segments = sum(1 for ln in chunk_lines if ln and not ln.startswith('#'))
+        chunk_segments = sum(1 for line in chunk_content.splitlines() if line.strip().endswith(".ts"))
         
         logger.info(f"▶️ [{task_id}] Starting chunk merge: {chunk_segments} segments → {output_file}")
 
@@ -487,18 +433,6 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
         segment_times = []
         last_segment_time = chunk_start_time
         ffmpeg_output = []
-        # Keep a small rolling buffer of recent lines for diagnostics
-        recent_lines = deque(maxlen=5)
-        # Regexes to match ffmpeg activity indicating segment fetch/processing
-        ts_activity_patterns = [
-            re.compile(r"Opening '.*\\.ts"),
-            re.compile(r"request for .*\\.ts"),
-            re.compile(r"HTTP .* \\.ts"),
-            re.compile(r"hls.*: Opening '.*\\.ts"),
-        ]
-        # Watchdog for stdout silence
-        last_stdout_time = time.time()
-        stdout_silence_warn_seconds = 60
         
         # Check if this is the representative chunk (part 0) for status tracking
         is_representative_chunk = task_id.endswith("_part0")
@@ -508,14 +442,11 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
                 line = await process.stdout.readline()
                 if not line:
                     break
-                decoded = line.decode(errors='ignore').strip()
+                decoded = line.decode().strip()
                 ffmpeg_output.append(decoded)
-                recent_lines.append(decoded)
-                last_stdout_time = time.time()
                 
                 # Track segment processing
-                ts_hit = any(p.search(decoded) for p in ts_activity_patterns) or (".ts" in decoded and ("Opening" in decoded or "Input" in decoded))
-                if ts_hit:
+                if ".ts" in decoded and ("Opening" in decoded or "Input" in decoded):
                     current_time = time.time()
                     segment_duration = current_time - last_segment_time
                     segment_times.append(segment_duration)
@@ -536,20 +467,10 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
                                 eta = (chunk_segments - processed_segments) * avg_segment_time
                                 logger.info(f"📈 [{task_id}] Progress: {tracker['progress']}% ({processed_segments}/{chunk_segments}) "
                                           f"Avg segment: {avg_segment_time:.2f}s, ETA: {eta/60:.1f}min")
-                                # For representative chunk, sample last few lines for diagnostics
-                                if is_representative_chunk:
-                                    snapshot = " | ".join(list(recent_lines)[-3:])
-                                    logger.debug(f"🧪 [{task_id}] FFmpeg recent: {snapshot}")
                     
                     # Debug logging for all chunks
                     if processed_segments % 50 == 0:  # Log every 50 segments
                         logger.info(f"📈 [{task_id}] Progress: {processed_segments}/{chunk_segments} segments")
-
-                # Silence watchdog
-                if time.time() - last_stdout_time > stdout_silence_warn_seconds:
-                    logger.warning(f"🤫 [{task_id}] No FFmpeg output for {stdout_silence_warn_seconds}s. Recent: "
-                                   f"{' | '.join(list(recent_lines))}")
-                    last_stdout_time = time.time()
         
         returncode = await process.wait()
         chunk_time = time.time() - chunk_start_time
