@@ -18,7 +18,7 @@ async def extract_to_download_from_hdrezka(url: str, selected_dub: str, lang: st
     async with AsyncCamoufox(window=(1280, 720), humanize=True, headless=True) as browser:
         page = await browser.new_page()
         # Navigation logging for visibility
-        page.on("framenavigated", lambda frame: logger.info(f"Frame navigated: {frame.url}"))
+        page.on("framenavigated", lambda frame: logger.debug(f"Frame navigated: {frame.url}"))
 
         await page.goto(url, wait_until="domcontentloaded")
         # Slightly longer waits to ensure DOM readiness for translators/controls
@@ -109,7 +109,7 @@ async def extract_to_download_from_hdrezka(url: str, selected_dub: str, lang: st
 
 
 async def extract_best_quality_variant(page, extracted):
-    logger.info("🔍 Extracting best quality variant (retry up to 5x for 1080p)...")
+    logger.debug("🔍 Extracting best quality variant (retry up to 5x for 1080p)...")
     attempts = 0
     max_attempts = 5
 
@@ -150,7 +150,7 @@ async def try_click_and_capture_m3u8(page, extracted, f2id, quality_label, attem
                 break
             except Exception as e:
                 if "Execution context was destroyed" in str(e):
-                    logger.info("🔁 Options click retried after navigation")
+                    logger.debug("🔁 Options click retried after navigation")
                     await page.wait_for_load_state("domcontentloaded")
                     await asyncio.sleep(0.3)
                     continue
@@ -172,7 +172,7 @@ async def try_click_and_capture_m3u8(page, extracted, f2id, quality_label, attem
                 break
             except Exception as e:
                 if "Execution context was destroyed" in str(e):
-                    logger.info("🔁 Quality selector click retried after navigation")
+                    logger.debug("🔁 Quality selector click retried after navigation")
                     await page.wait_for_load_state("domcontentloaded")
                     await asyncio.sleep(0.3)
                     continue
@@ -204,7 +204,7 @@ async def try_click_and_capture_m3u8(page, extracted, f2id, quality_label, attem
                 break
             except Exception as e:
                 if "Execution context was destroyed" in str(e):
-                    logger.info("🔁 Quality item click retried after navigation")
+                    logger.debug("🔁 Quality item click retried after navigation")
                     await page.wait_for_load_state("domcontentloaded")
                     await asyncio.sleep(0.3)
                     continue
@@ -253,7 +253,7 @@ async def try_click_and_capture_m3u8(page, extracted, f2id, quality_label, attem
                 except Exception:
                     pass
     except asyncio.TimeoutError:
-        logger.info(f"⚠️ Timeout waiting for .m3u8 after clicking {quality_label}")
+        logger.debug(f"⚠️ Timeout waiting for .m3u8 after clicking {quality_label}")
         return False
     
 
@@ -272,7 +272,7 @@ async def extract_to_download_with_recovery(url: str, selected_dub: str, lang: s
                 or "Page closed" in message
                 or "Page was closed" in message
             ):
-                logger.info(f"Transient error: {message}. Waiting 2s before retry...")
+                logger.debug(f"Transient error: {message}. Waiting 2s before retry...")
                 await asyncio.sleep(2)
                 continue
             # Non-transient or last attempt
