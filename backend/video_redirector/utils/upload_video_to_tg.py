@@ -436,6 +436,12 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                                 # Reset state after blacklisting
                                 account.proxy_threshold_strikes[pending_idx] = 0
                                 account.pending_post_upload_cooldown_proxy_index = None
+                                # Stop client so future uploads cannot reuse the blacklisted proxy
+                                try:
+                                    await account.stop_client()
+                                    logger.info(f"🛑 [{account.session_name}] Client stopped post-upload due to proxy blacklist (index {pending_idx})")
+                                except Exception as stop_err:
+                                    logger.debug(f"[{task_id}] Error stopping client after blacklist: {stop_err}")
                             else:
                                 # Put the proxy into cooldown now; this will influence next selection
                                 reason = "Post-upload cooldown due to rate-limit threshold"
@@ -445,6 +451,12 @@ async def upload_part_to_tg_with_retry(file_path: str, task_id: str, part_num: i
                                 )
                                 # Do NOT reset strikes here; allow escalation to 3 across consecutive uploads
                                 account.pending_post_upload_cooldown_proxy_index = None
+                                # Stop client so future uploads cannot reuse the cooled-down proxy
+                                try:
+                                    await account.stop_client()
+                                    logger.info(f"🧊 [{account.session_name}] Client stopped post-upload due to proxy cooldown (index {pending_idx})")
+                                except Exception as stop_err:
+                                    logger.debug(f"[{task_id}] Error stopping client after cooldown: {stop_err}")
                         else:
                             # No threshold triggered during this upload; reset strikes for current proxy
                             try:

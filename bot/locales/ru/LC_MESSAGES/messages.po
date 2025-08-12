@@ -360,10 +360,10 @@ msgid "failed_to_trigger_download"
 msgstr "😖 Не смогла запустить скачивание, извините! Пожалуйста, начните сначала 🤗"
 
 msgid "movie_ready_start_delivery_bot"
-msgstr "🎬 Ваш {movie_title} готов!\n\n📦 Чтобы получить его, запустите Бота-Курьера👇"
+msgstr "🎬 Ваш {movie_title} готов! ✅\n\n✅ Чтобы получить его, запустите Бота-Курьера👇"
 
 msgid "open_delivery_bot"
-msgstr "🎁 Открыть Бота-Курьера"
+msgstr "🎁 Открыть Бота-Курьера ✅"
 
 msgid "unexpected_error_during_download"
 msgstr "🤯 Неожиданная ошибка во время скачивания. Пожалуйста, начните сначала 🤗"

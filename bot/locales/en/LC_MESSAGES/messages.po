@@ -363,10 +363,10 @@ msgid "failed_to_trigger_download"
 msgstr "😖 Failed to trigger download, sorry! Please start again from the beginning 🤗"
 
 msgid "movie_ready_start_delivery_bot"
-msgstr "🎬 Your {movie_title} is ready!\n\n📦 To receive it, start the delivery bot👇"
+msgstr "🎬 Your {movie_title} is ready! ✅\n\n✅ To receive it, start the delivery bot👇"
 
 msgid "open_delivery_bot"
-msgstr "🎁 Open Delivery Bot"
+msgstr "🎁 Open Delivery Bot ✅"
 
 msgid "unexpected_error_during_download"
 msgstr "🤯 Unexpected error during download. Please start again from the beginning 🤗"
