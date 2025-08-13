@@ -27,6 +27,7 @@ from backend.video_redirector.utils.rate_limit_monitor import (
     reset_network_failures_for_account
 )
 from backend.video_redirector.db.crud_upload_accounts import update_last_error
+from backend.video_redirector.utils.redis_client import RedisClient
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -62,6 +63,24 @@ _upload_stats = {
 # Progress logging throttle state
 _progress_last_log_ts: dict[str, float] = {}
 
+async def _persist_upload_progress(parent_task_id: str, file_task_id: str, part_num: int, percent: int, current: int, total: int) -> None:
+    """Persist per-file/part upload progress to Redis without impacting the upload flow.
+
+    Key: download:{parent_task_id}:upload_progress (hash)
+    Field: {file_task_id}:part{part_num} -> percent (0..100)
+    """
+    try:
+        redis = RedisClient.get_client()
+        key = f"download:{parent_task_id}:upload_progress"
+        field = f"{file_task_id}:part{part_num}"
+        # Store percent as integer string
+        await redis.hset(key, field, int(percent))
+        # Ensure the key expires eventually
+        await redis.expire(key, 3600)
+    except Exception:
+        # Never let progress persistence break upload
+        pass
+
 def _upload_progress_logger(current: int, total: int, task_id: str, part_num: int, file_size: int):
     """Synchronous progress callback for Pyrogram send_video.
     Throttled to log about once per second.
@@ -74,6 +93,25 @@ def _upload_progress_logger(current: int, total: int, task_id: str, part_num: in
             percent = int((current / total) * 100) if total else 0
             logger.info(f"[{task_id}] [Part {part_num}] Upload progress: {percent}% ({current}/{total} bytes)")
             _progress_last_log_ts[key] = now
+
+            # Also persist to Redis for frontend polling (best-effort, fire-and-forget)
+            try:
+                # Parent task id is the portion before optional _fileX suffix
+                parent_task_id = task_id.split("_file")[0] if "_file" in task_id else task_id
+                loop = None
+                try:
+                    # Python 3.11+: get_running_loop; fallback to get_event_loop
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except Exception:
+                        loop = None
+                if loop is not None:
+                    loop.create_task(_persist_upload_progress(parent_task_id, task_id, part_num, percent, current, total))
+            except Exception:
+                # Ignore any issues with scheduling persistence
+                pass
     except Exception:
         # Never let progress logging break upload
         pass

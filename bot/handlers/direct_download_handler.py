@@ -195,9 +195,17 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                         else:
                             new_text = gettext(DOWNLOAD_YOUTUBE_DOWNLOADING)
                     elif status == "uploading":
-                        upload_poll_count += 1
-                        num_pieces = upload_poll_count * 2
-                        new_text = gettext(DOWNLOAD_UPLOADING_PROGRESS).format(num=num_pieces)
+                        # Prefer real percent from backend if present; fallback to heuristic
+                        percent = data.get("upload_progress_percent")
+                        if isinstance(percent, int) and 0 <= percent <= 100:
+                            filled = int(percent / 10)
+                            empty = 10 - filled
+                            progress_bar = "█" * filled + "░" * empty
+                            new_text = f"{gettext(DOWNLOAD_UPLOADING_TO_TELEGRAM)}\n\n{progress_bar} {percent}%"
+                        else:
+                            upload_poll_count += 1
+                            num_pieces = upload_poll_count * 2
+                            new_text = gettext(DOWNLOAD_UPLOADING_PROGRESS).format(num=num_pieces)
                         
                         # Select animation based on poll count
                         if upload_poll_count <= 7:

@@ -264,6 +264,28 @@ async def check_full_download_status(task_id: str):
         if position:
             response["queue_position"] = position
 
+        # If uploading, add aggregated upload progress percent (slowest across parts/files)
+        if status == "uploading":
+            try:
+                # Aggregate percent from per-file/part progress
+                # Key is stored under parent task id; for safety, normalize any suffix
+                parent_task_id = task_id.split("_file")[0] if "_file" in task_id else task_id
+                key = f"download:{parent_task_id}:upload_progress"
+                progress_map = await redis.hgetall(key)
+                if progress_map:
+                    # Values are strings; convert to ints and compute the slowest (min)
+                    percents = []
+                    for _, v in progress_map.items():
+                        try:
+                            percents.append(int(v))
+                        except Exception:
+                            continue
+                    if percents:
+                        response["upload_progress_percent"] = min(max(min(percents), 0), 100)
+            except Exception:
+                # Non-fatal if aggregation fails
+                pass
+
         # Log what we're returning
         logger.info(f"📊 [{task_id}] Status endpoint returning at {datetime.now().isoformat()}: {response}")
 
