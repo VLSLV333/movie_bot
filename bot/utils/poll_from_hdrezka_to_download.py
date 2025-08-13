@@ -94,10 +94,24 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                     elif status == "uploading":
                         # Prefer real percent if backend provides it, fallback to heuristic
                         percent = data.get("upload_progress_percent")
+                        try:
+                            logger.info(f"[User {user_id}] Upload status payload: percent={percent}")
+                        except Exception:
+                            pass
+                        # Be lenient: accept strings like "42"
+                        if percent is not None and not isinstance(percent, int):
+                            try:
+                                percent = int(percent)
+                            except Exception:
+                                percent = None
                         if isinstance(percent, int) and 0 <= percent <= 100:
                             progress_bar = make_progress_bar(percent)
                             new_text = gettext(DOWNLOAD_UPLOADING_TO_TELEGRAM) + f"\n\n{progress_bar} {percent}%"
                         else:
+                            try:
+                                logger.info(f"[User {user_id}] No real percent available, falling back to heuristic pieces UI")
+                            except Exception:
+                                pass
                             upload_poll_count += 1
                             num_pieces = upload_poll_count * 2
                             new_text = gettext(DOWNLOAD_UPLOADING_PROGRESS).format(num=num_pieces)

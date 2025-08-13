@@ -77,6 +77,10 @@ async def _persist_upload_progress(parent_task_id: str, file_task_id: str, part_
         await redis.hset(key, field, int(percent))
         # Ensure the key expires eventually
         await redis.expire(key, 3600)
+        try:
+            logger.info(f"[{parent_task_id}] progress persisted: {field}={percent}% ({current}/{total})")
+        except Exception:
+            pass
     except Exception:
         # Never let progress persistence break upload
         pass

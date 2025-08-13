@@ -272,6 +272,7 @@ async def check_full_download_status(task_id: str):
                 parent_task_id = task_id.split("_file")[0] if "_file" in task_id else task_id
                 key = f"download:{parent_task_id}:upload_progress"
                 progress_map = await redis.hgetall(key)
+                logger.info(f"📦 [{task_id}] upload_progress hash '{key}' => {len(progress_map) if progress_map else 0} fields")
                 if progress_map:
                     # Values are strings; convert to ints and compute the slowest (min)
                     percents = []
@@ -282,6 +283,7 @@ async def check_full_download_status(task_id: str):
                             continue
                     if percents:
                         response["upload_progress_percent"] = min(max(min(percents), 0), 100)
+                        logger.info(f"📈 [{task_id}] Aggregated upload_progress_percent={response['upload_progress_percent']}")
             except Exception:
                 # Non-fatal if aggregation fails
                 pass

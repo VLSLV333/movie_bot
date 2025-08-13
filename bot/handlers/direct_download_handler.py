@@ -197,12 +197,26 @@ async def poll_youtube_download_until_ready(user_id: int, task_id: str, status_u
                     elif status == "uploading":
                         # Prefer real percent from backend if present; fallback to heuristic
                         percent = data.get("upload_progress_percent")
+                        try:
+                            logger.info(f"[User {user_id}] YT upload status payload: percent={percent}")
+                        except Exception:
+                            pass
+                        # Be lenient: accept strings like "42"
+                        if percent is not None and not isinstance(percent, int):
+                            try:
+                                percent = int(percent)
+                            except Exception:
+                                percent = None
                         if isinstance(percent, int) and 0 <= percent <= 100:
                             filled = int(percent / 10)
                             empty = 10 - filled
                             progress_bar = "█" * filled + "░" * empty
                             new_text = f"{gettext(DOWNLOAD_UPLOADING_TO_TELEGRAM)}\n\n{progress_bar} {percent}%"
                         else:
+                            try:
+                                logger.info(f"[User {user_id}] No real percent available, falling back to heuristic pieces UI (YouTube)")
+                            except Exception:
+                                pass
                             upload_poll_count += 1
                             num_pieces = upload_poll_count * 2
                             new_text = gettext(DOWNLOAD_UPLOADING_PROGRESS).format(num=num_pieces)
