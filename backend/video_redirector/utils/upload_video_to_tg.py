@@ -29,6 +29,13 @@ from backend.video_redirector.utils.rate_limit_monitor import (
 from backend.video_redirector.db.crud_upload_accounts import update_last_error
 from backend.video_redirector.utils.redis_client import RedisClient
 
+# Store reference to the main event loop to schedule cross-thread coroutines
+_MAIN_EVENT_LOOP: asyncio.AbstractEventLoop | None = None
+
+def set_main_event_loop(loop: asyncio.AbstractEventLoop) -> None:
+    global _MAIN_EVENT_LOOP
+    _MAIN_EVENT_LOOP = loop
+
 logger = logging.getLogger(__name__)
 load_dotenv()
 
@@ -102,17 +109,19 @@ def _upload_progress_logger(current: int, total: int, task_id: str, part_num: in
             try:
                 # Parent task id is the portion before optional _fileX suffix
                 parent_task_id = task_id.split("_file")[0] if "_file" in task_id else task_id
-                loop = None
+                # Try current loop first (if in coroutine context)
+                loop: asyncio.AbstractEventLoop | None = None
                 try:
-                    # Python 3.11+: get_running_loop; fallback to get_event_loop
                     loop = asyncio.get_running_loop()
                 except RuntimeError:
-                    try:
-                        loop = asyncio.get_event_loop()
-                    except Exception:
-                        loop = None
+                    # Progress callback may run in a worker thread. Use main loop if available.
+                    loop = _MAIN_EVENT_LOOP
                 if loop is not None:
                     loop.create_task(_persist_upload_progress(parent_task_id, task_id, part_num, percent, current, total))
+                else:
+                    # As a last resort, write synchronously using redis asyncio client (will still be awaited via loop run)
+                    # We cannot await here; skip to avoid blocking.
+                    pass
             except Exception:
                 # Ignore any issues with scheduling persistence
                 pass

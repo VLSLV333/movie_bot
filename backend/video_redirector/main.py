@@ -13,6 +13,7 @@ from backend.video_redirector.routes.tg_id_movies import router as tg_id_route
 from backend.video_redirector.routes.user_routes import router as user_routes
 from backend.video_redirector.routes.youtube_routes import router as youtube_routes
 from backend.video_redirector.utils.pyrogram_acc_manager import UPLOAD_ACCOUNT_POOL
+from backend.video_redirector.utils.upload_video_to_tg import set_main_event_loop
 
 if not logging.getLogger().hasHandlers():
     logging.basicConfig(
@@ -33,6 +34,12 @@ else:
 @asynccontextmanager
 async def lifespan(app_as: FastAPI):
     await RedisClient.init()
+    # Persist reference to the main loop so progress callbacks can schedule tasks
+    try:
+        import asyncio
+        set_main_event_loop(asyncio.get_running_loop())
+    except Exception:
+        pass
     await start_background_workers()
     yield
     await RedisClient.close()
