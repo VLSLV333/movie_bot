@@ -251,21 +251,6 @@ class FileIDValidator:
             parts_result = await db.execute(parts_stmt)
             parts = list(parts_result.scalars().all())
             
-            # --- NEW LOGIC: Clean up YouTube Video files immediately ---
-            if downloaded_file.movie_title == "YouTube Video":
-                if parts:
-                    cleanup_result = await clean_up_expired_file_id(str(parts[0].telegram_file_id))
-                    if cleanup_result and cleanup_result.get('success') == True:
-                        logger.debug(f"Deleted {cleanup_result['deleted_parts']} parts and file record: {cleanup_result['deleted_file']}")
-                        expired_count += 1
-                    else:
-                        logger.error(f"❌ Failed to cleanup YouTube Video file ID through API")
-                        error_count += 1
-                else:
-                    logger.debug(f"🗑️ No parts found for YouTube Video file ID {downloaded_file.id}, skipping.")
-                    expired_count += 1
-                continue
-            # --- END NEW LOGIC ---
 
             file_expired = False
             
