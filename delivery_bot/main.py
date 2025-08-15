@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from aiogram.client.default import DefaultBotProperties
 from delivery_bot.cleanup_expired_file_id import clean_up_expired_file_id
 from delivery_bot.i18n import get_text
+import asyncio
 
 load_dotenv()
 
@@ -277,22 +278,70 @@ async def handle_start(message: Message):
                 expired_parts = []
                 for part in parts:
                     try:
-                        await bot.send_video(chat_id=user_id, video=part["telegram_file_id"])
+                        msg = await bot.send_video(chat_id=user_id, video=part["telegram_file_id"]) 
+                        # Persist refreshed ID if Telegram returns a new one
+                        try:
+                            new_id = getattr(getattr(msg, "video", None), "file_id", None)
+                            if new_id and new_id != part["telegram_file_id"]:
+                                old_id = part["telegram_file_id"]
+                                logger.info(f"🔄 TG returned new file_id for user send: {old_id[:16]}... → {new_id[:16]}...")
+                                # Secure backend update
+                                async with aiohttp.ClientSession() as session:
+                                    await session.post(
+                                        "https://moviebot.click/update-file-id",
+                                        json={"old_telegram_file_id": old_id, "new_telegram_file_id": new_id}
+                                    )
+                                # Also update local structure for subsequent loops
+                                part["telegram_file_id"] = new_id
+                        except Exception as _e:
+                            logger.warning(f"⚠️ Failed to persist refreshed id after user send: {_e}")
                     except TelegramBadRequest as e:
                         if "wrong file identifier" in str(e).lower():
                             logger.warning(f"Expired file ID detected in watch flow for user {user_id}: {part['telegram_file_id']}")
-                            expired_parts.append(part["telegram_file_id"])
-                            
+                            old_id = part["telegram_file_id"]
+                            # Refresh-then-retry: try sending to admin to get a new id
+                            try:
+                                admin_chat = int(ADMIN_CHAT_ID) if ADMIN_CHAT_ID else None
+                            except Exception:
+                                admin_chat = None
+
+                            refreshed = False
+                            if admin_chat:
+                                try:
+                                    admin_msg = await bot.send_video(chat_id=admin_chat, video=old_id, disable_notification=True)
+                                    new_id = getattr(getattr(admin_msg, "video", None), "file_id", None)
+                                    if new_id and new_id != old_id:
+                                        logger.info(f"🔄 Refresh succeeded via admin send: {old_id[:16]}... → {new_id[:16]}...")
+                                        # Persist to backend
+                                        async with aiohttp.ClientSession() as session:
+                                            await session.post(
+                                                "https://moviebot.click/update-file-id",
+                                                json={"old_telegram_file_id": old_id, "new_telegram_file_id": new_id}
+                                            )
+                                        part["telegram_file_id"] = new_id
+                                        refreshed = True
+                                except Exception as _e:
+                                    logger.warning(f"⚠️ Refresh attempt via admin failed: {_e}")
+
+                            # If refreshed, retry once to user
+                            if refreshed:
+                                try:
+                                    await bot.send_video(chat_id=user_id, video=part["telegram_file_id"]) 
+                                    continue
+                                except TelegramBadRequest as _e2:
+                                    logger.warning(f"Retry after refresh still failed for user {user_id}: {_e2}")
+
+                            expired_parts.append(old_id)
                             # Clean up expired file and break loop if successful
-                            cleanup_result = await clean_up_expired_file_id(part["telegram_file_id"])
+                            cleanup_result = await clean_up_expired_file_id(old_id)
                             if cleanup_result and cleanup_result.get('success') == True:
                                 logger.info(f"Successfully cleaned up file: {cleanup_result['message']}")
                                 logger.info(f"Deleted {cleanup_result['deleted_parts']} parts and file record: {cleanup_result['deleted_file']}")
                                 await notify_admin(f"Expired file cleaned up for user {user_id}, watch_token: {watch_token}. "
                                                  f"Deleted {cleanup_result['deleted_parts']} parts, file_id: {cleanup_result['downloaded_file_id']}")
-                                break  # Exit loop since all parts for this file are now deleted
+                                break
                             else:
-                                logger.error(f"Failed to cleanup expired file ID: {part['telegram_file_id']}")
+                                logger.error(f"Failed to cleanup expired file ID: {old_id}")
                         else:
                             raise e
                 

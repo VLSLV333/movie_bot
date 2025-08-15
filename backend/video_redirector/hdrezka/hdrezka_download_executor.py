@@ -91,6 +91,8 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
 
         # Save in DB
         async with get_db() as session:
+            # Sanitize before persisting to DB for consistent keying
+            from backend.video_redirector.utils.hdrezka_url import sanitize_hdrezka_url
             db_entry = DownloadedFile(
                 tmdb_id=tmdb_id,
                 lang=lang,
@@ -100,7 +102,7 @@ async def handle_download_task(task_id: str, movie_url: str, tmdb_id: int, lang:
                 created_at=datetime.now(timezone.utc),
                 movie_title=movie_title,
                 movie_poster=movie_poster,
-                movie_url=movie_url,
+                movie_url=sanitize_hdrezka_url(movie_url) if movie_url else None,
                 session_name=session_name
             )
             session.add(db_entry)

@@ -93,11 +93,17 @@ async def handle_mirror_search(query: types.CallbackQuery):
                         file = await resp.json()
                         logger.info(f"[User {query.from_user.id}] Found downloaded file for tmdb_id={tmdb_id}, using cached info.")
                         # Render the card using saved info
+                        # Sanitize stored URL before presenting/using
+                        try:
+                            from backend.video_redirector.utils.hdrezka_url import sanitize_hdrezka_url
+                            safe_url = sanitize_hdrezka_url(file.get("movie_url")) if file.get("movie_url") else None
+                        except Exception:
+                            safe_url = file.get("movie_url")
                         card_data = {
                             "title": file.get("movie_title") or movie.get("title"),
                             "poster": file.get("movie_poster"),
-                            "url": file.get("movie_url"),
-                            "id": hashlib.sha256(file.get("movie_url").encode()).hexdigest()[:16]
+                            "url": safe_url,
+                            "id": hashlib.sha256((safe_url).encode()).hexdigest()[:16]
                         }
                         add_wrong_movie_btn = not file.get("checked_by_admin", True)
                         cards = await render_mirror_card_batch([card_data], tmdb_id=tmdb_id, user_lang=user_lang, add_wrong_movie_btn=add_wrong_movie_btn)

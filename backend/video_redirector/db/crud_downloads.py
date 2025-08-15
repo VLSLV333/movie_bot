@@ -113,3 +113,58 @@ async def cleanup_expired_file(session: AsyncSession, telegram_file_id: str):
     except Exception as e:
         await session.rollback()
         raise e
+
+async def get_files_by_url_and_lang(session: AsyncSession, movie_url: str, lang: str):
+    """Return best-quality entry per dub for a given movie_url and language."""
+    # Normalize only for DB lookups to match persisted canonical form
+    try:
+        from backend.video_redirector.utils.hdrezka_url import sanitize_hdrezka_url
+        movie_url = sanitize_hdrezka_url(movie_url)
+    except Exception:
+        pass
+    stmt = select(DownloadedFile).where(
+        DownloadedFile.movie_url == movie_url,
+        DownloadedFile.lang == lang
+    )
+    result = await session.execute(stmt)
+    all_entries = result.scalars().all()
+
+    best_per_dub = {}
+    for entry in all_entries:
+        current_best = best_per_dub.get(entry.dub)
+        if not current_best or QUALITY_PRIORITY.get(entry.quality, 0) > QUALITY_PRIORITY.get(current_best.quality, 0):
+            best_per_dub[entry.dub] = entry
+
+    return list(best_per_dub.values())
+
+async def update_file_part_file_id(session: AsyncSession, old_telegram_file_id: str, new_telegram_file_id: str):
+    """
+    Update a specific DownloadedFilePart's telegram_file_id if found by old id.
+    Returns details about the updated part and its parent file.
+    """
+    try:
+        stmt = select(DownloadedFilePart).where(
+            DownloadedFilePart.telegram_file_id == old_telegram_file_id
+        )
+        result = await session.execute(stmt)
+        part = result.scalar_one_or_none()
+        if not part:
+            return {
+                "success": False,
+                "message": f"No file part found with telegram_file_id: {old_telegram_file_id}",
+                "updated": False
+            }
+
+        part.telegram_file_id = new_telegram_file_id
+        await session.commit()
+
+        return {
+            "success": True,
+            "message": "File part telegram_file_id updated",
+            "updated": True,
+            "downloaded_file_id": part.downloaded_file_id,
+            "part_number": part.part_number
+        }
+    except Exception as e:
+        await session.rollback()
+        raise e

@@ -21,7 +21,8 @@ from bot.locales.keys import (
     DOWNLOAD_LIMIT, DUPLICATE_DOWNLOAD, MOVIE_READY_START_DELIVERY_BOT, OPEN_DELIVERY_BOT,
     DOWNLOAD_QUEUE_POSITION, DOWNLOAD_UPLOADING_TO_TELEGRAM, DOWNLOAD_UPLOADING_PROGRESS,
     DOWNLOAD_FAILED_START_AGAIN, DOWNLOAD_PROCESSING_STATUS, DOWNLOAD_TIMEOUT_TRY_LATER,
-    DOWNLOAD_YOUTUBE_DOWNLOADING
+    DOWNLOAD_YOUTUBE_DOWNLOADING,
+    ALREADY_HAVE_MOVIE, TEXT_DUBS_READY_TO_DOWNLOAD
 )
 from bot.utils.logger import Logger
 from bot.utils.session_manager import SessionManager
@@ -40,6 +41,7 @@ logger = Logger().get_logger()
 
 # API endpoints
 SCRAP_ALL_DUBS = "https://moviebot.click/hd/alldubs"
+ALL_DUBS_FOR_URL = "https://moviebot.click/all_db_dubs_by_url"
 
 # HDRezka URL pattern (improved to support more domains and formats)
 HDREZKA_URL_PATTERN = r'https?://(?:www\.)?(?:hd)?rezka(?:-ua)?\.(?:ag|co|me|org|net|com)/.*'
@@ -443,6 +445,52 @@ async def handle_hdrezka_link_input(message: types.Message):
     processing_msg = await message.answer(gettext(DOWNLOAD_LINK_PROCESSING))
     
     try:
+        # First, try fast-return by checking DB for existing downloads for this URL and language
+        existing_dubs = []
+        try:
+            async with ClientSession() as session:
+                async with session.get(ALL_DUBS_FOR_URL, params={"url": link, "lang": user_lang}) as resp:
+                    if resp.status == 200:
+                        existing_dubs = await resp.json()
+                    else:
+                        existing_dubs = []
+        except Exception as e:
+            logger.error(f"[User {user_id}] Failed to check existing dubs by URL: {e}")
+            existing_dubs = []
+
+        if existing_dubs:
+            # Build instant delivery options (reuse watch_downloaded flow)
+            redis = RedisClient.get_client()
+            kb = []
+            for file in existing_dubs:
+                tmdb_id_existing = file.get("tmdb_id")
+                dub = file.get("dub")
+                token = generate_token(tmdb_id_existing, user_lang, dub)
+
+                await redis.set(f"downloaded_dub_info:{token}", json.dumps({
+                    "tmdb_id": tmdb_id_existing,
+                    "lang": user_lang,
+                    "dub": dub,
+                    "tg_user_id": user_id,
+                    "movie_title": "Movie",
+                    "movie_poster": None,
+                    "movie_url": link
+                }), ex=3600)
+
+                emoji = "🇺🇦" if user_lang == 'uk' else ("🇺🇸" if user_lang == 'en' else "🎙")
+                display_dub = translate_dub_by_language(dub, user_lang)
+                kb.append([
+                    types.InlineKeyboardButton(
+                        text=gettext(TEXT_DUBS_READY_TO_DOWNLOAD).format(emoji=emoji, display_dub=display_dub),
+                        callback_data=f"watch_downloaded:{token}"
+                    )
+                ])
+
+            await processing_msg.delete()
+            markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
+            await message.answer(gettext(ALREADY_HAVE_MOVIE), reply_markup=markup)
+            return
+
         # Step 1: Get available dubs for this URL
         async with ClientSession() as session:
             async with session.post(SCRAP_ALL_DUBS, json={"url": link, "lang": user_lang}) as resp:

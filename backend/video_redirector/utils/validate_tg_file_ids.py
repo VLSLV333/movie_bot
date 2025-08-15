@@ -262,12 +262,23 @@ class FileIDValidator:
                     
                     # Use timeout to prevent hanging and send to admin chat like delivery bot
                     async with asyncio.timeout(VALIDATION_TIMEOUT):
-                        await self.bot.send_video(
+                        msg = await self.bot.send_video(
                             chat_id=admin_chat_id,  # Send to admin chat for validation
                             video=file_id,  # Use the string value
                             disable_notification=True  # Don't spam admin
                         )
                     
+                    # If Telegram returns a new canonical ID, persist it
+                    try:
+                        new_id = getattr(getattr(msg, "video", None), "file_id", None)
+                        if new_id and new_id != file_id:
+                            logger.info(f"🔄 Updating file_id for part {part.id}: {file_id[:16]}... → {new_id[:16]}...")
+                            part.telegram_file_id = new_id
+                            db.add(part)
+                            await db.commit()
+                    except Exception as _e:
+                        logger.warning(f"⚠️ Failed to update file_id for part {part.id}: {_e}")
+
                     logger.debug(f"✅ File ID valid: {file_id[:20]}...")
                     
                     # Wait between parts (per user requirement: 1-2 seconds)

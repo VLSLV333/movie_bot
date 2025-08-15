@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.video_redirector.db.session import get_db_dep
 from backend.video_redirector.db.crud_downloads import get_file_id, get_parts_for_downloaded_file, get_files_by_tmdb_and_lang, cleanup_expired_file
 from backend.video_redirector.utils.validate_tg_file_ids import validate_all_file_ids, validate_file_by_id
+from backend.video_redirector.db.crud_downloads import update_file_part_file_id
 from pydantic import BaseModel
 from typing import Optional
 
@@ -25,6 +26,10 @@ class CleanupExpiredFileRequest(BaseModel):
 
 class ValidationRequest(BaseModel):
     downloaded_file_id: Optional[int] = None  # If None, validate all files
+
+class UpdateFileIdRequest(BaseModel):
+    old_telegram_file_id: str
+    new_telegram_file_id: str
 
 @router.get("/all_movie_parts")
 async def get_all_movie_parts(
@@ -109,6 +114,36 @@ async def get_all_dubs_in_db_for_selected_movie_route(
         logger.exception(f"Failed to get files_id: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+@router.get("/all_db_dubs_by_url")
+async def get_all_dubs_in_db_for_selected_movie_by_url(
+    url: str = Query(...),
+    lang: str = Query(...),
+    db: AsyncSession = Depends(get_db_dep),
+):
+    try:
+        # Sanitize input URL to match stored canonical form
+        from backend.video_redirector.utils.hdrezka_url import sanitize_hdrezka_url
+        url = sanitize_hdrezka_url(url)
+        from backend.video_redirector.db.crud_downloads import get_files_by_url_and_lang
+        entries = await get_files_by_url_and_lang(db, url, lang)
+        logger.info(f"Found {len(entries)} entries for url={url}, lang={lang}")
+        return [
+            {
+                "tmdb_id": entry.tmdb_id,
+                "lang": entry.lang,
+                "dub": entry.dub,
+                "quality": entry.quality,
+                "tg_bot_token_file_owner": entry.tg_bot_token_file_owner
+            }
+            for entry in entries
+        ]
+    except HTTPException:
+        # Re-raise HTTPExceptions without modification
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to get files by url: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @router.post("/cleanup-expired-file")
 async def cleanup_expired_file_route(
     payload: CleanupExpiredFileRequest,
@@ -167,3 +202,21 @@ async def validate_file_ids_route(
     except Exception as e:
         logger.exception(f"Failed to validate file IDs: {e}")
         raise HTTPException(status_code=500, detail=f"File ID validation failed: {str(e)}")
+
+@router.post("/update-file-id")
+async def update_file_id_route(
+    payload: UpdateFileIdRequest,
+    db: AsyncSession = Depends(get_db_dep),
+):
+    try:
+        logger.info(f"Request to update file_id: {payload.old_telegram_file_id[:16]}... -> {payload.new_telegram_file_id[:16]}...")
+        result = await update_file_part_file_id(db, payload.old_telegram_file_id, payload.new_telegram_file_id)
+        if result.get("success"):
+            return result
+        else:
+            raise HTTPException(status_code=404, detail=result.get("message", "Not found"))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to update file id: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during update")
