@@ -85,10 +85,30 @@ class GraspilForwarder:
         # Always use UTC, include ms and timezone per Graspil docs
         return dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds")
 
+    @staticmethod
+    def _to_unix_seconds(value: dt.datetime) -> int:
+        # Convert datetime to Unix seconds (int). Assume UTC if naive.
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=dt.timezone.utc)
+        return int(value.timestamp())
+
+    def _normalize_datetimes(self, obj: Any) -> Any:
+        # Recursively convert datetime values to Unix seconds; tuples -> lists for JSON
+        if isinstance(obj, dict):
+            return {k: self._normalize_datetimes(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [self._normalize_datetimes(v) for v in obj]
+        if isinstance(obj, tuple):
+            return [self._normalize_datetimes(v) for v in obj]
+        if isinstance(obj, dt.datetime):
+            return self._to_unix_seconds(obj)
+        return obj
+
     async def enqueue_update(self, update_dict: Dict[str, Any]) -> None:
         if not self._enabled:
             return
-        item = {"date": self._now_iso_ms(), "update": update_dict}
+        normalized_update = self._normalize_datetimes(update_dict)
+        item = {"date": self._now_iso_ms(), "update": normalized_update}
         try:
             self.queue.put_nowait(item)
         except asyncio.QueueFull:
