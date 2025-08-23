@@ -162,15 +162,19 @@ class GraspilForwarder:
         assert self._session is not None
         try:
             async with self._session.post(GRASPIL_BATCH_URL, json=items, timeout=10) as resp:
-                await resp.read()
+                body_bytes = await resp.read()
+                body_text = body_bytes.decode("utf-8", errors="ignore") if body_bytes else ""
                 if resp.status >= 400:
-                    text = await resp.text()
-                    raise RuntimeError(f"Graspil HTTP {resp.status}: {text}")
+                    raise RuntimeError(f"Graspil HTTP {resp.status}: {body_text}")
+                # Success path: count and log response details (truncate body)
+                self._sent_count += len(items)
+                truncated = body_text[:200]
+                logger.info(
+                    f"Graspil batch sent: count={len(items)}, status={resp.status}, body={truncated}"
+                )
         except Exception as exc:
             self._failed_flushes += 1
             raise exc
-        else:
-            self._sent_count += len(items)
 
     async def _flusher(self) -> None:
         buf: List[Dict[str, Any]] = []
