@@ -1,11 +1,20 @@
 import os
 import asyncio
 import datetime as dt
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import aiohttp
 
 from bot.utils.logger import Logger
+
+
+# Sentinel for dropping fields not serializable/unsupported
+class _Drop:  # simple identity marker
+    pass
+
+
+_DROP = _Drop()
 
 
 logger = Logger().get_logger()
@@ -92,22 +101,50 @@ class GraspilForwarder:
             value = value.replace(tzinfo=dt.timezone.utc)
         return int(value.timestamp())
 
-    def _normalize_datetimes(self, obj: Any) -> Any:
-        # Recursively convert datetime values to Unix seconds; tuples -> lists for JSON
+    def _sanitize_update(self, obj: Any) -> Any:
+        # Recursively ensure JSON-serializable, Telegram-compatible primitives
+        # - Drop aiogram Default sentinels
+        # - Convert datetime -> unix seconds
+        # - Convert Enum -> value
+        # - Tuples/Sets -> lists
+        # - Fallback to str for unknown types
+        # Dict
         if isinstance(obj, dict):
-            return {k: self._normalize_datetimes(v) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [self._normalize_datetimes(v) for v in obj]
-        if isinstance(obj, tuple):
-            return [self._normalize_datetimes(v) for v in obj]
+            result: Dict[str, Any] = {}
+            for k, v in obj.items():
+                sanitized = self._sanitize_update(v)
+                if sanitized is _DROP:
+                    continue
+                result[k] = sanitized
+            return result
+        # List/Tuple/Set
+        if isinstance(obj, (list, tuple, set)):
+            out_list: List[Any] = []
+            for v in obj:
+                sanitized = self._sanitize_update(v)
+                if sanitized is _DROP:
+                    continue
+                out_list.append(sanitized)
+            return out_list
+        # Datetime
         if isinstance(obj, dt.datetime):
             return self._to_unix_seconds(obj)
-        return obj
+        # Enum
+        if isinstance(obj, Enum):
+            return obj.value
+        # aiogram Default sentinel (avoid importing the class; match by name)
+        if obj.__class__.__name__ == "Default":
+            return _DROP
+        # Primitives
+        if obj is None or isinstance(obj, (str, int, float, bool)):
+            return obj
+        # Fallback: stringify
+        return str(obj)
 
     async def enqueue_update(self, update_dict: Dict[str, Any]) -> None:
         if not self._enabled:
             return
-        normalized_update = self._normalize_datetimes(update_dict)
+        normalized_update = self._sanitize_update(update_dict)
         item = {"date": self._now_iso_ms(), "update": normalized_update}
         try:
             self.queue.put_nowait(item)
