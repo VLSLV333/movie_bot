@@ -85,7 +85,7 @@ async def _persist_upload_progress(parent_task_id: str, file_task_id: str, part_
         # Ensure the key expires eventually
         await redis.expire(key, 3600)
         try:
-            logger.info(f"[{parent_task_id}] progress persisted: {field}={percent}% ({current}/{total})")
+            logger.debug(f"[{parent_task_id}] progress persisted: {field}={percent}% ({current}/{total})")
         except Exception:
             pass
     except Exception:
@@ -102,7 +102,7 @@ def _upload_progress_logger(current: int, total: int, task_id: str, part_num: in
         last = _progress_last_log_ts.get(key, 0.0)
         if now - last >= 1.0 or current == total:
             percent = int((current / total) * 100) if total else 0
-            logger.info(f"[{task_id}] [Part {part_num}] Upload progress: {percent}% ({current}/{total} bytes)")
+            logger.debug(f"[{task_id}] [Part {part_num}] Upload progress: {percent}% ({current}/{total} bytes)")
             _progress_last_log_ts[key] = now
 
             # Also persist to Redis for frontend polling (best-effort, fire-and-forget)
@@ -164,15 +164,15 @@ async def log_upload_performance(task_id: str, file_size_mb: float, duration_sec
         _upload_stats["total_bytes_uploaded"] += int(file_size_mb * 1024 * 1024)
         
         # Log performance
-        logger.info(f"📊 [{task_id}] Upload performance: {file_size_mb:.1f}MB in {duration_seconds:.1f}s")
-        logger.info(f"   Speed: {current_speed_mbps:.2f} Mbps")
-        logger.info(f"   Account: {account_name}")
-        logger.info(f"   Flood waits: {flood_wait_count}")
+        logger.debug(f"📊 [{task_id}] Upload performance: {file_size_mb:.1f}MB in {duration_seconds:.1f}s")
+        logger.debug(f"   Speed: {current_speed_mbps:.2f} Mbps")
+        logger.debug(f"   Account: {account_name}")
+        logger.debug(f"   Flood waits: {flood_wait_count}")
         
         # Log average performance
         if len(_upload_stats["speed_stats"]["upload_times"]) >= 3:
             recent_avg = sum(_upload_stats["speed_stats"]["upload_times"][-3:]) / 3
-            logger.info(f"   Recent 3-upload average: {recent_avg:.1f}s")
+            logger.debug(f"   Recent 3-upload average: {recent_avg:.1f}s")
         
         # Alert if performance is poor
         if duration_seconds > 180:  # 3 minutes
@@ -730,7 +730,7 @@ async def split_video_by_duration(file_path: str, task_id: str, num_parts: int, 
             logger.error(f"❌ [{task_id}] Source file is empty: {file_path}")
             return None
         
-        logger.info(f"📂 [{task_id}] Splitting {file_size / (1024*1024):.1f}MB file into {num_parts} parts")
+        logger.debug(f"📂 [{task_id}] Splitting {file_size / (1024*1024):.1f}MB file into {num_parts} parts")
         
         for i in range(num_parts):
             start_time = i * part_duration
@@ -767,9 +767,9 @@ async def split_video_by_duration(file_path: str, task_id: str, num_parts: int, 
             ])
             
             if is_last_part:
-                logger.info(f"🎬 [{task_id}] Generating part {i+1}/{num_parts} (start: {int(start_time)}s, duration: until end)")
+                logger.debug(f"🎬 [{task_id}] Generating part {i+1}/{num_parts} (start: {int(start_time)}s, duration: until end)")
             else:
-                logger.info(f"🎬 [{task_id}] Generating part {i+1}/{num_parts} (start: {int(start_time)}s, duration: {int(part_duration)}s)")
+                logger.debug(f"🎬 [{task_id}] Generating part {i+1}/{num_parts} (start: {int(start_time)}s, duration: {int(part_duration)}s)")
             
             # Run FFmpeg with timeout
             try:
@@ -812,7 +812,7 @@ async def split_video_by_duration(file_path: str, task_id: str, num_parts: int, 
                     logger.error(f"❌ [{task_id}] Part {i+1} is empty: {part_output}")
                     return None
                 
-                logger.info(f"✅ [{task_id}] Part {i+1} generated: {part_output} ({part_size / (1024*1024):.1f}MB) in {elapsed_time:.1f}s")
+                logger.debug(f"✅ [{task_id}] Part {i+1} generated: {part_output} ({part_size / (1024*1024):.1f}MB) in {elapsed_time:.1f}s")
                 
                 part_paths.append(part_output)
                 
@@ -860,7 +860,7 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
         return None
 
     file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-    logger.info(f"[{task_id}] Checking file: {file_path} ({file_size_mb:.2f} MB)")
+    logger.debug(f"[{task_id}] Checking file: {file_path} ({file_size_mb:.2f} MB)")
     
     # Extract bot info from config
     bot_username = bot_config.get("username")
@@ -916,7 +916,7 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
                     "session_name": used_session
                 }
 
-            logger.info(f"[{task_id}] File is {round(file_size_mb)} MB — splitting...")
+            logger.debug(f"[{task_id}] File is {round(file_size_mb)} MB — splitting...")
 
             # Step 1: Get duration
             try:
@@ -1027,7 +1027,7 @@ async def check_size_upload_large_file(file_path: str, task_id: str, db, bot_con
                     except Exception as _e:
                         logger.warning(f"[{task_id}] Couldn't clean up split part {p}: {_e}")
                 logger.info(f"[{task_id}] Upload successful with bot: {bot_username}")
-                logger.info(f"✅ [{task_id}] Multipart upload complete. {len(parts_result)} parts uploaded.")
+                logger.debug(f"✅ [{task_id}] Multipart upload complete. {len(parts_result)} parts uploaded.")
                 # Use the first used session for reporting; actual parts may span multiple sessions
                 first_used_session = None
                 try:

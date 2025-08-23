@@ -94,7 +94,7 @@ async def get_db() -> AsyncIterator[AsyncSession]:
 
     async with AsyncSessionLocal() as session:
         session_id = id(session)
-        logger.info(f"🔗 Database session {session_id} created")
+        logger.debug(f"🔗 Database session {session_id} created")
         try:
             yield session
         except Exception as e:
@@ -115,7 +115,7 @@ async def get_db() -> AsyncIterator[AsyncSession]:
                 logger.error(f"❌ Database error in get_db: {type(e).__name__}: {e}")
             raise
         finally:
-            logger.info(f"🔗 Database session {session_id} closed")
+            logger.debug(f"🔗 Database session {session_id} closed")
 
 
 # Dependency wrapper for FastAPI Depends

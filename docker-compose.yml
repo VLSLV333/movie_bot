@@ -59,6 +59,8 @@ services:
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - BOT_TOKEN=${BOT_TOKEN}
+      - GRASPIL_ENABLED=${GRASPIL_ENABLED}
+      - GRASPIL_API_KEY=${GRASPIL_API_KEY}
       - PYTHONPATH=/app
     restart: unless-stopped
 

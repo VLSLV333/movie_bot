@@ -59,7 +59,7 @@ async def monitor_parallel_merge_resources(task_id: str, merge_tasks: list, temp
     initial_disk_reads = initial_metrics.get('disk_read_bytes', 0)
     monitoring_samples = 0
 
-    logger.info(f"🔍 [{task_id}] Starting parallel merge resource monitoring")
+    logger.debug(f"🔍 [{task_id}] Starting parallel merge resource monitoring")
     logger.info(f"   Initial - CPU: {initial_metrics.get('cpu_percent', 'N/A')}%, "
                 f"Memory: {initial_metrics.get('memory_percent', 'N/A')}%, "
                 f"Disk free: {initial_metrics.get('disk_free_gb', 'N/A'):.1f}GB")
@@ -127,7 +127,7 @@ async def monitor_parallel_merge_resources(task_id: str, merge_tasks: list, temp
                     if os.path.exists(file_path):
                         current_size = current_file_sizes[file_path]
                         size_mb = current_size / (1024 * 1024)
-                        logger.info(f"   Part {i}: {size_mb:.1f}MB")
+                        logger.debug(f"   Part {i}: {size_mb:.1f}MB")
             
             # Log warnings for high resource usage
             if cpu > 80 or memory > 80:
@@ -196,7 +196,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
 
     # Log initial system state
     initial_metrics = get_system_metrics()
-    logger.info(f"🚀 [{task_id}] Starting parallel merge - System: CPU={initial_metrics.get('cpu_percent', 'N/A')}%, "
+    logger.debug(f"🚀 [{task_id}] Starting parallel merge - System: CPU={initial_metrics.get('cpu_percent', 'N/A')}%, "
                 f"Memory={initial_metrics.get('memory_percent', 'N/A')}%, "
                 f"Disk={initial_metrics.get('disk_free_gb', 'N/A'):.1f}GB free")
 
@@ -264,7 +264,7 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
             "progress": 0.0       # Progress percentage
         }
         
-        logger.info(f"🔄 [{task_id}] Parallel merge: {segment_count} segments → {NUM_OF_MP4_FILES_TO_CREATE} parts "
+        logger.debug(f"🔄 [{task_id}] Parallel merge: {segment_count} segments → {NUM_OF_MP4_FILES_TO_CREATE} parts "
                    f"(~{chunk_size} segments per part)")
         
         # Create temporary M3U8 files for each chunk
@@ -292,9 +292,9 @@ async def merge_ts_to_mp4(task_id: str, m3u8_url: str, headers: Dict[str, str]) 
                 f.write("#EXT-X-ENDLIST\n")
             
             # Log chunk creation details
-            logger.info(f"📝 [{task_id}] Created chunk {part_num}: {temp_m3u8}")
-            logger.info(f"   Segments {start_idx}-{end_idx-1} ({chunk_segments} segments)")
-            logger.info(f"   Output: {temp_mp4}")
+            logger.debug(f"📝 [{task_id}] Created chunk {part_num}: {temp_m3u8}")
+            logger.debug(f"   Segments {start_idx}-{end_idx-1} ({chunk_segments} segments)")
+            logger.debug(f"   Output: {temp_mp4}")
             
             # Debug: Log first few lines of the chunked M3U8 file
             if part_num == 0:  # Only log for first chunk to avoid spam
@@ -465,19 +465,19 @@ async def merge_chunk_to_mp4(task_id: str, m3u8_file: str, output_file: str, hea
                             if processed_segments % max(1, chunk_segments // 10) == 0 or processed_segments % 10 == 0:
                                 avg_segment_time = sum(segment_times[-10:]) / min(len(segment_times), 10)
                                 eta = (chunk_segments - processed_segments) * avg_segment_time
-                                logger.info(f"📈 [{task_id}] Progress: {tracker['progress']}% ({processed_segments}/{chunk_segments}) "
+                                logger.debug(f"📈 [{task_id}] Progress: {tracker['progress']}% ({processed_segments}/{chunk_segments}) "
                                           f"Avg segment: {avg_segment_time:.2f}s, ETA: {eta/60:.1f}min")
                     
                     # Debug logging for all chunks
                     if processed_segments % 50 == 0:  # Log every 50 segments
-                        logger.info(f"📈 [{task_id}] Progress: {processed_segments}/{chunk_segments} segments")
+                        logger.debug(f"📈 [{task_id}] Progress: {processed_segments}/{chunk_segments} segments")
         
         returncode = await process.wait()
         chunk_time = time.time() - chunk_start_time
         
         if returncode == 0:
             file_size_mb = os.path.getsize(output_file) / (1024 * 1024) if os.path.exists(output_file) else 0
-            logger.info(f"✅ [{task_id}] Chunk complete: {output_file} ({file_size_mb:.1f}MB, {chunk_time:.2f}s)")
+            logger.debug(f"✅ [{task_id}] Chunk complete: {output_file} ({file_size_mb:.1f}MB, {chunk_time:.2f}s)")
             return True
         else:
             logger.error(f"❌ [{task_id}] Chunk merge failed with code {returncode}")

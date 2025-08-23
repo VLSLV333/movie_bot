@@ -22,6 +22,8 @@ from bot.handlers.bot_lang_change_handler import router as bot_lang_change_route
 from bot.handlers.options_btn_handler import router as options_btn_handler_router
 from bot.handlers.direct_download_handler import router as direct_download_router
 from bot.keyboards.search_type_keyboard import router as search_type_keyboard_router
+from bot.middleware.state import graspil_forwarder
+from bot.middleware.graspil_forwarding import GraspilMiddleware
 
 logger = Logger().get_logger()
 logger.info("Bot started and logging initialized ")
@@ -51,10 +53,14 @@ def setup_routers(disp: Dispatcher):
 async def on_startup():
     await RedisClient.init()
     logger.info(" Redis client initialized!")
+    await graspil_forwarder.start()
+    logger.info("Graspil forwarder started!")
 
 async def on_shutdown():
     await RedisClient.close()
     logger.info("Redis client closed!")
+    await graspil_forwarder.stop()
+    logger.info("Graspil forwarder stopped!")
 
 async def main():
     try:
@@ -64,6 +70,10 @@ async def main():
         # Setup simple I18n middleware BEFORE registering routers
         setup_simple_i18n(dp)
         logger.info("Simple I18n middleware initialized!")
+
+        # Register Graspil analytics middleware after i18n, before routers
+        dp.update.outer_middleware(GraspilMiddleware())
+        logger.info("Graspil middleware registered!")
 
         # Setup routers AFTER I18n middleware
         setup_routers(dp)
