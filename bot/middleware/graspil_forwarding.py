@@ -14,7 +14,8 @@ class GraspilMiddleware(BaseMiddleware):
         data: Dict[str, Any],
     ) -> Any:
         try:
-            update_dict = event.model_dump(exclude_none=True)
+            # Use Telegram field aliases (e.g., "from" instead of "from_user")
+            update_dict = event.model_dump(exclude_none=True, by_alias=True)
             await graspil_forwarder.enqueue_update(update_dict)
         except Exception:
             # analytics must never block bot
