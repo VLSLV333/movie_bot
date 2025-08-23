@@ -172,6 +172,10 @@ class GraspilForwarder:
                 logger.info(
                     f"Graspil batch sent: count={len(items)}, status={resp.status}, body={truncated}"
                 )
+                # Extra diagnostic: log first item's keys to confirm schema
+                first_update = items[0].get("update", {}) if items else {}
+                top_keys = list(first_update.keys())[:3]
+                logger.info(f"Graspil diag: first update top-level keys={top_keys}")
         except Exception as exc:
             self._failed_flushes += 1
             raise exc
