@@ -40,6 +40,21 @@ dp = Dispatcher()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("delivery_bot")
 
+# Daily analytics dispatcher for delivery_bot (optional but useful)
+try:
+    from common.analytics.daily_analytics_dispatcher import DailyAnalyticsDispatcher
+    import os
+    analytics_dir = os.getenv("ANALYTICS_DIR", "/app/logs/analytics")
+    _delivery_analytics_dispatcher = DailyAnalyticsDispatcher(
+        service_name="delivery_bot",
+        analytics_dir=analytics_dir,
+        send_time_local=os.getenv("ANALYTICS_SEND_AT", "00:10"),
+        tz_name=os.getenv("LOG_TZ", "Europe/Kiev"),
+    )
+    _delivery_analytics_dispatcher.start()
+except Exception:
+    pass
+
 async def notify_admin(message: str):
     if not PING_BOT_TOKEN:
         logger.warning("⚠️ Cannot notify admin: PING_BOT_TOKEN not set")
@@ -70,6 +85,19 @@ def verify_task_id(signed: str, secret: str) -> str | None:
 async def handle_start(message: Message):
     try:
         logger.info(f"Received /start from user_id={getattr(message.from_user, 'id', None)}, text='{message.text}'")
+        # Analytics: delivery opened
+        try:
+            from common.analytics.analytics import Analytics
+            analytics = Analytics("delivery_bot")
+            user_id = getattr(message.from_user, "id", None)
+            jid = await redis.get(f"journey:{user_id}") if user_id else None
+            text = getattr(message, "text", "") or ""
+            parts = text.split(maxsplit=1)
+            args = parts[1] if len(parts) > 1 else ""
+            flow_type = (args.split("_", 1)[0] if "_" in args else None)
+            await analytics.log_event(user_id, jid, "delivery_opened", {"flow_type": flow_type})
+        except Exception:
+            pass
         # Manually parse args from message.text
         text = getattr(message, 'text', None)
         user_lang = getattr(message.from_user, 'language_code', None)

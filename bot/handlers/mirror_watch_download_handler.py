@@ -137,7 +137,15 @@ async def watch_mirror_handler(query: types.CallbackQuery):
     if not selected_dub:
         selected_dub = list(config[lang].keys())[0]
 
+    # Append journey id if present (to correlate watch_opened on backend)
+    try:
+        r = RedisClient.get_client()
+        jid = await r.get(f"journey:{user_id}")
+    except Exception:
+        jid = None
     watch_url = f"{WATCH_PUBLIC_URL}/hd/watch/{task_id}?lang={lang}&dub={quote(selected_dub)}"
+    if jid:
+        watch_url += f"&jid={jid}"
     kb = [[types.InlineKeyboardButton(text=gettext(START_WATCHING_BTN), url=watch_url)]]
     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
 
@@ -726,6 +734,14 @@ async def select_dub_handler(query: types.CallbackQuery):
                         ]
                     )
                 )
+                # Analytics: CTA shown for delivery start
+                try:
+                    from common.analytics.analytics import Analytics
+                    analytics = Analytics("movieBot")
+                    jid = await RedisClient.get_client().get(f"journey:{user_id}")
+                    await analytics.log_event(user_id, jid, "delivery_cta_shown", {"flow": "mirror_download", "movie_title": movie_title})
+                except Exception:
+                    pass
             else:
                 if query is not None and getattr(query, 'bot', None) is not None:
                     await query.bot.send_message(  # type: ignore
@@ -737,6 +753,14 @@ async def select_dub_handler(query: types.CallbackQuery):
                             ]
                         )
                     )
+                    # Analytics: CTA shown for delivery start
+                    try:
+                        from common.analytics.analytics import Analytics
+                        analytics = Analytics("movieBot")
+                        jid = await RedisClient.get_client().get(f"journey:{user_id}")
+                        await analytics.log_event(user_id, jid, "delivery_cta_shown", {"flow": "mirror_download", "movie_title": movie_title})
+                    except Exception:
+                        pass
                 else:
                     logger.error("query or query.bot is None, cannot send message to user.")
 

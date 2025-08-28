@@ -65,6 +65,11 @@ services:
       - GRASPIL_ENABLED=${GRASPIL_ENABLED}
       - GRASPIL_API_KEY=${GRASPIL_API_KEY}
       - PYTHONPATH=/app
+      - LOG_TZ=Europe/Kiev
+      - ANALYTICS_SEND_AT=00:10
+      - ANALYTICS_DIR=/app/logs/analytics
+      - LOG_TG_TOKEN=${PING_BOT_TOKEN}
+      - LOG_TG_CHAT_ID=${ADMIN_CHAT_ID}
     restart: unless-stopped
 
   # FastAPI backend
@@ -90,6 +95,11 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - PYTHONPATH=/app
       - PROXY_ENABLED=${PROXY_ENABLED}
+      - LOG_TZ=Europe/Kiev
+      - ANALYTICS_SEND_AT=00:10
+      - ANALYTICS_DIR=/app/logs/analytics
+      - LOG_TG_TOKEN=${PING_BOT_TOKEN}
+      - LOG_TG_CHAT_ID=${ADMIN_CHAT_ID}
     restart: unless-stopped
 
   delivery_bot:
@@ -112,6 +122,11 @@ services:
       - ADMIN_CHAT_ID=${ADMIN_CHAT_ID}
       - PING_BOT_TOKEN=${PING_BOT_TOKEN}
       - PYTHONPATH=/app
+      - LOG_TZ=Europe/Kiev
+      - ANALYTICS_SEND_AT=00:10
+      - ANALYTICS_DIR=/app/logs/analytics
+      - LOG_TG_TOKEN=${PING_BOT_TOKEN}
+      - LOG_TG_CHAT_ID=${ADMIN_CHAT_ID}
     restart: unless-stopped
 
 volumes:

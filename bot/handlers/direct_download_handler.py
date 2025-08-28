@@ -758,6 +758,16 @@ async def handle_youtube_link_input(message: types.Message):
                         signed_db_id = f"{db_id}_{hmac.new(backend_secret.encode(), str(db_id).encode(), hashlib.sha256).hexdigest()[:10]}"
                         delivery_bot_link = f"https://t.me/{DELIVERY_BOT_USERNAME}?start=1_{signed_db_id}"
                     
+                    # Analytics: CTA shown for delivery start (direct flow)
+                    try:
+                        from common.analytics.analytics import Analytics
+                        from bot.utils.redis_client import RedisClient
+                        analytics = Analytics("movieBot")
+                        jid = await RedisClient.get_client().get(f"journey:{message.from_user.id}")
+                        flow = "direct_youtube" if backend_response.get("source") == "youtube" else "direct_hdrezka"
+                        await analytics.log_event(message.from_user.id, jid, "delivery_cta_shown", {"flow": flow, "movie_title": movie_title})
+                    except Exception:
+                        pass
                     await message.answer(
                         gettext(MOVIE_READY_START_DELIVERY_BOT).format(movie_title=movie_title),
                         reply_markup=types.InlineKeyboardMarkup(
@@ -800,6 +810,15 @@ async def handle_youtube_link_input(message: types.Message):
                 return
             signed_task_id = f"{task_id_str}_{hmac.new(backend_secret.encode(), task_id_str.encode(), hashlib.sha256).hexdigest()[:10]}"
             delivery_bot_link = f"https://t.me/{DELIVERY_BOT_USERNAME}?start=1_{signed_task_id}"
+            # Analytics: CTA shown for delivery start (direct HDRezka)
+            try:
+                from common.analytics.analytics import Analytics
+                from bot.utils.redis_client import RedisClient
+                analytics = Analytics("movieBot")
+                jid = await RedisClient.get_client().get(f"journey:{message.from_user.id}")
+                await analytics.log_event(message.from_user.id, jid, "delivery_cta_shown", {"flow": "direct_hdrezka", "movie_title": payload.get("video_title")})
+            except Exception:
+                pass
             await message.answer(
                 gettext(MOVIE_READY_START_DELIVERY_BOT).format(movie_title=payload["video_title"]),
                 reply_markup=types.InlineKeyboardMarkup(

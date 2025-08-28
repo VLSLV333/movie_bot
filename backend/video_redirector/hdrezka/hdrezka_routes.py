@@ -226,6 +226,15 @@ async def log_client_error(request: Request):
 # --- Updated watch route ---
 @router.get("/watch/{movie_id}", response_class=HTMLResponse)
 async def watch_movie(movie_id: str, request: Request):
+    # Optional: log watch_opened event if jid present
+    try:
+        from common.analytics.analytics import Analytics
+        analytics = Analytics("backend")
+        jid = request.query_params.get("jid")
+        user_id = request.query_params.get("uid")  # not currently passed; reserved for future
+        await analytics.log_event(user_id=user_id, journey_id=jid, event="watch_opened", props={"movie_id": movie_id})
+    except Exception:
+        pass
     return templates.TemplateResponse("hdrezka/watch.html", {
         "request": request,
         "movie_id": movie_id,

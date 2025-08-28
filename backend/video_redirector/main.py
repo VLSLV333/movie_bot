@@ -54,3 +54,18 @@ app.include_router(mirror_search_route)
 app.include_router(tg_id_route)
 app.include_router(user_routes)
 app.include_router(youtube_routes)
+
+# Start daily analytics dispatcher for backend
+try:
+    from common.analytics.daily_analytics_dispatcher import DailyAnalyticsDispatcher
+    import os
+    analytics_dir = os.getenv("ANALYTICS_DIR", "/app/logs/analytics")
+    _backend_analytics_dispatcher = DailyAnalyticsDispatcher(
+        service_name="backend",
+        analytics_dir=analytics_dir,
+        send_time_local=os.getenv("ANALYTICS_SEND_AT", "00:10"),
+        tz_name=os.getenv("LOG_TZ", "Europe/Kiev"),
+    )
+    _backend_analytics_dispatcher.start()
+except Exception:
+    pass

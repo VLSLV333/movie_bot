@@ -24,6 +24,7 @@ from bot.handlers.direct_download_handler import router as direct_download_route
 from bot.keyboards.search_type_keyboard import router as search_type_keyboard_router
 from bot.middleware.state import graspil_forwarder
 from bot.middleware.graspil_forwarding import GraspilMiddleware
+from common.analytics.daily_analytics_dispatcher import DailyAnalyticsDispatcher
 
 logger = Logger().get_logger()
 logger.info("Bot started and logging initialized ")
@@ -74,6 +75,23 @@ async def main():
         # Register Graspil analytics middleware after i18n, before routers
         dp.update.outer_middleware(GraspilMiddleware())
         logger.info("Graspil middleware registered!")
+
+        # Journey analytics middleware (JSONL + journey_id in Redis)
+        from bot.middleware.journey import JourneyMiddleware
+        dp.update.outer_middleware(JourneyMiddleware())
+        logger.info("Journey middleware registered!")
+
+        # Daily analytics dispatcher (send yesterday's JSONL and clear)
+        import os
+        analytics_dir = os.getenv("ANALYTICS_DIR", "/app/logs/analytics")
+        _analytics_dispatcher = DailyAnalyticsDispatcher(
+            service_name="movieBot",
+            analytics_dir=analytics_dir,
+            send_time_local=os.getenv("ANALYTICS_SEND_AT", "17:59"),
+            tz_name=os.getenv("LOG_TZ", "Europe/Kiev"),
+        )
+        _analytics_dispatcher.start()
+        logger.info("Daily analytics dispatcher started!")
 
         # Setup routers AFTER I18n middleware
         setup_routers(dp)
