@@ -87,7 +87,7 @@ async def main():
         _analytics_dispatcher = DailyAnalyticsDispatcher(
             service_name="movieBot",
             analytics_dir=analytics_dir,
-            send_time_local=os.getenv("ANALYTICS_SEND_AT", "17:59"),
+            send_time_local=os.getenv("ANALYTICS_SEND_AT", "00:10"),
             tz_name=os.getenv("LOG_TZ", "Europe/Kiev"),
         )
         _analytics_dispatcher.start()

@@ -40,10 +40,9 @@ dp = Dispatcher()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("delivery_bot")
 
-# Daily analytics dispatcher for delivery_bot (optional but useful)
+_delivery_analytics_dispatcher = None
 try:
     from common.analytics.daily_analytics_dispatcher import DailyAnalyticsDispatcher
-    import os
     analytics_dir = os.getenv("ANALYTICS_DIR", "/app/logs/analytics")
     _delivery_analytics_dispatcher = DailyAnalyticsDispatcher(
         service_name="delivery_bot",
@@ -51,9 +50,24 @@ try:
         send_time_local=os.getenv("ANALYTICS_SEND_AT", "00:10"),
         tz_name=os.getenv("LOG_TZ", "Europe/Kiev"),
     )
-    _delivery_analytics_dispatcher.start()
 except Exception:
-    pass
+    _delivery_analytics_dispatcher = None
+
+@dp.startup.register
+async def _start_analytics_dispatcher(*_args, **_kwargs):
+    try:
+        if _delivery_analytics_dispatcher:
+            _delivery_analytics_dispatcher.start()
+    except Exception:
+        pass
+
+@dp.shutdown.register
+async def _stop_analytics_dispatcher(*_args, **_kwargs):
+    try:
+        if _delivery_analytics_dispatcher:
+            await _delivery_analytics_dispatcher.stop()
+    except Exception:
+        pass
 
 async def notify_admin(message: str):
     if not PING_BOT_TOKEN:
