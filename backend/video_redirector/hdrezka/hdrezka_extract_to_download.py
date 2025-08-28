@@ -3,6 +3,7 @@ import json
 import re
 import logging
 from camoufox.async_api import AsyncCamoufox
+from backend.video_redirector.exceptions import TrailerOnlyContentError
 
 f2id_to_quality = {
     "3": "720p",
@@ -21,6 +22,27 @@ async def extract_to_download_from_hdrezka(url: str, selected_dub: str, lang: st
         page.on("framenavigated", lambda frame: logger.debug(f"Frame navigated: {frame.url}"))
 
         await page.goto(url, wait_until="domcontentloaded")
+        # Early detection: trailer-only if YouTube embed present and no translators list
+        try:
+            trailer_iframe_srcs = await page.evaluate("""
+                () => Array.from(document.querySelectorAll('iframe, embed'))
+                         .map(n => (n.getAttribute('src')||'') + ' ' + (n.getAttribute('data-src')||''))
+            """)
+            trailer_iframe_srcs = trailer_iframe_srcs or []
+            has_youtube = any(
+                ('youtube.com/embed' in s) or ('youtu.be' in s) or ('youtube-nocookie.com' in s)
+                for s in trailer_iframe_srcs
+            )
+            translators_count = await page.evaluate("""
+                () => (document.querySelectorAll('#translators-list li, #translators-list a')||[]).length
+            """)
+            if has_youtube and (not translators_count or translators_count == 0):
+                logger.info("⛔ Detected YouTube embed with no translators list — trailer-only page (download)")
+                raise TrailerOnlyContentError("Trailer-only content: movie not found")
+        except TrailerOnlyContentError:
+            raise
+        except Exception as e:
+            logger.debug(f"Trailer-only detection (download) skipped due to error: {e}")
         # Slightly longer waits to ensure DOM readiness for translators/controls
         try:
             await page.wait_for_selector("#translators-list", timeout=3000)  # type: ignore
@@ -271,6 +293,10 @@ async def extract_to_download_with_recovery(url: str, selected_dub: str, lang: s
         try:
             logger.info(f"Starting download extraction attempt {attempt + 1}/{max_attempts}")
             return await extract_to_download_from_hdrezka(url, selected_dub, lang)
+        except TrailerOnlyContentError as te:
+            # Non-retryable: surface immediately
+            logger.error(f"Trailer-only content detected (download): {te}")
+            raise
         except Exception as e:
             message = str(e)
             if (

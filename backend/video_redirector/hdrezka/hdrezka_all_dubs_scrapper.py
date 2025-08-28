@@ -23,6 +23,31 @@ async def scrape_dubs_for_movie(movie_url: str, lang: str) -> Dict[str, Union[Li
             html = await response.text()
 
     soup = BeautifulSoup(html , "html.parser")
+
+    # --- Early detection: Trailer-only pages (YouTube embed, no HDRezka player) ---
+    try:
+        # Check for YouTube embeds
+        has_youtube = False
+        for tag in soup.find_all(["iframe", "embed"]):
+            src = (tag.get("src") or "") + " " + (tag.get("data-src") or "")
+            if any(x in src for x in ["youtube.com/embed", "youtu.be", "youtube-nocookie.com"]):
+                has_youtube = True
+                break
+
+        # Check for presence of HDRezka player container elements
+        has_player = bool(soup.select_one("#oframecdnplayer")) or bool(soup.select_one("#cdnplayer_settings"))
+
+        if has_youtube and not has_player:
+            # Return an explicit trailer-only marker so bot can exit early
+            return {
+                "dubs": [],
+                "fallback": True,
+                "message": "trailer_only"
+            }
+    except Exception:
+        # Non-fatal; proceed with normal scraping
+        pass
+
     dub_elements = soup.select("#translators-list .b-translator__item")
 
     # Note: 'default_ru' is used when no dub list is found. It refers to the single default voiceover (typically RU).

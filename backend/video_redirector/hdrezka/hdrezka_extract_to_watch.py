@@ -4,6 +4,7 @@ from typing import Dict
 from backend.video_redirector.utils.redis_client import RedisClient
 from urllib.parse import quote
 import logging
+from backend.video_redirector.exceptions import TrailerOnlyContentError
 
 f2id_to_quality = {
     "1": "360p",
@@ -25,6 +26,30 @@ async def extract_from_hdrezka(url: str, user_lang: str, task_id: str | None = N
         
         await page.goto(url, wait_until="domcontentloaded")
         await asyncio.sleep(0.5)
+
+        # --- Early detection: Trailer-only (YouTube embed) pages ---
+        try:
+            trailer_iframe_srcs = await page.evaluate("""
+                () => Array.from(document.querySelectorAll('iframe, embed'))
+                         .map(n => (n.getAttribute('src')||'') + ' ' + (n.getAttribute('data-src')||''))
+            """)
+            trailer_iframe_srcs = trailer_iframe_srcs or []
+            has_youtube = any(
+                ('youtube.com/embed' in s) or ('youtu.be' in s) or ('youtube-nocookie.com' in s)
+                for s in trailer_iframe_srcs
+            )
+            # Also consider the UI: if no translators list and YouTube is present, it's likely trailer-only
+            translators_count = await page.evaluate("""
+                () => (document.querySelectorAll('#translators-list li, #translators-list a')||[]).length
+            """)
+            if has_youtube and (not translators_count or translators_count == 0):
+                logger.info("⛔ Detected YouTube embed with no translators list — trailer-only page")
+                raise TrailerOnlyContentError("Trailer-only content: movie not found")
+        except TrailerOnlyContentError:
+            raise
+        except Exception as e:
+            # Non-fatal detection failure; continue with normal flow
+            logger.debug(f"Trailer-only detection skipped due to error: {e}")
 
         # --- Step 1: Find matching dubs ---
         dub_elements = await get_matching_dubs(page, user_lang)
@@ -103,6 +128,10 @@ async def extract_with_recovery(url: str, user_lang: str, task_id: str | None = 
         try:
             logger.info(f"Starting extraction attempt {attempt + 1}/{max_attempts}")
             return await extract_from_hdrezka(url, user_lang, task_id)
+        except TrailerOnlyContentError as te:
+            # Non-retryable: surface immediately
+            logger.error(f"Trailer-only content detected: {te}")
+            raise
         except Exception as e:
             logger.error(f"Extraction attempt {attempt + 1} failed: {e}")
             if attempt < max_attempts - 1:

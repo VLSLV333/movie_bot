@@ -10,7 +10,7 @@ from urllib.parse import quote
 from bot.utils.logger import Logger
 from bot.locales.keys import (
     MOVIE_LINK_NO_LONGER_VALID, LOST_MOVIE_DATA_RESEARCH,
-    PREPARING_MOVIE_DUBS_WATCH, SORRY_COULDNT_EXTRACT_MOVIE_TRY_AGAIN,
+    PREPARING_MOVIE_DUBS_WATCH,
     START_WATCHING_BTN, MOVIE_READY_TO_WATCH, TEXT_DUBS_READY_TO_DOWNLOAD,
     DOWNLOAD_ANOTHER_DUB, ALREADY_HAVE_MOVIE, CHECKING_DOWNLOADED_VERSIONS_DUBS,
     CHOOSE_DUB_TO_DOWNLOAD, MOVIE_NEVER_DOWNLOADED_BEFORE, TRY_SEARCHING_FROM_BEGINNING,
@@ -19,7 +19,7 @@ from bot.locales.keys import (
     MOVIE_READY_TO_WATCH_DELIVERY, GET_MOVIE_FROM_DELIVERY_BOT, MOVIE_READY_START_DELIVERY_BOT,
     OPEN_DELIVERY_BOT, DUB_SELECTION_EXPIRED, COULD_NOT_PROCESS_DUB_INFO,
     ADDED_TO_DOWNLOAD_QUEUE, FAILED_TO_TRIGGER_DOWNLOAD, UNEXPECTED_ERROR_DURING_DOWNLOAD, DOWNLOAD_LIMIT,
-    DUPLICATE_DOWNLOAD, ONLY_ONE_DUB, NO_DUBS_FOR_LANG, NO_UA_DUBS
+    DUPLICATE_DOWNLOAD, ONLY_ONE_DUB,  NO_UA_DUBS, FAST_EXIT_DOWNLOAD_FROM_MIRROR_TRAILER_ONLY
 )
 from bot.utils.poll_from_hdrezka_to_watch import poll_watch_until_ready
 from bot.utils.poll_from_hdrezka_to_download import poll_download_until_ready
@@ -29,15 +29,16 @@ from hashlib import md5
 from bot.utils.signed_token_manager import SignedTokenManager
 from bot.utils.translate_dub_to_ua import translate_dub_by_language
 from bot.utils.user_service import UserService
+from bot.config import BACKEND_API_URL, WATCH_PUBLIC_URL, DELIVERY_BOT_USERNAME
 
 router = Router()
 logger = Logger().get_logger()
 
-EXTRACT_API_URL = "https://moviebot.click/hd/extract"
-STATUS_API_URL = "https://moviebot.click/hd/status/watch"
-SCRAP_ALL_DUBS = "https://moviebot.click/hd/alldubs"
+EXTRACT_API_URL = f"{BACKEND_API_URL}/hd/extract"
+STATUS_API_URL = f"{BACKEND_API_URL}/hd/status/watch"
+SCRAP_ALL_DUBS = f"{BACKEND_API_URL}/hd/alldubs"
 
-ALL_DUBS_FOR_TMDB_ID = "https://moviebot.click/all_db_dubs"
+ALL_DUBS_FOR_TMDB_ID = f"{BACKEND_API_URL}/all_db_dubs"
 
 def generate_token(tmdb_id: int, lang: str, dub: str) -> str:
     base = f"{tmdb_id}:{lang}:{dub}"
@@ -136,7 +137,7 @@ async def watch_mirror_handler(query: types.CallbackQuery):
     if not selected_dub:
         selected_dub = list(config[lang].keys())[0]
 
-    watch_url = f"https://moviebot.click/hd/watch/{task_id}?lang={lang}&dub={quote(selected_dub)}"
+    watch_url = f"{WATCH_PUBLIC_URL}/hd/watch/{task_id}?lang={lang}&dub={quote(selected_dub)}"
     kb = [[types.InlineKeyboardButton(text=gettext(START_WATCHING_BTN), url=watch_url)]]
     markup = types.InlineKeyboardMarkup(inline_keyboard=kb)
 
@@ -381,6 +382,22 @@ async def fetch_dubs_handler(query: types.CallbackQuery):
                 logger.error("query or query.bot is None, cannot send message to user.")
         return
 
+    # Early exit for trailer-only pages
+    if dubs_scrapper_result.get('message') == 'trailer_only':
+        await loading_msg.delete()
+        if query.message is not None:
+            await query.message.answer(gettext(FAST_EXIT_DOWNLOAD_FROM_MIRROR_TRAILER_ONLY), reply_markup=get_main_menu_keyboard())
+        else:
+            if query is not None and getattr(query, 'bot', None) is not None:
+                await query.bot.send_message(  # type: ignore
+                    chat_id=query.from_user.id,
+                    text=gettext(FAST_EXIT_DOWNLOAD_FROM_MIRROR_TRAILER_ONLY),
+                    reply_markup=get_main_menu_keyboard()
+                )
+            else:
+                logger.error("query or query.bot is None, cannot send message to user.")
+        return
+
     if not dubs_scrapper_result['dubs']:
         await loading_msg.delete()
         if query.message is not None:
@@ -515,7 +532,7 @@ async def watch_downloaded_handler(query: types.CallbackQuery):
         movie_title = "movie"  # fallback
 
     signed = f"{token}_{hmac.new(os.getenv('BACKEND_DOWNLOAD_SECRET').encode(), token.encode(), hashlib.sha256).hexdigest()[:10]}"  # type: ignore
-    delivery_bot_link = f"https://t.me/deliv3ry_bot?start=2_{signed}"
+    delivery_bot_link = f"https://t.me/{DELIVERY_BOT_USERNAME}?start=2_{signed}"
 
     if query is not None and getattr(query, 'bot', None) is not None:
         await query.bot.send_message(
@@ -594,7 +611,7 @@ async def select_dub_handler(query: types.CallbackQuery):
     }
 
     data_b64, sig = SignedTokenManager.generate_token(payload)
-    download_url = f"https://moviebot.click/hd/download?data={data_b64}&sig={sig}"
+    download_url = f"{BACKEND_API_URL}/hd/download?data={data_b64}&sig={sig}"
 
     # Notify user we're starting
     if query.message is not None:
@@ -691,7 +708,7 @@ async def select_dub_handler(query: types.CallbackQuery):
         result = await poll_download_until_ready(
             user_id=user_id,
             task_id=task_id,
-            status_url="https://moviebot.click/hd/status/download",
+            status_url=f"{BACKEND_API_URL}/hd/status/download",
             loading_msg=loading_msg,
             query=query,
             bot=query.bot
@@ -699,7 +716,7 @@ async def select_dub_handler(query: types.CallbackQuery):
 
         if result:
             signed_task_id = f"{task_id}_{hmac.new(os.getenv('BACKEND_DOWNLOAD_SECRET').encode(), task_id.encode(), hashlib.sha256).hexdigest()[:10]}"  # type: ignore
-            delivery_bot_link = f"https://t.me/deliv3ry_bot?start=1_{signed_task_id}"
+            delivery_bot_link = f"https://t.me/{DELIVERY_BOT_USERNAME}?start=1_{signed_task_id}"
             if query.message is not None:
                 await query.message.answer(
                     gettext(MOVIE_READY_START_DELIVERY_BOT).format(movie_title=movie_title),

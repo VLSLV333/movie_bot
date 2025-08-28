@@ -17,14 +17,15 @@ from bot.helpers.render_mirror_card import render_mirror_card_batch, store_messa
 from bot.utils.logger import Logger
 from bot.utils.redis_client import RedisClient
 from bot.utils.user_service import UserService
+from bot.config import BACKEND_API_URL
 
 router = Router()
 logger = Logger().get_logger()
 
-MIRROR_SEARCH_API_URL = "https://moviebot.click/mirror/search"
+MIRROR_SEARCH_API_URL = f"{BACKEND_API_URL}/mirror/search"
 
 #TODO: this endpoint is not yet implemented in backend! Add new mirrors first
-MIRROR_NEXT_API_URL = "https://moviebot.click/mirror/search/next"
+MIRROR_NEXT_API_URL = f"{BACKEND_API_URL}/mirror/search/next"
 
 DEFAULT_MIRROR_INDEX = 0
 
@@ -88,7 +89,7 @@ async def handle_mirror_search(query: types.CallbackQuery):
     if not skip_db_lookup:
         try:
             async with ClientSession() as session:
-                async with session.get(f"https://moviebot.click/downloaded_files/by_tmdb_id", params={"tmdb_id": tmdb_id}) as resp:
+                async with session.get(f"{BACKEND_API_URL}/downloaded_files/by_tmdb_id", params={"tmdb_id": tmdb_id}) as resp:
                     if resp.status == 200:
                         file = await resp.json()
                         logger.info(f"[User {query.from_user.id}] Found downloaded file for tmdb_id={tmdb_id}, using cached info.")

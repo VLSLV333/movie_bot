@@ -6,6 +6,7 @@ from bot.locales.keys import SELECT_LANGUAGE_FOR_MOVIES, ERROR_CANNOT_SHOW_LANGU
 from bot.utils.logger import Logger
 from bot.helpers.render_mirror_card import get_mirror_language_selection_keyboard, get_language_display_name
 from bot.utils.redis_client import RedisClient
+from bot.config import BACKEND_API_URL
 
 router = Router()
 logger = Logger().get_logger()
@@ -69,7 +70,7 @@ async def mirror_select_language_handler(query: types.CallbackQuery):
     try:
         async with ClientSession() as session:
             async with session.put(
-                "https://moviebot.click/users/movies-language",
+                f"{BACKEND_API_URL}/users/movies-language",
                 json={
                     "telegram_id": user_id,
                     "movies_lang": selected_language

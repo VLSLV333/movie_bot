@@ -22,7 +22,7 @@ from bot.locales.keys import (
     DOWNLOAD_QUEUE_POSITION, DOWNLOAD_UPLOADING_TO_TELEGRAM, DOWNLOAD_UPLOADING_PROGRESS,
     DOWNLOAD_FAILED_START_AGAIN, DOWNLOAD_PROCESSING_STATUS, DOWNLOAD_TIMEOUT_TRY_LATER,
     DOWNLOAD_YOUTUBE_DOWNLOADING,
-    ALREADY_HAVE_MOVIE, TEXT_DUBS_READY_TO_DOWNLOAD
+    ALREADY_HAVE_MOVIE, TEXT_DUBS_READY_TO_DOWNLOAD, FAST_EXIT_DOWNLOAD_DIRECT_TRAILER_ONLY
 )
 from bot.utils.logger import Logger
 from bot.utils.session_manager import SessionManager
@@ -31,17 +31,17 @@ from bot.utils.translate_dub_to_ua import translate_dub_by_language
 from bot.utils.redis_client import RedisClient
 from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.utils.message_utils import smart_edit_or_send
+from bot.config import BACKEND_API_URL, DELIVERY_BOT_USERNAME
 from bot.helpers.back_button import add_back_button
 from bot.keyboards.download_source_keyboard import get_download_source_keyboard
 import asyncio
-import base64
 
 router = Router()
 logger = Logger().get_logger()
 
 # API endpoints
-SCRAP_ALL_DUBS = "https://moviebot.click/hd/alldubs"
-ALL_DUBS_FOR_URL = "https://moviebot.click/all_db_dubs_by_url"
+SCRAP_ALL_DUBS = f"{BACKEND_API_URL}/hd/alldubs"
+ALL_DUBS_FOR_URL = f"{BACKEND_API_URL}/all_db_dubs_by_url"
 
 # HDRezka URL pattern (improved to support more domains and formats)
 HDREZKA_URL_PATTERN = r'https?://(?:www\.)?(?:hd)?rezka(?:-ua)?\.(?:ag|co|me|org|net|com)/.*'
@@ -505,6 +505,14 @@ async def handle_hdrezka_link_input(message: types.Message):
                 
                 dubs_result = await resp.json()
                 logger.info(f"[User {user_id}] API response: {dubs_result}")
+                # Early exit for trailer-only pages
+                if dubs_result.get('message') == 'trailer_only':
+                    await processing_msg.delete()
+                    await message.answer(
+                        gettext(FAST_EXIT_DOWNLOAD_DIRECT_TRAILER_ONLY),
+                        reply_markup=get_main_menu_keyboard()
+                    )
+                    return
         
         await processing_msg.delete()
         
@@ -662,7 +670,7 @@ async def handle_youtube_link_input(message: types.Message):
         }
 
         data_b64, sig = SignedTokenManager.generate_token(payload)
-        download_url = f"https://moviebot.click/youtube/download?data={data_b64}&sig={sig}"
+        download_url = f"{BACKEND_API_URL}/youtube/download?data={data_b64}&sig={sig}"
 
         await processing_msg.delete()
 
@@ -743,12 +751,12 @@ async def handle_youtube_link_input(message: types.Message):
                         
                         # Create signed token with just the short token (much shorter)
                         signed_file_data = f"{short_token}_{hmac.new(backend_secret.encode(), short_token.encode(), hashlib.sha256).hexdigest()[:10]}"
-                        delivery_bot_link = f"https://t.me/deliv3ry_bot?start=3_{signed_file_data}"
+                        delivery_bot_link = f"https://t.me/{DELIVERY_BOT_USERNAME}?start=3_{signed_file_data}"
                     else:
                         # Multi-part file - create DB access token
                         db_id = backend_response["db_id_to_get_parts"]
                         signed_db_id = f"{db_id}_{hmac.new(backend_secret.encode(), str(db_id).encode(), hashlib.sha256).hexdigest()[:10]}"
-                        delivery_bot_link = f"https://t.me/deliv3ry_bot?start=1_{signed_db_id}"
+                        delivery_bot_link = f"https://t.me/{DELIVERY_BOT_USERNAME}?start=1_{signed_db_id}"
                     
                     await message.answer(
                         gettext(MOVIE_READY_START_DELIVERY_BOT).format(movie_title=movie_title),
@@ -775,7 +783,7 @@ async def handle_youtube_link_input(message: types.Message):
         result = await poll_youtube_download_until_ready(
             user_id=user_id,
             task_id=task_id,
-            status_url="https://moviebot.click/hd/status/download",  # Same status endpoint
+            status_url=f"{BACKEND_API_URL}/hd/status/download",  # Same status endpoint
             loading_msg=loading_msg,
             bot=message.bot
         )
@@ -791,7 +799,7 @@ async def handle_youtube_link_input(message: types.Message):
                 )
                 return
             signed_task_id = f"{task_id_str}_{hmac.new(backend_secret.encode(), task_id_str.encode(), hashlib.sha256).hexdigest()[:10]}"
-            delivery_bot_link = f"https://t.me/deliv3ry_bot?start=1_{signed_task_id}"
+            delivery_bot_link = f"https://t.me/{DELIVERY_BOT_USERNAME}?start=1_{signed_task_id}"
             await message.answer(
                 gettext(MOVIE_READY_START_DELIVERY_BOT).format(movie_title=payload["video_title"]),
                 reply_markup=types.InlineKeyboardMarkup(

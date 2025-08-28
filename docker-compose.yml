@@ -54,6 +54,9 @@ services:
       redis:
         condition: service_healthy
     environment:
+      - BACKEND_API_URL=${BACKEND_API_URL}
+      - BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL}
+      - BACKEND_PUBLIC_URL=${WATCH_PUBLIC_URL}
       - PYTHONUNBUFFERED=1
       - TMDB_API_KEY=${TMDB_API_KEY}
       - REDIS_HOST=${REDIS_HOST}

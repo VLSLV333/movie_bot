@@ -4,6 +4,9 @@
 *delivery_bots.json
 *upload_test.bin
 *.bin
+*.env.dev
+*ATTENTION_DELIVERY_BOTS_PROD.py
+*ATTENTION_UPLOAD_ACCOUNTS_PROD.py
 
 # Python cache files
 __pycache__/

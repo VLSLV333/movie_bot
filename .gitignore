@@ -4,6 +4,9 @@
 *upload_test.py
 *web_speedtest.py
 *delivery_bots.json
+*.env.dev
+*ATTENTION_DELIVERY_BOTS_PROD.py
+*ATTENTION_UPLOAD_ACCOUNTS_PROD.py
 
 # ✅ Python
 __pycache__/

@@ -7,7 +7,8 @@ from bot.locales.keys import (
     POLL_ERROR_OCCURRED_WATCH_AGAIN,
     POLL_MOVIE_CONFIG_MISSING,
     POLL_STILL_WORKING_WAIT,
-    POLL_TAKING_TOO_LONG_WATCH_AGAIN
+    POLL_TAKING_TOO_LONG_WATCH_AGAIN,
+    FAST_EXIT_WATCH_TRAILER_ONLY,
 )
 logger = Logger().get_logger()
 
@@ -48,9 +49,14 @@ async def poll_watch_until_ready(
             keyboard = get_main_menu_keyboard()
 
             await loading_gif_msg.delete()
-            await query.message.answer(
-                gettext(POLL_ERROR_OCCURRED_WATCH_AGAIN),
-                reply_markup=keyboard)
+            # Trailer-only fast exit
+            lowered = (error_msg or "").lower()
+            if ("trailer-only" in lowered) or ("no playable streams found" in lowered):
+                await query.message.answer(gettext(FAST_EXIT_WATCH_TRAILER_ONLY), reply_markup=keyboard)
+            else:
+                await query.message.answer(
+                    gettext(POLL_ERROR_OCCURRED_WATCH_AGAIN),
+                    reply_markup=keyboard)
             return None
 
         status = status_data.get("status")
@@ -74,9 +80,13 @@ async def poll_watch_until_ready(
             keyboard = get_main_menu_keyboard()
 
             await loading_gif_msg.delete()
-            await query.message.answer(
-                gettext(POLL_ERROR_OCCURRED_WATCH_AGAIN),
-                reply_markup=keyboard)
+            lowered = (error_msg or "").lower()
+            if ("trailer-only" in lowered) or ("no playable streams found" in lowered):
+                await query.message.answer(gettext(FAST_EXIT_WATCH_TRAILER_ONLY), reply_markup=keyboard)
+            else:
+                await query.message.answer(
+                    gettext(POLL_ERROR_OCCURRED_WATCH_AGAIN),
+                    reply_markup=keyboard)
             return None
 
         elif attempt % 15 == 0 and attempt > 0:

@@ -245,7 +245,7 @@
         console.error('Video.js error:', error);
         
         // Log error to backend
-        fetch("/log-client-error", {
+        fetch("/hd/log-client-error", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -467,7 +467,7 @@
         try {
           const res = await fetch(`/hd/watch-config/${taskId}`);
           if (!res.ok) {
-            await fetch("/log-client-error", {
+            await fetch("/hd/log-client-error", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -536,7 +536,7 @@
     }
 
     window.addEventListener("error", function (event) {
-      fetch("/log-client-error", {
+      fetch("/hd/log-client-error", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

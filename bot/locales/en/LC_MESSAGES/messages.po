@@ -609,3 +609,12 @@ msgstr "🔍 Processing your link..."
 
 msgid "download_youtube_downloading"
 msgstr "⬇️ Downloading video from YouTube..."
+
+msgid "fast_exit_watch_trailer_only"
+msgstr "😥 We don’t have this movie yet — it’s too new! Please try another movie 🥰"
+
+msgid "fast_exit_download_from_mirror_trailer_only"
+msgstr "😥 We don’t have this movie yet — it’s too new! Please try another movie 🥰"
+
+msgid "fast_exit_download_direct_trailer_only"
+msgstr "😥 We don’t have this movie yet — it’s too new! Please try another movie 🥰"

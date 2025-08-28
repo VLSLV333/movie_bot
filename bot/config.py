@@ -12,6 +12,13 @@ STATE_EXPIRATION_SECONDS = 1800  # time to expire redis session if user is inact
 BATCH_SIZE = 5 # number of movies to show at one time when user is searching by movie title
 MINIMUM_NUM_OF_VOTES_FOR_MOVIE_TO_GET_INTO_SUGGESTIONS = 100
 SORT_MOVIES_IN_TMDB_RESPONSE_BY = "vote_average.desc"
+BACKEND_API_URL = os.getenv("BACKEND_API_URL", "https://moviebot.click")
+BACKEND_PUBLIC_URL = os.getenv("BACKEND_PUBLIC_URL", BACKEND_API_URL)
+# Use this base ONLY for user-facing watch button links. Defaults to prod domain.
+WATCH_PUBLIC_URL = os.getenv("WATCH_PUBLIC_URL", "https://moviebot.click")
+
+# Delivery bot username (Telegram). Override this in local .env for dev bot.
+DELIVERY_BOT_USERNAME = os.getenv("DELIVERY_BOT_USERNAME", "deliv3ry_bot")
 
 # Ukrainian translations
 DUB_TRANSLATION_MAP_UA = {

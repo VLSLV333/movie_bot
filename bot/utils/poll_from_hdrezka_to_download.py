@@ -15,6 +15,7 @@ from bot.locales.keys import (
     DOWNLOAD_FAILED_START_AGAIN,
     DOWNLOAD_TIMEOUT_TRY_LATER
 )
+from bot.config import BACKEND_API_URL
 
 logger = Logger().get_logger()
 
@@ -78,7 +79,7 @@ async def poll_download_until_ready(user_id: int, task_id: str, status_url: str,
                         animation_url = STATUS_ANIMATIONS[animation_key]
                         # Fetch progress from merge_progress endpoint
                         try:
-                            async with session.get(f"https://moviebot.click/hd/status/merge_progress/{task_id}") as merge_resp:
+                            async with session.get(f"{BACKEND_API_URL}/hd/status/merge_progress/{task_id}") as merge_resp:
                                 if merge_resp.status == 200:
                                     merge_data = await merge_resp.json()
                                     percent = int(merge_data.get("progress", 0))

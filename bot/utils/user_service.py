@@ -2,11 +2,10 @@ import aiohttp
 from typing import Optional, Dict, Any
 from bot.utils.logger import Logger
 from bot.utils.notify_admin import notify_admin
+from bot.config import BACKEND_API_URL
 
 logger = Logger().get_logger()
 
-# Backend API URL
-BACKEND_API_URL = "https://moviebot.click"
 
 class UserService:
     """Service for managing user data from backend"""

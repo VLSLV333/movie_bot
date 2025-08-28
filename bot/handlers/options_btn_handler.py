@@ -17,9 +17,6 @@ from bot.utils.message_utils import smart_edit_or_send
 router = Router()
 logger = Logger().get_logger()
 
-# Backend API URL
-BACKEND_API_URL = "https://moviebot.click"
-
 # --- Options Logic (reusable for both command and callback) ---
 async def handle_options_request(message_or_query):
     """Common logic for handling options requests from both commands and callbacks"""

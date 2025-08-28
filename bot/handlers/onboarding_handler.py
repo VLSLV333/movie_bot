@@ -9,13 +9,11 @@ from bot.handlers.main_menu_btns_handler import get_main_menu_keyboard
 from bot.keyboards.onboarding_keyboard import get_bot_language_selection_keyboard, get_movies_language_selection_keyboard
 from bot.utils.notify_admin import notify_admin
 from bot.utils.user_service import UserService
+from bot.config import BACKEND_API_URL
 from typing import Optional
 
 router = Router()
 logger = Logger().get_logger()
-
-# Backend API URL
-BACKEND_API_URL = "https://moviebot.click"
 
 WELCOME_GIF_URL = "https://media.giphy.com/media/TMQHEJEHKyDDaqsOj6/giphy.gif"
 

@@ -3,6 +3,11 @@ class RetryableDownloadError(Exception):
     pass
 
 
+# Non-retryable extraction error for pages that are trailer-only (e.g., YouTube embeds)
+class TrailerOnlyContentError(Exception):
+    pass
+
+
 # List of exceptions we consider retryable
 RETRYABLE_EXCEPTIONS = (
     TimeoutError,

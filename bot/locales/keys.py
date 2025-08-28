@@ -250,6 +250,11 @@ DOWNLOAD_TIMEOUT_TRY_LATER = "download_timeout_try_later"
 # New key for YouTube downloading status
 DOWNLOAD_YOUTUBE_DOWNLOADING = "download_youtube_downloading"
 
+# Fast-exit messages for trailer-only/new titles
+FAST_EXIT_WATCH_TRAILER_ONLY = "fast_exit_watch_trailer_only"
+FAST_EXIT_DOWNLOAD_FROM_MIRROR_TRAILER_ONLY = "fast_exit_download_from_mirror_trailer_only"
+FAST_EXIT_DOWNLOAD_DIRECT_TRAILER_ONLY = "fast_exit_download_direct_trailer_only"
+
 # Direct Download Flow
 DOWNLOAD_SOURCE_SELECTION = "download_source_selection"
 DOWNLOAD_SOURCE_HDREZKA = "download_source_hdrezka"
